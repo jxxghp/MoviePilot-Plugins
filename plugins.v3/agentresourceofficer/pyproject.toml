@@ -1,7 +1,7 @@
 [project]
 name = "moviepilot-plugin-agentresourceofficer"
 dynamic = ["version"]
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
     "requests",
     "cloudscraper",

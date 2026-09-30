@@ -477,7 +477,7 @@ class MyPluginDatabaseMixin:
 [project]
 name = "moviepilot-plugin-myplugin"
 dynamic = ["version"]
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
     "example-package>=1",
 ]

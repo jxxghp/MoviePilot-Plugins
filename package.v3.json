@@ -888,7 +888,8 @@
     "system_version": ">=3.0.0",
     "history": {
       "v2.0.0": "适配 MoviePilot V3，安装时不再强制构建可选调轴依赖"
-    }
+    },
+    "v3t": false
   },
   "SubtitleAssistant": {
     "name": "字幕助手",
@@ -898,10 +899,12 @@
     "icon": "https://raw.githubusercontent.com/yubanmeiqin9048/MoviePilot-Plugins/main/icons/SubtitleAssistant.png",
     "author": "yubanmeiqin9048",
     "level": 1,
+    "release": true,
     "system_version": ">=3.0.0",
     "history": {
       "v2.0.1": "补齐 Vue 联邦组件构建文件，修复组件加载错误",
       "v2.0.0": "适配 MoviePilot V3 插件依赖清单与运行合同"
-    }
+    },
+    "v3t": false
   }
 }

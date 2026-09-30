@@ -70,7 +70,8 @@ def test_v3_pyproject_declares_static_dependencies_only(
     assert project["name"] == f"moviepilot-plugin-{pyproject_path.parent.name}"
     assert project.get("dynamic") == ["version"]
     assert "version" not in project
-    assert project.get("requires-python") == ">=3.12"
+    # 与 V3 宿主运行时 Python 3.14 保持一致
+    assert project.get("requires-python") == ">=3.14"
 
     dependencies = project.get("dependencies")
     assert isinstance(dependencies, list)
