@@ -12,7 +12,7 @@
 
 ```python
 from app import schemas
-from app.plugins import _PluginBase
+from app.sdk.plugin import _PluginBase
 from app.schemas.types import MediaSource, MediaType
 
 
