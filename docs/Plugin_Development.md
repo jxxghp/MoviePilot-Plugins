@@ -91,7 +91,7 @@ workspace/
 ```python
 from typing import Any
 
-from app.plugins import _PluginBase
+from app.sdk.plugin import _PluginBase
 
 
 class MyPlugin(_PluginBase):
@@ -199,7 +199,7 @@ class MyPlugin(_PluginBase):
 
 ## 5. `_PluginBase` 生命周期
 
-插件主类继承 `app.plugins._PluginBase`。最重要的不是实现尽可能多的方法，而是把
+插件主类继承 `app.sdk.plugin._PluginBase`。最重要的不是实现尽可能多的方法，而是把
 启用、停用和重复初始化做正确。
 
 ### 5.1 必须实现的方法

@@ -228,7 +228,7 @@ same_media = (
 
 ```python
 from app.schemas.types import MediaSource
-from app.utils.media import (
+from app.sdk.media import (
     build_media_key,
     parse_media_key,
     resolve_media_identity,
