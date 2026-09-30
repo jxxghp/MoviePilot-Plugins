@@ -1,7 +1,7 @@
 [project]
 name = "moviepilot-plugin-autosubv2"
 dynamic = ["version"]
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
     "cacheout~=0.16.0",
     "faster-whisper~=1.2.1",

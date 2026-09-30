@@ -11,7 +11,7 @@ import tempfile
 import tomllib
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -74,6 +74,10 @@ class PackageTests(unittest.TestCase):
 class HostSmokeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        from app.testing.bootstrap import ensure_optional_stub
+
+        # 测试环境不安装插件依赖；AutoSubtitle 顶层导入 yake，缺失时补占位，已安装则沿用真实模块
+        ensure_optional_stub("yake", KeywordExtractor=MagicMock)
         sys.path.insert(0, str(V3_PLUGINS))
 
     @classmethod
