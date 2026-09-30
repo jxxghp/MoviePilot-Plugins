@@ -45,7 +45,7 @@ class MaoyanRank(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/baozaodetudou/MoviePilot-Plugins/main/icons/maoyan.jpg"
     # 插件版本
-    plugin_version = "4.1.3"
+    plugin_version = "4.1.4"
     # 插件作者
     plugin_author = "逗猫"
     # 作者主页
@@ -1214,7 +1214,7 @@ class MaoyanRank(_PluginBase):
         if movie_url:
             sources.append((movie_url, num, '电影票房榜单', 'movieList', 'movieInfo', 'movieName', movies_list))
         if web_movie_url:
-            sources.append((web_movie_url, num, '网络电影榜单', 'dataList', 'seriesInfo', 'name', movies_list))
+            sources.append((web_movie_url, num, '网络电影榜单', 'dataList', None, 'movieName', movies_list))
         for tv_url, tv_num in tv_urls:
             sources.append((tv_url, tv_num, '剧集热度榜单', 'dataList', 'seriesInfo', 'name', tv_list))
         if not sources:
