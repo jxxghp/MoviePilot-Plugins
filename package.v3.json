@@ -479,7 +479,7 @@
   "MaoyanRank": {
     "name": "猫眼榜单订阅",
     "description": "监控猫眼数据，自动添加订阅。",
-    "version": "4.1.3",
+    "version": "4.1.4",
     "icon": "https://raw.githubusercontent.com/baozaodetudou/MoviePilot-Plugins/main/icons/maoyan.jpg",
     "color": "#fefefe",
     "author": "逗猫",
@@ -487,6 +487,7 @@
     "release": true,
     "system_version": ">=3.0.0",
     "history": {
+      "v4.1.4": "修复网络电影榜单详情字段解析，按条目顶层 movieName 与 releaseInfo 读取，避免有效条目全部被跳过",
       "v4.1.3": "修复网络电影榜单旧接口 403，使用官网浏览器会话及当前数据结构，并在当日无数据时重试最新可用日期",
       "v4.1.2": "修复猫眼热度榜旧接口 403，使用官网当前接口及浏览器会话请求，按北京时间传递榜单日期并保留平台筛选与异常隔离",
       "v4.1.1": "修复上映信息为空时的年份解析警告，隔离 Cookie 获取、单源请求和榜单坏条目异常，避免影响后续榜单与订阅",

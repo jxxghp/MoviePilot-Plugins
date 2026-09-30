@@ -56,7 +56,7 @@ def test_browser_failure_does_not_block_any_rank(plugin):
     request = maoyanrank.RequestUtils.return_value.get_res
     request.side_effect = [
         response({"movieList": {"list": [{"movieInfo": {"movieName": "院线电影"}}]}}),
-        response({"dataList": {"list": [{"seriesInfo": {"name": "网络电影"}}]}}),
+        response({"dataList": {"list": [{"movieName": "网络电影"}]}}),
         response({"dataList": {"list": [{"seriesInfo": {"name": "电视剧"}}]}}),
     ]
 
@@ -73,7 +73,7 @@ def test_invalid_item_preserves_other_items_in_same_rank(plugin, kind):
     """榜单内部坏条目不丢弃前后有效记录，也不订阅排名限制之外的记录。"""
     data_key, info_key, title_key = {
         "movie": ("movieList", "movieInfo", "movieName"),
-        "web-movie": ("dataList", "seriesInfo", "name"),
+        "web-movie": ("dataList", None, "movieName"),
         "tv": ("dataList", "seriesInfo", "name"),
     }[kind]
 
@@ -155,7 +155,7 @@ def test_refresh_keeps_later_ranks_and_saves_history(plugin, monkeypatch):
     request = maoyanrank.RequestUtils.return_value.get_res
     request.side_effect = [
         RuntimeError("首榜失败"),
-        response({"dataList": {"list": [{"seriesInfo": {"name": "网络电影"}}]}}),
+        response({"dataList": {"list": [{"movieName": "网络电影"}]}}),
         response({"dataList": {"list": [{"seriesInfo": {"name": "电视剧"}}]}}),
         response({"dataList": {"list": [{"seriesInfo": {"name": "网剧"}}]}}),
         response({"dataList": {"list": [{"seriesInfo": {"name": "综艺"}}]}}),
@@ -333,8 +333,8 @@ def test_network_movie_retries_latest_available_date(plugin, latest, retries):
             "official-browser-ua",
             {"status": False, "calendarNet": {"selectMaxDate": latest}},
             {"dataList": {"list": [
-                {"seriesInfo": {"name": "网络电影", "platformDesc": "腾讯视频"}},
-                {"seriesInfo": {"name": "超出排名"}},
+                {"movieName": "网络电影", "releaseInfo": "上映3天"},
+                {"movieName": "超出排名"},
             ]}},
         ]),
     )
