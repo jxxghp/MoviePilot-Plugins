@@ -8,7 +8,8 @@ import re
 from pathlib import Path
 
 import pytest
-from packaging.specifiers import InvalidSpecifier, Specifier, SpecifierSet
+from packaging.specifiers import InvalidSpecifier, SpecifierSet
+from packaging.version import Version
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -77,24 +78,32 @@ def _legacy_metadata(
 
 
 def _supports_v3_baseline(value: object) -> bool:
-    """保留 3.0.0 下界合同，同时允许插件声明更严格的宿主版本上界。"""
+    """
+    V3 条目必须以 3.x 宿主为下界：依赖宿主新增能力的插件可把下界提高到对应 3.x 版本，
+    也可声明更严格的上界，但不能放行 V2 宿主或给出矛盾范围。
+    """
     if not isinstance(value, str) or not value.strip():
         return False
     try:
         specifiers = SpecifierSet(value)
     except InvalidSpecifier:
         return False
-    return Specifier(">=3.0.0") in set(specifiers) and specifiers.contains("3.0.0")
+    floors = [Version(item.version) for item in specifiers if item.operator == ">="]
+    if not floors:
+        return False
+    floor = max(floors)
+    return floor.major == 3 and specifiers.contains(floor)
 
 
 @pytest.mark.parametrize("value, expected", [
     (">=3.0.0", True), (">=3.0.0,<4", True), (">=3,<4.0.0", True),
     (">=2.0.0,<4", False), ("<4", False), (">=4", False),
     (">=3.0.0,<3", False), (">=3.0.0,!=3.0.0", False),
+    (">=3.0.11", True), (">=3.0.11,<4", True), (">=3.0.11,<3.0.5", False),
     ("not-a-version", False), ("", False), (None, False),
 ])
 def test_v3_system_range_keeps_baseline_and_allows_upper_bound(value, expected):
-    """上界可更保守，但不能放行旧宿主、矛盾范围或删除现有基线支持。"""
+    """下界可提高到依赖的 3.x 宿主版本、上界可更保守，但不能放行旧宿主或矛盾范围。"""
     assert _supports_v3_baseline(value) is expected
 
 
