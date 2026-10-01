@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from apscheduler.triggers.cron import CronTrigger
 
-from app.plugins import _PluginBase
+from app.sdk.plugin import _PluginBase
 from app.schemas.types import MessageType
 from app.sdk.logging import logger
 
