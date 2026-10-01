@@ -77,7 +77,7 @@ def test_all_expands_each_run_and_records_real_ids(plugin, monkeypatch, type_str
     assert history == {"do": [1, "custom"], "retry": [1, "custom"] if retry_keyword is None else []}
     assert f"全部{type_str}数量: 2" in plugin.post_message.call_args.kwargs["text"]
     assert plugin.update_config.call_args.args[0]["sign_sites"] == ["all"]
-    plugin.get_data.side_effect = lambda key: history if key == type_str + "-" + today.strftime("%Y-%m-%d") else None
+    plugin.get_data.side_effect = lambda key=None: history if key == type_str + "-" + today.strftime("%Y-%m-%d") else None
     sites.append({"id": 2, "name": "新增"})
     getattr(plugin, method).reset_mock()
     plugin._AutoSignIn__do(today, type_str, ["all"])

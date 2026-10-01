@@ -37,7 +37,7 @@ class AutoSignIn(_PluginBase):
     # 插件图标
     plugin_icon = "signin.png"
     # 插件版本
-    plugin_version = "2.9.7"
+    plugin_version = "2.9.8"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -51,6 +51,8 @@ class AutoSignIn(_PluginBase):
 
     # 持久化全选标记，执行时展开，自动包含后续新增站点。
     _ALL_SITES = "all"
+    # 含当天的历史保留天数，与详情页读取范围保持一致。
+    _HISTORY_DAYS = 14
 
     # 定时器
     _scheduler: Optional[BackgroundScheduler] = None
@@ -565,8 +567,9 @@ class AutoSignIn(_PluginBase):
         """
         拼装插件详情页面，需要返回页面配置，同时附带数据
         """
-        # 获取最近14天的日期数组
-        date_list = [(datetime.now() - timedelta(days=i)).date() for i in range(14)]
+        # 历史读取与执行时的过期清理使用同一窗口。
+        today = datetime.now().date()
+        date_list = [today - timedelta(days=i) for i in range(self._HISTORY_DAYS)]
 
         # 获取所有数据，包括签到和登录历史
         all_data = {
@@ -1444,15 +1447,29 @@ class AutoSignIn(_PluginBase):
         if self._login_sites:
             self.__do(today=today, type_str="登录", do_sites=self._login_sites, event=event)
 
+    def _clean_history(self, today: datetime):
+        """清除14天窗口外的签到、登录和月日明细，兼顾停跑后的过期记录。"""
+        first_day = today.date() - timedelta(days=self._HISTORY_DAYS - 1)
+        retained_days = {
+            self._date_label(today.date() - timedelta(days=offset))
+            for offset in range(self._HISTORY_DAYS)
+        }
+        for data in self.get_data() or []:
+            key = data.key
+            if re.fullmatch(r"(?:签到|登录)-\d{4}-\d{2}-\d{2}", key):
+                try:
+                    day = datetime.strptime(key.split("-", 1)[1], "%Y-%m-%d").date()
+                except ValueError:
+                    continue
+                if day < first_day:
+                    self.del_data(key=key)
+            elif re.fullmatch(r"\d{1,2}月\d{1,2}日", key) and key not in retained_days:
+                # 旧明细键不含年份，按窗口内的月日保留，避免跨年误删。
+                self.del_data(key=key)
+
     def __do(self, today: datetime, type_str: str, do_sites: list, event: Event = None):
-        """
-        签到逻辑
-        """
-        yesterday = today - timedelta(days=1)
-        yesterday_str = yesterday.strftime('%Y-%m-%d')
-        # 删除昨天历史
-        self.del_data(key=type_str + "-" + yesterday_str)
-        self.del_data(key=f"{yesterday.month}月{yesterday.day}日")
+        """清理过期历史后执行签到或登录，保留当天去重及失败重试语义。"""
+        self._clean_history(today)
 
         # 查看今天有没有签到|登录历史
         today = today.strftime('%Y-%m-%d')
