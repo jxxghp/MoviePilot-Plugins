@@ -14,6 +14,7 @@
 | 配置检测 | 逐项校验配置，并真实调用 DNS 服务商接口验证凭据可用性 |
 | 状态查看 | 详情页与仪表板展示证书域名、签发机构、有效期与剩余天数（时间为北京时间） |
 | DNS 插件下载 | 一键从 acme.sh 官方仓库下载任意服务商的 DNS 插件脚本 |
+| 凭据字段查询 | 解析服务商脚本，列出实际需要的凭据字段，覆盖全部 198 个服务商 |
 | acme.sh 安装 | 一键从官方仓库下载安装 acme.sh，已安装时执行升级 |
 
 ## 快速开始
@@ -59,7 +60,7 @@ DNS 凭据以**明文**保存在 MoviePilot 数据库的 `plugininstance` 表中
 | 接口 | 鉴权要求 |
 |---|---|
 | 插件配置页（含凭据回显） | 超级管理员 |
-| `/status`、`/deploy`、`/issue`、`/renew`、`/dnsapi`、`/verify`、`/install` | 登录用户令牌（`bear`） |
+| `/status`、`/deploy`、`/issue`、`/renew`、`/dnsapi`、`/verify`、`/install`、`/credentials` | 登录用户令牌（`bear`） |
 
 **公网暴露风险**：如果 MoviePilot 直接暴露在公网且未启用 HTTPS，登录令牌可能在传输中被截获，进而被用于调用插件接口。建议：
 
@@ -144,42 +145,44 @@ acme.sh 没有独立的凭据校验命令，因此插件直接加载 acme.sh 与
 
 > 建议使用**只有 DNS 解析权限的子账号**密钥，不要用主账号密钥。
 
-### 各服务商对照表
+### 查询凭据字段
 
-| 服务商 | 脚本名 | 凭据 1 | 凭据 2 |
-|---|---|---|---|
-| 阿里云 | `dns_ali` | AccessKey ID | AccessKey Secret |
-| 腾讯云 DNSPod | `dns_dp` | DNSPod ID | DNSPod Token |
-| Cloudflare | `dns_cf` | API Token | Account ID（可选） |
-| 华为云 | `dns_huaweicloud` | 账号名 | 密码 |
-| 百度云 | `dns_baidu` | Access Key | Secret Key |
-| GoDaddy | `dns_gd` | API Key | API Secret |
-| NameSilo | `dns_namesilo` | API Key | 同上（无需第二个） |
-| Namecheap | `dns_namecheap` | API Key | 用户名 |
-| Porkbun | `dns_porkbun` | API Key | Secret Key |
-| 西部数码 | `dns_west_cn` | 用户名 | API Key |
-| DNSPod 国际版 | `dns_dpi` | DNSPod ID | DNSPod Token |
-| AWS Route53 | `dns_aws` | Access Key ID | Secret Access Key |
-| Azure DNS | `dns_azure` | Subscription ID | Tenant ID |
-| Google Cloud DNS | `dns_gcloud` | 项目 ID | 服务账号 JSON 路径 |
+不同服务商需要的凭据字段不同，点击配置页的「**查询当前服务商需要哪些凭据**」按钮即可查看：
+
+```
+dns_cf 需要 5 个凭据字段
+
+1. CF_Token
+2. CF_Account_ID
+3. CF_Zone_ID
+4. CF_Key
+5. CF_Email
+
+按顺序填入下方两个输入框；
+超过两个字段时，其余字段请写入脚本的 account.conf。
+```
+
+插件会**直接解析服务商脚本**得到准确字段名，因此覆盖 acme.sh 全部 198 个服务商。脚本尚未下载时会自动下载。
+
+> 多数服务商只需 2 个字段，填入下方的两个输入框即可。部分服务商（如 Cloudflare、华为云）支持多种认证方式，会列出全部可选字段，按你使用的方式填写对应项即可。
 
 ## 服务商支持范围
 
-**acme.sh 官方支持 190 多个 DNS 服务商**，插件内置的只是常用快捷选项，**不是能力上限**。
+**acme.sh 官方支持 198 个 DNS 服务商**，插件内置的只是常用快捷选项，**不是能力上限**。
 
 ### 使用内置列表以外的服务商
 
 1. 在「DNS 服务商」下拉框中**直接输入**脚本名，如 `dns_xxx`
 2. 点击「下载 DNS 插件脚本」，插件会从 acme.sh 官方仓库拉取
-3. 按该脚本的变量名填写两个凭据输入框
+3. 点击「查询当前服务商需要哪些凭据」确认字段名
+4. 按查询结果填写凭据输入框
 
-### 如何确认凭据字段名
+### 手动确认凭据字段名
 
-打开对应脚本，搜索 `_readaccountconf_mutable` 或 `_saveaccountconf_mutable`，后面跟的变量名就是需要填的字段：
+如需自行核对，可打开对应脚本搜索 `_readaccountconf_mutable`：
 
 ```bash
-grep -E "_readaccountconf_mutable|_saveaccountconf_mutable" \
-  /config/acme.sh/dnsapi/dns_xxx.sh
+grep -E "_readaccountconf_mutable" /config/acme.sh/dnsapi/dns_xxx.sh
 ```
 
 例如阿里云脚本输出 `Ali_Key` 与 `Ali_Secret`，所以凭据 1 填 AccessKey ID、凭据 2 填 AccessKey Secret。
@@ -297,6 +300,7 @@ acme.sh --cron（内部按 ARI 窗口判断是否需要续期）
 | `/dnsapi` | POST | 下载 DNS 插件脚本，body 传 `provider` |
 | `/verify` | POST | 检测配置，body 可选覆盖 `domain`、`dns_provider`、`dns_key`、`dns_secret` |
 | `/install` | POST | 一键安装或升级 acme.sh |
+| `/credentials` | POST | 查询服务商需要的凭据字段，body 传 `provider` |
 
 ## 故障排查
 

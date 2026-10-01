@@ -30,7 +30,7 @@ def test_plugin_metadata() -> None:
     """插件元数据应与市场索引保持一致。"""
     plugin = _make_plugin()
     assert plugin.plugin_name == "证书管理"
-    assert plugin.plugin_version == "1.3.1"
+    assert plugin.plugin_version == "1.4.0"
     assert plugin.plugin_config_prefix == "certmanager_"
     assert plugin.auth_level == 1
 
@@ -954,45 +954,6 @@ def test_dns_providers_have_unique_values() -> None:
     assert len(values) == len(set(values))
 
 
-def test_credential_row_builds_table_row() -> None:
-    """凭据对照表行应包含服务商、脚本名与两个凭据字段。"""
-    plugin = _make_plugin()
-
-    row = plugin._credential_row("阿里云", "dns_ali")
-
-    assert row["component"] == "tr"
-    cells = [cell.get("text", "") for cell in row["content"]]
-    assert "阿里云" in cells
-    assert "dns_ali" in cells
-    assert any("Ali_Key" in cell for cell in cells)
-    assert any("Ali_Secret" in cell for cell in cells)
-
-
-def test_credential_row_handles_unknown_provider() -> None:
-    """未收录的服务商应回落到通用字段名。"""
-    plugin = _make_plugin()
-
-    row = plugin._credential_row("未知服务商", "dns_unknown")
-
-    cells = [cell.get("text", "") for cell in row["content"]]
-    assert any("KEY1" in cell for cell in cells)
-    assert any("KEY2" in cell for cell in cells)
-
-
-def test_form_contains_credential_table_entry() -> None:
-    """配置表单应提供凭据对照表入口。"""
-    plugin = _make_plugin()
-    form, _ = plugin.get_form()
-
-    import json
-
-    form_str = json.dumps(form, ensure_ascii=False)
-    assert "VExpansionPanels" in form_str
-    assert "对照表" in form_str
-    assert "item-title" in form_str
-    assert "item-value" in form_str
-
-
 def test_redact_masks_aliyun_credentials() -> None:
     """阿里云凭据应被脱敏。"""
     text = "Ali_Key=LTAI5tExampleKeyId0000\nAli_Secret=ExampleSecretValue0000000000000000"
@@ -1347,3 +1308,132 @@ def test_plugin_desc_mentions_install_and_issue() -> None:
     """插件描述应准确反映安装与申请能力。"""
     assert "acme.sh" in CertManager.plugin_desc
     assert "申请证书" in CertManager.plugin_desc
+
+
+def test_lookup_credentials_extracts_fields(tmp_path: Path) -> None:
+    """应从脚本中提取凭据字段名。"""
+    acme_home = tmp_path / "acme"
+    dnsapi = acme_home / "dnsapi"
+    dnsapi.mkdir(parents=True)
+    (dnsapi / "dns_test.sh").write_text(
+        'Ali_Key="${Ali_Key:-$(_readaccountconf_mutable Ali_Key)}"\n'
+        'Ali_Secret="${Ali_Secret:-$(_readaccountconf_mutable Ali_Secret)}"\n',
+        encoding="utf-8",
+    )
+
+    plugin = _make_plugin()
+    plugin._acme_home = str(acme_home)
+
+    ok, message, fields = plugin.lookup_credentials("dns_test")
+
+    assert ok is True
+    assert fields == ["Ali_Key", "Ali_Secret"]
+    assert "2 个" in message
+
+
+def test_lookup_credentials_deduplicates_fields(tmp_path: Path) -> None:
+    """重复出现的字段名应去重且保持顺序。"""
+    acme_home = tmp_path / "acme"
+    dnsapi = acme_home / "dnsapi"
+    dnsapi.mkdir(parents=True)
+    (dnsapi / "dns_test.sh").write_text(
+        "_readaccountconf_mutable CF_Token\n"
+        "_readaccountconf_mutable CF_Account_ID\n"
+        "_readaccountconf_mutable CF_Token\n",
+        encoding="utf-8",
+    )
+
+    plugin = _make_plugin()
+    plugin._acme_home = str(acme_home)
+
+    _, _, fields = plugin.lookup_credentials("dns_test")
+
+    assert fields == ["CF_Token", "CF_Account_ID"]
+
+
+def test_lookup_credentials_rejects_invalid_name(tmp_path: Path) -> None:
+    """非法脚本名应被拒绝，不发起下载。"""
+    plugin = _make_plugin()
+    plugin._acme_home = str(tmp_path)
+
+    ok, message, fields = plugin.lookup_credentials("bad name")
+
+    assert ok is False
+    assert "不合法" in message
+    assert fields == []
+
+
+def test_lookup_credentials_downloads_when_missing(tmp_path: Path) -> None:
+    """脚本不存在时应先自动下载。"""
+    acme_home = tmp_path / "acme"
+    plugin = _make_plugin()
+    plugin._acme_home = str(acme_home)
+
+    def fake_download(provider: str):
+        dnsapi = acme_home / "dnsapi"
+        dnsapi.mkdir(parents=True, exist_ok=True)
+        (dnsapi / f"{provider}.sh").write_text(
+            "_readaccountconf_mutable DP_Id\n_readaccountconf_mutable DP_Key\n",
+            encoding="utf-8",
+        )
+        return True, "已下载"
+
+    with patch.object(plugin, "download_dnsapi", side_effect=fake_download):
+        ok, _, fields = plugin.lookup_credentials("dns_dp")
+
+    assert ok is True
+    assert fields == ["DP_Id", "DP_Key"]
+
+
+def test_lookup_credentials_reports_no_fields(tmp_path: Path) -> None:
+    """脚本未声明凭据字段时应给出说明。"""
+    acme_home = tmp_path / "acme"
+    dnsapi = acme_home / "dnsapi"
+    dnsapi.mkdir(parents=True)
+    (dnsapi / "dns_test.sh").write_text("# 无凭据\n", encoding="utf-8")
+
+    plugin = _make_plugin()
+    plugin._acme_home = str(acme_home)
+
+    ok, message, fields = plugin.lookup_credentials("dns_test")
+
+    assert ok is False
+    assert "未声明凭据字段" in message
+    assert fields == []
+
+
+def test_api_lookup_credentials_returns_fields(tmp_path: Path) -> None:
+    """查询接口应返回字段列表。"""
+    plugin = _make_plugin()
+
+    with patch.object(
+        plugin, "lookup_credentials", return_value=(True, "ok", ["A", "B"])
+    ):
+        result = plugin.api_lookup_credentials({"provider": "dns_ali"})
+
+    assert result["success"] is True
+    assert result["fields"] == ["A", "B"]
+
+
+def test_config_form_has_credential_lookup_button() -> None:
+    """配置页应提供凭据字段查询入口。"""
+    plugin = _make_plugin()
+    form, _ = plugin.get_form()
+
+    import json
+
+    form_str = json.dumps(form, ensure_ascii=False)
+    assert "查询当前服务商需要哪些凭据" in form_str
+    assert "plugin/CertManager/credentials" in form_str
+
+
+def test_config_form_has_no_static_table() -> None:
+    """配置页不应再包含静态对照表。"""
+    plugin = _make_plugin()
+    form, _ = plugin.get_form()
+
+    import json
+
+    form_str = json.dumps(form, ensure_ascii=False)
+    assert "VExpansionPanels" not in form_str
+    assert "对照表" not in form_str

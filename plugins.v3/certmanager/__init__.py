@@ -36,7 +36,7 @@ class CertManager(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/ssl.png"
     # 插件版本
-    plugin_version = "1.3.1"
+    plugin_version = "1.4.0"
     # 插件作者
     plugin_author = "LLL001a"
     # 作者主页
@@ -239,6 +239,13 @@ class CertManager(_PluginBase):
                 "methods": ["POST"],
                 "auth": "bear",
                 "summary": "一键安装或升级 acme.sh",
+            },
+            {
+                "path": "/credentials",
+                "endpoint": self.api_lookup_credentials,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "查询服务商需要的凭据字段",
             },
         ]
 
@@ -515,7 +522,7 @@ class CertManager(_PluginBase):
                                             "阿里云填 AccessKey ID 与 AccessKey Secret；"
                                             "腾讯云填 DNSPod ID 与 Token；"
                                             "Cloudflare 填 API Token。"
-                                            "其他服务商请展开下方对照表。",
+                                            "不确定时点击下方按钮查询。",
                                         },
                                     }
                                 ],
@@ -530,134 +537,32 @@ class CertManager(_PluginBase):
                                 "props": {"cols": 12},
                                 "content": [
                                     {
-                                        "component": "VExpansionPanels",
-                                        "props": {"variant": "accordion"},
-                                        "content": [
-                                            {
-                                                "component": "VExpansionPanel",
-                                                "content": [
-                                                    {
-                                                        "component": "VExpansionPanelTitle",
-                                                        "text": "各服务商凭据对照表（点击展开）",
-                                                    },
-                                                    {
-                                                        "component": "VExpansionPanelText",
-                                                        "content": [
-                                                            {
-                                                                "component": "VTable",
-                                                                "props": {
-                                                                    "density": "compact",
-                                                                },
-                                                                "content": [
-                                                                    {
-                                                                        "component": "thead",
-                                                                        "content": [
-                                                                            {
-                                                                                "component": "tr",
-                                                                                "content": [
-                                                                                    {
-                                                                                        "component": "th",
-                                                                                        "text": "服务商",
-                                                                                    },
-                                                                                    {
-                                                                                        "component": "th",
-                                                                                        "text": "脚本名",
-                                                                                    },
-                                                                                    {
-                                                                                        "component": "th",
-                                                                                        "text": "凭据 1",
-                                                                                    },
-                                                                                    {
-                                                                                        "component": "th",
-                                                                                        "text": "凭据 2",
-                                                                                    },
-                                                                                ],
-                                                                            }
-                                                                        ],
-                                                                    },
-                                                                    {
-                                                                        "component": "tbody",
-                                                                        "content": [
-                                                                            self._credential_row(
-                                                                                "阿里云",
-                                                                                "dns_ali",
-                                                                            ),
-                                                                            self._credential_row(
-                                                                                "腾讯云 DNSPod",
-                                                                                "dns_dp",
-                                                                            ),
-                                                                            self._credential_row(
-                                                                                "Cloudflare",
-                                                                                "dns_cf",
-                                                                            ),
-                                                                            self._credential_row(
-                                                                                "华为云",
-                                                                                "dns_huaweicloud",
-                                                                            ),
-                                                                            self._credential_row(
-                                                                                "百度云",
-                                                                                "dns_baidu",
-                                                                            ),
-                                                                            self._credential_row(
-                                                                                "GoDaddy",
-                                                                                "dns_gd",
-                                                                            ),
-                                                                            self._credential_row(
-                                                                                "NameSilo",
-                                                                                "dns_namesilo",
-                                                                            ),
-                                                                            self._credential_row(
-                                                                                "Namecheap",
-                                                                                "dns_namecheap",
-                                                                            ),
-                                                                            self._credential_row(
-                                                                                "Porkbun",
-                                                                                "dns_porkbun",
-                                                                            ),
-                                                                            self._credential_row(
-                                                                                "西部数码",
-                                                                                "dns_west_cn",
-                                                                            ),
-                                                                            self._credential_row(
-                                                                                "DNSPod 国际版",
-                                                                                "dns_dpi",
-                                                                            ),
-                                                                            self._credential_row(
-                                                                                "AWS Route53",
-                                                                                "dns_aws",
-                                                                            ),
-                                                                            self._credential_row(
-                                                                                "Azure DNS",
-                                                                                "dns_azure",
-                                                                            ),
-                                                                            self._credential_row(
-                                                                                "Google Cloud DNS",
-                                                                                "dns_gcloud",
-                                                                            ),
-                                                                        ],
-                                                                    },
-                                                                ],
-                                                            },
-                                                            {
-                                                                "component": "VAlert",
-                                                                "props": {
-                                                                    "type": "warning",
-                                                                    "variant": "tonal",
-                                                                    "class": "mt-2",
-                                                                    "text": "未收录的服务商使用通用字段名 "
-                                                                    "KEY1 / KEY2。"
-                                                                    "可执行以下命令确认脚本期望的变量名："
-                                                                    "grep -E "
-                                                                    "\"_readaccountconf_mutable\" "
-                                                                    "/config/acme.sh/dnsapi/"
-                                                                    "dns_xxx.sh",
-                                                                },
-                                                            },
-                                                        ],
-                                                    },
-                                                ],
-                                            }
-                                        ],
+                                        "component": "VBtn",
+                                        "props": {
+                                            "color": "info",
+                                            "variant": "tonal",
+                                            "block": True,
+                                            "prepend-icon": "mdi-help-circle-outline",
+                                            "onclick": "function(e) { "
+                                            "window.MoviePilotAPI.post("
+                                            "'plugin/CertManager/credentials', "
+                                            "{provider: model.dns_provider})"
+                                            ".then(function(r) { "
+                                            "if (!r || r.success === false) { "
+                                            "alert(r && r.message "
+                                            "? r.message : '查询失败'); return } "
+                                            "var lines = [r.message, '']; "
+                                            "for (var i = 0; i < r.fields.length; i++) { "
+                                            "lines.push((i + 1) + '. ' + r.fields[i]) } "
+                                            "lines.push(''); "
+                                            "lines.push('按顺序填入下方两个输入框；'); "
+                                            "lines.push('超过两个字段时，其余字段请写入脚本的 account.conf。'); "
+                                            "alert(lines.join('\\n')) })"
+                                            ".catch(function(err) { "
+                                            "console.error(err); "
+                                            "alert('查询失败，请查看日志') }) }",
+                                        },
+                                        "text": "查询当前服务商需要哪些凭据",
                                     }
                                 ],
                             }
@@ -1258,6 +1163,19 @@ class CertManager(_PluginBase):
         """一键安装或升级 acme.sh。"""
         ok, message = self.install_acme()
         return {"success": ok, "message": message}
+
+    def api_lookup_credentials(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        查询指定服务商需要的凭据字段
+
+        :param payload: 包含 provider 字段，如 dns_ali
+        :return: 查询结果与字段列表
+        """
+        provider = self._normalize_provider(
+            payload.get("provider") or self._dns_provider
+        )
+        ok, message, fields = self.lookup_credentials(provider)
+        return {"success": ok, "message": message, "fields": fields}
 
     def api_renew(self) -> Dict[str, Any]:
         """立即执行一次续期检查。"""
@@ -1921,6 +1839,48 @@ class CertManager(_PluginBase):
             env[secret_name] = dns_secret
         return env
 
+    def lookup_credentials(self, provider: str) -> Tuple[bool, str, List[str]]:
+        """
+        查询指定服务商脚本实际需要的凭据字段
+
+        acme.sh 的 DNS 插件通过 ``_readaccountconf_mutable`` 读取凭据，
+        直接解析脚本即可得到准确的字段名，无需维护静态对照表。
+        脚本未下载时先自动下载。
+
+        :param provider: acme.sh 的 dnsapi 脚本名，如 dns_ali
+        :return: (是否成功, 说明, 字段名列表)
+        """
+        provider = self._normalize_provider(provider)
+        if not re.fullmatch(r"dns_[a-z0-9_]+", provider):
+            return False, f"服务商脚本名不合法：{provider}", []
+
+        script = Path(self._acme_home) / "dnsapi" / f"{provider}.sh"
+        if not script.is_file():
+            ok, message = self.download_dnsapi(provider)
+            if not ok:
+                return False, message, []
+
+        try:
+            content = script.read_text(encoding="utf-8", errors="ignore")
+        except OSError as error:
+            return False, f"读取脚本失败：{error}", []
+
+        # 按出现顺序去重，保留脚本中的原始字段名
+        fields: List[str] = []
+        for name in re.findall(
+            r"_readaccountconf_mutable\s+([A-Za-z_][A-Za-z0-9_]*)", content
+        ):
+            if name not in fields:
+                fields.append(name)
+
+        if not fields:
+            return (
+                False,
+                f"{provider} 未声明凭据字段，可能不需要凭据或脚本格式特殊",
+                [],
+            )
+        return True, f"{provider} 需要 {len(fields)} 个凭据字段", fields
+
     def _credential_fields(self, provider: str) -> Tuple[str, str, str, str]:
         """
         返回服务商对应的凭据字段名与界面提示
@@ -2238,31 +2198,6 @@ class CertManager(_PluginBase):
                     "text": label,
                 },
                 {"component": "td", "text": value or "-"},
-            ],
-        }
-
-    def _credential_row(self, label: str, provider: str) -> Dict[str, Any]:
-        """
-        构造凭据对照表的表格行
-
-        :param label: 服务商中文名称
-        :param provider: acme.sh 的 dnsapi 脚本名
-        :return: Vuetify 表格行结构
-        """
-        key_name, key_label, secret_name, secret_label = self._credential_fields(
-            provider
-        )
-        return {
-            "component": "tr",
-            "content": [
-                {"component": "td", "text": label},
-                {
-                    "component": "td",
-                    "props": {"class": "text-medium-emphasis"},
-                    "text": provider,
-                },
-                {"component": "td", "text": f"{key_name}（{key_label}）"},
-                {"component": "td", "text": f"{secret_name}（{secret_label}）"},
             ],
         }
 
