@@ -30,7 +30,7 @@ def test_plugin_metadata() -> None:
     """插件元数据应与市场索引保持一致。"""
     plugin = _make_plugin()
     assert plugin.plugin_name == "证书管理"
-    assert plugin.plugin_version == "1.3.0"
+    assert plugin.plugin_version == "1.3.1"
     assert plugin.plugin_config_prefix == "certmanager_"
     assert plugin.auth_level == 1
 
@@ -1279,3 +1279,71 @@ def test_api_install_acme_returns_result() -> None:
 
     assert result["success"] is True
     assert "安装成功" in result["message"]
+
+
+def test_config_form_has_issue_button() -> None:
+    """配置页应提供「申请证书」入口。"""
+    plugin = _make_plugin()
+    form, _ = plugin.get_form()
+
+    import json
+
+    form_str = json.dumps(form, ensure_ascii=False)
+    assert "申请证书" in form_str
+    assert "plugin/CertManager/issue" in form_str
+
+
+def test_config_form_has_deploy_section() -> None:
+    """配置页应提供手动部署证书的输入框与按钮。"""
+    plugin = _make_plugin()
+    form, _ = plugin.get_form()
+
+    import json
+
+    form_str = json.dumps(form, ensure_ascii=False)
+    assert "deploy_cert" in form_str
+    assert "deploy_key" in form_str
+    assert "plugin/CertManager/deploy" in form_str
+
+
+def test_config_form_issue_passes_model_values() -> None:
+    """申请按钮应把配置页的域名与凭据传给接口。"""
+    plugin = _make_plugin()
+    form, _ = plugin.get_form()
+
+    import json
+
+    form_str = json.dumps(form, ensure_ascii=False)
+    assert "model.domain" in form_str
+    assert "model.dns_provider" in form_str
+    assert "model.dns_key" in form_str
+    assert "model.dns_secret" in form_str
+
+
+def test_detail_page_has_no_buttons() -> None:
+    """详情页不支持 model 绑定，不应包含按钮。"""
+    plugin = _make_plugin()
+    page = plugin.get_page()
+
+    import json
+
+    page_str = json.dumps(page, ensure_ascii=False)
+    assert '"VBtn"' not in page_str
+    assert "onclick" not in page_str
+
+
+def test_detail_page_points_to_config() -> None:
+    """详情页应引导用户到配置页操作。"""
+    plugin = _make_plugin()
+    page = plugin.get_page()
+
+    import json
+
+    page_str = json.dumps(page, ensure_ascii=False)
+    assert "配置页" in page_str
+
+
+def test_plugin_desc_mentions_install_and_issue() -> None:
+    """插件描述应准确反映安装与申请能力。"""
+    assert "acme.sh" in CertManager.plugin_desc
+    assert "申请证书" in CertManager.plugin_desc

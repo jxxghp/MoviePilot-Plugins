@@ -32,11 +32,11 @@ class CertManager(_PluginBase):
     # 插件名称
     plugin_name = "证书管理"
     # 插件描述
-    plugin_desc = "手动部署证书、自动申请证书并自动续期，自动重载 nginx。"
+    plugin_desc = "一键安装 acme.sh、申请证书、手动部署证书并自动续期，自动重载 nginx。"
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/ssl.png"
     # 插件版本
-    plugin_version = "1.3.0"
+    plugin_version = "1.3.1"
     # 插件作者
     plugin_author = "LLL001a"
     # 作者主页
@@ -795,6 +795,43 @@ class CertManager(_PluginBase):
                                 "props": {"cols": 12},
                                 "content": [
                                     {
+                                        "component": "VBtn",
+                                        "props": {
+                                            "color": "warning",
+                                            "variant": "flat",
+                                            "block": True,
+                                            "prepend-icon": "mdi-certificate",
+                                            "onclick": "function(e) { "
+                                            "if (!confirm('将向 DNS 服务商写入验证记录"
+                                            "并申请证书，过程可能需要 1-3 分钟。"
+                                            "是否继续？')) return; "
+                                            "window.MoviePilotAPI.post("
+                                            "'plugin/CertManager/issue', "
+                                            "{domain: model.domain, "
+                                            "dns_provider: model.dns_provider, "
+                                            "dns_key: model.dns_key, "
+                                            "dns_secret: model.dns_secret})"
+                                            ".then(function(r) { "
+                                            "alert(r && r.message ? r.message "
+                                            ": '申请完成，请查看日志') })"
+                                            ".catch(function(err) { "
+                                            "console.error(err); "
+                                            "alert('申请失败，请查看日志') }) }",
+                                        },
+                                        "text": "申请证书",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
                                         "component": "VAlert",
                                         "props": {
                                             "type": "info",
@@ -853,6 +890,124 @@ class CertManager(_PluginBase):
                                                 {"title": "RSA 4096 位", "value": "4096"},
                                             ],
                                         },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VDivider",
+                                        "props": {"class": "my-2"},
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "info",
+                                            "variant": "tonal",
+                                            "text": "手动部署证书：如果你已有证书文件，"
+                                            "把内容粘贴到下方文本框并点击部署，"
+                                            "插件会自动校验匹配性并重载 nginx。"
+                                            "使用「申请证书」的用户无需填写这里。",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextarea",
+                                        "props": {
+                                            "model": "deploy_cert",
+                                            "label": "证书内容（fullchain.pem）",
+                                            "rows": 5,
+                                            "placeholder": "-----BEGIN CERTIFICATE-----\n"
+                                            "...\n-----END CERTIFICATE-----",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextarea",
+                                        "props": {
+                                            "model": "deploy_key",
+                                            "label": "私钥内容（privkey.pem）",
+                                            "rows": 5,
+                                            "placeholder": "-----BEGIN PRIVATE KEY-----\n"
+                                            "...\n-----END PRIVATE KEY-----",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VBtn",
+                                        "props": {
+                                            "color": "primary",
+                                            "variant": "flat",
+                                            "block": True,
+                                            "prepend-icon": "mdi-upload",
+                                            "onclick": "function(e) { "
+                                            "if (!model.deploy_cert || !model.deploy_key) { "
+                                            "alert('请先粘贴证书内容与私钥内容'); "
+                                            "return } "
+                                            "window.MoviePilotAPI.post("
+                                            "'plugin/CertManager/deploy', "
+                                            "{cert: model.deploy_cert, "
+                                            "key: model.deploy_key})"
+                                            ".then(function(r) { "
+                                            "if (r && r.success === false) { "
+                                            "alert(r.message || '部署失败') } "
+                                            "else { alert(r && r.message "
+                                            "? r.message : '部署成功'); "
+                                            "model.deploy_cert = ''; "
+                                            "model.deploy_key = '' } })"
+                                            ".catch(function(err) { "
+                                            "console.error(err); "
+                                            "alert('部署失败，请查看日志') }) }",
+                                        },
+                                        "text": "部署证书",
                                     }
                                 ],
                             }
@@ -980,95 +1135,9 @@ class CertManager(_PluginBase):
                                 "props": {
                                     "type": "info",
                                     "variant": "tonal",
-                                    "text": "手动部署证书：把证书与私钥内容粘贴到下方文本框，"
-                                    "插件会自动校验匹配性并重载 nginx。",
+                                    "text": "申请证书与手动部署证书请在插件配置页操作。"
+                                    "本页仅展示当前证书状态。",
                                 },
-                            }
-                        ],
-                    }
-                ],
-            }
-        )
-
-        content.append(
-            {
-                "component": "VRow",
-                "content": [
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12},
-                        "content": [
-                            {
-                                "component": "VTextarea",
-                                "props": {
-                                    "model": "deploy_cert",
-                                    "label": "证书内容（fullchain.pem）",
-                                    "rows": 6,
-                                    "placeholder": "-----BEGIN CERTIFICATE-----\n"
-                                    "...\n-----END CERTIFICATE-----",
-                                },
-                            }
-                        ],
-                    }
-                ],
-            }
-        )
-
-        content.append(
-            {
-                "component": "VRow",
-                "content": [
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12},
-                        "content": [
-                            {
-                                "component": "VTextarea",
-                                "props": {
-                                    "model": "deploy_key",
-                                    "label": "私钥内容（privkey.pem）",
-                                    "rows": 6,
-                                    "placeholder": "-----BEGIN PRIVATE KEY-----\n"
-                                    "...\n-----END PRIVATE KEY-----",
-                                },
-                            }
-                        ],
-                    }
-                ],
-            }
-        )
-
-        content.append(
-            {
-                "component": "VRow",
-                "content": [
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12},
-                        "content": [
-                            {
-                                "component": "VBtn",
-                                "props": {
-                                    "color": "primary",
-                                    "variant": "flat",
-                                    "block": True,
-                                    "prepend-icon": "mdi-upload",
-                                    "onclick": "function(e) { "
-                                    "window.MoviePilotAPI.post("
-                                    "'plugin/CertManager/deploy', "
-                                    "{cert: model.deploy_cert, "
-                                    "key: model.deploy_key})"
-                                    ".then(function(r) { "
-                                    "if (r && r.success === false) { "
-                                    "alert(r.message || '部署失败') } "
-                                    "else { alert(r && r.message "
-                                    "? r.message : '部署成功'); "
-                                    "model.deploy_cert = ''; "
-                                    "model.deploy_key = '' } })"
-                                    ".catch(function(err) { "
-                                    "console.error(err); alert('部署失败，请查看日志') }) }",
-                                },
-                                "text": "部署证书",
                             }
                         ],
                     }
