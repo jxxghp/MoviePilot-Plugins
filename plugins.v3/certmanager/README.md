@@ -14,6 +14,7 @@
 | 配置检测 | 逐项校验配置，并真实调用 DNS 服务商接口验证凭据可用性 |
 | 状态查看 | 详情页与仪表板展示证书域名、签发机构、有效期与剩余天数（时间为北京时间） |
 | DNS 插件下载 | 一键从 acme.sh 官方仓库下载任意服务商的 DNS 插件脚本 |
+| acme.sh 安装 | 一键从官方仓库下载安装 acme.sh，已安装时执行升级 |
 
 ## 快速开始
 
@@ -56,7 +57,7 @@ DNS 凭据以**明文**保存在 MoviePilot 数据库的 `plugininstance` 表中
 | 接口 | 鉴权要求 |
 |---|---|
 | 插件配置页（含凭据回显） | 超级管理员 |
-| `/status`、`/deploy`、`/issue`、`/renew`、`/dnsapi`、`/verify` | 登录用户令牌（`bear`） |
+| `/status`、`/deploy`、`/issue`、`/renew`、`/dnsapi`、`/verify`、`/install` | 登录用户令牌（`bear`） |
 
 **公网暴露风险**：如果 MoviePilot 直接暴露在公网且未启用 HTTPS，登录令牌可能在传输中被截获，进而被用于调用插件接口。建议：
 
@@ -193,10 +194,15 @@ https://github.com/acmesh-official/acme.sh/tree/master/dnsapi
 
 ## 前置条件
 
-插件只负责编排 acme.sh 与 nginx，**不负责安装 acme.sh**。首次使用前需确保：
+插件依赖 **acme.sh** 与 **openssl**。openssl 通常已随镜像提供，acme.sh 可**在插件界面一键安装**：
+
+> 打开插件配置页，点击「**一键安装 / 升级 acme.sh**」按钮即可。
+> 插件会从 acme.sh 官方仓库下载主脚本并创建所需目录，已安装时执行升级并保留原有账号与证书配置。
+
+如需手动安装（例如离线环境）：
 
 ```bash
-# 安装 acme.sh（get.acme.sh 直连可能被重置，改用 GitHub API）
+# get.acme.sh 直连可能被重置，改用 GitHub API
 mkdir -p /config/acme.sh/data /config/acme.sh/dnsapi
 curl -sL -H "Accept: application/vnd.github.raw" \
   "https://api.github.com/repos/acmesh-official/acme.sh/contents/acme.sh?ref=master" \
@@ -204,9 +210,18 @@ curl -sL -H "Accept: application/vnd.github.raw" \
 chmod +x /config/acme.sh/acme.sh
 ```
 
-DNS 插件脚本可通过插件界面一键下载，无需手动操作。
+DNS 插件脚本同样可通过插件界面一键下载，无需手动操作。
 
 > 插件会自动检测 acme.sh 与 DNS 插件是否存在，缺失时给出明确提示。
+
+### 安装行为说明
+
+| 场景 | 行为 |
+|---|---|
+| 未安装 | 下载主脚本，创建 `acme.sh`、`data`、`dnsapi` 目录结构 |
+| 已安装 | 备份后升级到最新版，成功后删除备份 |
+| 下载内容无效 | 自动回滚到原有版本，不会破坏正在使用的 acme.sh |
+| 网络失败 | 返回明确错误提示，原有文件保持不变 |
 
 ## 配置项
 
@@ -279,12 +294,13 @@ acme.sh --cron（内部按 ARI 窗口判断是否需要续期）
 | `/renew` | POST | 立即执行一次续期检查 |
 | `/dnsapi` | POST | 下载 DNS 插件脚本，body 传 `provider` |
 | `/verify` | POST | 检测配置，body 可选覆盖 `domain`、`dns_provider`、`dns_key`、`dns_secret` |
+| `/install` | POST | 一键安装或升级 acme.sh |
 
 ## 故障排查
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| 提示 `acme.sh 不存在` | 未安装 acme.sh | 按上文前置条件安装 |
+| 提示 `acme.sh 不存在` | 未安装 acme.sh | 点击配置页「一键安装 / 升级 acme.sh」按钮 |
 | 提示 `缺少 DNS 插件` | 未下载对应 dnsapi 脚本 | 点击「下载 DNS 插件脚本」 |
 | 提示 `服务商不存在` | 脚本名拼写错误 | 到 acme.sh 仓库确认正确脚本名 |
 | 检测提示凭据无效 | 凭据错误或无权限 | 核对凭据，确认该凭据有域名 DNS 权限 |

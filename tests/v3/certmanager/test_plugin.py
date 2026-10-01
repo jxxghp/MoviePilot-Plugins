@@ -30,7 +30,7 @@ def test_plugin_metadata() -> None:
     """插件元数据应与市场索引保持一致。"""
     plugin = _make_plugin()
     assert plugin.plugin_name == "证书管理"
-    assert plugin.plugin_version == "1.2.3"
+    assert plugin.plugin_version == "1.3.0"
     assert plugin.plugin_config_prefix == "certmanager_"
     assert plugin.auth_level == 1
 
@@ -1122,3 +1122,160 @@ def test_collect_status_formats_times(tmp_path: Path) -> None:
     # 不应残留英文月份或 GMT 字样
     assert "GMT" not in status["not_before"]
     assert "Sep" not in status["not_before"]
+
+
+def test_install_acme_creates_directories(tmp_path: Path) -> None:
+    """全新安装应创建 acme.sh、data、dnsapi 目录结构。"""
+    acme_home = tmp_path / "acme"
+    plugin = _make_plugin()
+    plugin._acme_home = str(acme_home)
+    plugin._notify = False
+
+    def fake_run(command, env=None, cwd=None):
+        # 版本查询调用不含 -o，直接返回版本号
+        if "-o" not in command:
+            return "v3.1.6"
+        # 模拟 curl 成功写入有效脚本
+        target = Path(command[command.index("-o") + 1])
+        target.write_text("#!/usr/bin/env sh\nVER=3.1.6\n", encoding="utf-8")
+        return ""
+
+    with patch.object(plugin, "_run_command", side_effect=fake_run):
+        ok, message = plugin.install_acme()
+
+    assert ok is True
+    assert "安装成功" in message
+    assert (acme_home / "data").is_dir()
+    assert (acme_home / "dnsapi").is_dir()
+    assert (acme_home / "acme.sh").is_file()
+
+
+def test_install_acme_reports_upgrade_when_exists(tmp_path: Path) -> None:
+    """已安装时应报告升级而非安装。"""
+    acme_home = tmp_path / "acme"
+    acme_home.mkdir()
+    (acme_home / "acme.sh").write_text("#!/usr/bin/env sh\nVER=3.0.0\n", encoding="utf-8")
+
+    plugin = _make_plugin()
+    plugin._acme_home = str(acme_home)
+    plugin._notify = False
+
+    def fake_run(command, env=None, cwd=None):
+        if "-o" not in command:
+            return "v3.1.6"
+        target = Path(command[command.index("-o") + 1])
+        target.write_text("#!/usr/bin/env sh\nVER=3.1.6\n", encoding="utf-8")
+        return ""
+
+    with patch.object(plugin, "_run_command", side_effect=fake_run):
+        ok, message = plugin.install_acme()
+
+    assert ok is True
+    assert "升级成功" in message
+
+
+def test_install_acme_rolls_back_on_invalid_download(tmp_path: Path) -> None:
+    """下载内容无效时应回滚，保留原有 acme.sh。"""
+    acme_home = tmp_path / "acme"
+    acme_home.mkdir()
+    original = "#!/usr/bin/env sh\nVER=3.0.0\n# original\n"
+    (acme_home / "acme.sh").write_text(original, encoding="utf-8")
+
+    plugin = _make_plugin()
+    plugin._acme_home = str(acme_home)
+
+    def fake_run(command, env=None, cwd=None):
+        # 模拟 GitHub API 返回 JSON 错误体
+        target = Path(command[command.index("-o") + 1])
+        target.write_text('{"message": "Not Found"}', encoding="utf-8")
+        return ""
+
+    with patch.object(plugin, "_run_command", side_effect=fake_run):
+        ok, message = plugin.install_acme()
+
+    assert ok is False
+    assert "回滚" in message
+    assert (acme_home / "acme.sh").read_text(encoding="utf-8") == original
+    assert not (acme_home / "acme.sh.bak").exists()
+
+
+def test_install_acme_removes_file_when_fresh_install_fails(tmp_path: Path) -> None:
+    """全新安装失败时不应留下无效文件。"""
+    acme_home = tmp_path / "acme"
+    plugin = _make_plugin()
+    plugin._acme_home = str(acme_home)
+
+    def fake_run(command, env=None, cwd=None):
+        target = Path(command[command.index("-o") + 1])
+        target.write_text('{"message": "Not Found"}', encoding="utf-8")
+        return ""
+
+    with patch.object(plugin, "_run_command", side_effect=fake_run):
+        ok, _ = plugin.install_acme()
+
+    assert ok is False
+    assert not (acme_home / "acme.sh").exists()
+
+
+def test_install_acme_reports_network_failure(tmp_path: Path) -> None:
+    """下载命令失败时应返回网络错误提示。"""
+    plugin = _make_plugin()
+    plugin._acme_home = str(tmp_path / "acme")
+
+    with patch.object(plugin, "_run_command", return_value=None):
+        ok, message = plugin.install_acme()
+
+    assert ok is False
+    assert "网络" in message
+
+
+def test_is_valid_acme_script_rejects_json(tmp_path: Path) -> None:
+    """GitHub API 的 JSON 错误体不应被当作有效脚本。"""
+    bad = tmp_path / "bad.sh"
+    bad.write_text('{"message": "Not Found"}', encoding="utf-8")
+
+    assert CertManager._is_valid_acme_script(bad) is False
+
+
+def test_is_valid_acme_script_rejects_empty(tmp_path: Path) -> None:
+    """空文件不应被当作有效脚本。"""
+    empty = tmp_path / "empty.sh"
+    empty.write_text("", encoding="utf-8")
+
+    assert CertManager._is_valid_acme_script(empty) is False
+
+
+def test_is_valid_acme_script_accepts_real_script(tmp_path: Path) -> None:
+    """含 shebang 与版本声明的脚本应被接受。"""
+    good = tmp_path / "acme.sh"
+    good.write_text("#!/usr/bin/env sh\n\nVER=3.1.6\n", encoding="utf-8")
+
+    assert CertManager._is_valid_acme_script(good) is True
+
+
+def test_acme_version_extracts_number(tmp_path: Path) -> None:
+    """应从 --version 输出中提取版本号。"""
+    plugin = _make_plugin()
+    plugin._acme_home = str(tmp_path)
+
+    with patch.object(
+        plugin,
+        "_run_command",
+        return_value="https://github.com/acmesh-official/acme.sh\nv3.1.6",
+    ):
+        version = plugin._acme_version(tmp_path / "acme.sh")
+
+    assert version == "v3.1.6"
+
+
+def test_api_install_acme_returns_result() -> None:
+    """安装接口应返回 install_acme 的结果。"""
+    plugin = _make_plugin()
+
+    with patch.object(
+        plugin, "install_acme", return_value=(True, "acme.sh 安装成功")
+    ):
+        result = plugin.api_install_acme()
+
+    assert result["success"] is True
+    assert "安装成功" in result["message"]

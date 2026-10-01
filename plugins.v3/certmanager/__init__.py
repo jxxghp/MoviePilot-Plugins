@@ -34,9 +34,9 @@ class CertManager(_PluginBase):
     # 插件描述
     plugin_desc = "手动部署证书、自动申请证书并自动续期，自动重载 nginx。"
     # 插件图标
-    plugin_icon = "certmanager.png"
+    plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/ssl.png"
     # 插件版本
-    plugin_version = "1.2.3"
+    plugin_version = "1.3.0"
     # 插件作者
     plugin_author = "LLL001a"
     # 作者主页
@@ -141,6 +141,12 @@ class CertManager(_PluginBase):
         "https://api.github.com/repos/acmesh-official/acme.sh/contents/dnsapi/{name}.sh"
     )
 
+    # acme.sh 主脚本下载地址。使用 GitHub API 而非 get.acme.sh，
+    # 因为后者在部分网络环境下会被重置。
+    _ACME_RAW_URL = (
+        "https://api.github.com/repos/acmesh-official/acme.sh/contents/acme.sh"
+    )
+
     def init_plugin(self, config: Optional[Dict[str, Any]] = None) -> None:
         """根据插件配置初始化运行状态。"""
         if config:
@@ -226,6 +232,13 @@ class CertManager(_PluginBase):
                 "methods": ["POST"],
                 "auth": "bear",
                 "summary": "检测配置是否正确、服务商是否连通",
+            },
+            {
+                "path": "/install",
+                "endpoint": self.api_install_acme,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "一键安装或升级 acme.sh",
             },
         ]
 
@@ -351,6 +364,61 @@ class CertManager(_PluginBase):
                                     }
                                 ],
                             },
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VBtn",
+                                        "props": {
+                                            "color": "primary",
+                                            "variant": "flat",
+                                            "block": True,
+                                            "prepend-icon": "mdi-download-box",
+                                            "onclick": "function(e) { "
+                                            "if (!confirm('将从 acme.sh 官方仓库下载并"
+                                            "安装到指定目录，已安装时执行升级。是否继续？')) "
+                                            "return; "
+                                            "window.MoviePilotAPI.post("
+                                            "'plugin/CertManager/install', {})"
+                                            ".then(function(r) { "
+                                            "alert(r && r.message ? r.message "
+                                            ": '安装完成') })"
+                                            ".catch(function(err) { "
+                                            "console.error(err); "
+                                            "alert('安装失败，请查看日志') }) }",
+                                        },
+                                        "text": "一键安装 / 升级 acme.sh",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "info",
+                                            "variant": "tonal",
+                                            "text": "acme.sh 是申请证书所需的命令行工具。"
+                                            "点击上方按钮即可自动下载安装，"
+                                            "无需手动执行命令；已安装时会升级到最新版，"
+                                            "原有账号与证书配置会保留。",
+                                        },
+                                    }
+                                ],
+                            }
                         ],
                     },
                     {
@@ -1117,6 +1185,11 @@ class CertManager(_PluginBase):
         dns_secret = str(payload.get("dns_secret") or self._dns_secret).strip()
         return self.verify_config(domain, provider, dns_key, dns_secret)
 
+    def api_install_acme(self) -> Dict[str, Any]:
+        """一键安装或升级 acme.sh。"""
+        ok, message = self.install_acme()
+        return {"success": ok, "message": message}
+
     def api_renew(self) -> Dict[str, Any]:
         """立即执行一次续期检查。"""
         self.renew_cert()
@@ -1285,6 +1358,128 @@ class CertManager(_PluginBase):
         target.chmod(0o755)
         logger.info(f"已下载 DNS 插件脚本：{target}")
         return True, f"已下载 {provider}.sh 到 {dnsapi_dir}"
+
+    def install_acme(self) -> Tuple[bool, str]:
+        """
+        一键安装或升级 acme.sh
+
+        从 acme.sh 官方仓库下载主脚本并初始化目录结构。已安装时执行升级，
+        保留原有账号与证书配置。
+
+        :return: (是否成功, 结果说明)
+        """
+        acme_home = Path(self._acme_home)
+        acme_bin = acme_home / "acme.sh"
+        existed = acme_bin.is_file()
+
+        try:
+            (acme_home / "data").mkdir(parents=True, exist_ok=True)
+            (acme_home / "dnsapi").mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            return False, f"创建 acme.sh 目录失败：{error}"
+
+        # 升级前备份，下载失败时可回滚，避免破坏正在使用的 acme.sh
+        backup = acme_home / "acme.sh.bak"
+        if existed:
+            try:
+                shutil.copy2(acme_bin, backup)
+            except OSError as error:
+                logger.warning(f"备份 acme.sh 失败，继续安装：{error}")
+
+        command = [
+            "curl",
+            "-sSL",
+            "--max-time",
+            "120",
+            "-H",
+            "Accept: application/vnd.github.raw",
+            self._ACME_RAW_URL,
+            "-o",
+            str(acme_bin),
+        ]
+        output = self._run_command(command)
+        if output is None:
+            self._restore_acme_backup(backup, acme_bin, existed)
+            return False, "下载失败，请检查网络连接"
+
+        if not self._is_valid_acme_script(acme_bin):
+            self._restore_acme_backup(backup, acme_bin, existed)
+            return False, "下载的 acme.sh 内容无效，已回滚"
+
+        try:
+            acme_bin.chmod(0o755)
+        except OSError as error:
+            self._restore_acme_backup(backup, acme_bin, existed)
+            return False, f"设置执行权限失败：{error}"
+
+        version = self._acme_version(acme_bin)
+        backup.unlink(missing_ok=True)
+
+        action = "升级" if existed else "安装"
+        logger.info(f"acme.sh {action}成功，版本：{version or '未知'}")
+        if self._notify:
+            self.post_message(
+                mtype=MessageType.Plugin,
+                title=f"【证书管理】acme.sh {action}成功",
+                text=f"acme.sh 已{action}到 {acme_home}，版本：{version or '未知'}。",
+            )
+        return True, f"acme.sh {action}成功，版本：{version or '未知'}"
+
+    @staticmethod
+    def _is_valid_acme_script(path: Path) -> bool:
+        """
+        判断下载内容是否为有效的 acme.sh 脚本
+
+        GitHub API 在路径不存在时会返回 JSON 错误体，需要识别并拒绝。
+
+        :param path: 待检查的文件路径
+        :return: 是否为有效脚本
+        """
+        if not path.is_file() or path.stat().st_size == 0:
+            return False
+        try:
+            head = path.read_text(encoding="utf-8", errors="ignore")[:500]
+        except OSError:
+            return False
+        if head.lstrip().startswith("{"):
+            return False
+        # 有效脚本应包含 shebang 与版本声明
+        return head.startswith("#!") and "VER=" in head
+
+    @staticmethod
+    def _restore_acme_backup(backup: Path, target: Path, existed: bool) -> None:
+        """
+        安装失败时恢复原有 acme.sh
+
+        :param backup: 备份文件路径
+        :param target: acme.sh 目标路径
+        :param existed: 安装前是否已存在
+        """
+        if existed and backup.is_file():
+            try:
+                shutil.copy2(backup, target)
+                backup.unlink(missing_ok=True)
+                logger.info("已恢复原有 acme.sh")
+            except OSError as error:
+                logger.error(f"恢复 acme.sh 失败：{error}")
+        elif not existed:
+            target.unlink(missing_ok=True)
+
+    def _acme_version(self, acme_bin: Path) -> str:
+        """
+        读取 acme.sh 版本号
+
+        :param acme_bin: acme.sh 可执行文件路径
+        :return: 版本号，读取失败时返回空字符串
+        """
+        env = self._acme_env(self._dns_provider, "", "")
+        output = self._run_command(
+            [str(acme_bin), "--version"], env=env, cwd=self._acme_home
+        )
+        if not output:
+            return ""
+        match = re.search(r"v?\d+\.\d+\.\d+", output)
+        return match.group(0) if match else ""
 
     def verify_config(
         self,
