@@ -138,8 +138,14 @@ class Pt52(_ISiteSigninHandler):
         sign_status = self.sign_in_result(html_res=sign_res.text,
                                           regexs=self._success_regex)
         if sign_status:
-            logger.info(f"{site} 签到成功")
-            return True, '签到成功'
+            # 答题页面的奖励说明也包含“点魔力值”，回读已签到提示才能确认完成。
+            checked_page = self.get_page_source(url='https://52pt.site/bakatest.php',
+                                                cookie=site_cookie, ua=ua, proxy=proxy,
+                                                render=False, timeout=timeout)
+            if self.sign_in_result(checked_page, self._sign_regex):
+                logger.info(f"{site} 签到成功")
+                return True, '签到成功'
+            return False, '签到失败，未确认签到结果'
         else:
             sign_status = self.sign_in_result(html_res=sign_res.text,
                                               regexs=self._sign_regex)

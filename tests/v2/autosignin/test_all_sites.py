@@ -5,8 +5,8 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-
 from app.plugins.autosignin import AutoSignIn
+from app.plugins.autosignin.result import SiteResult
 
 
 @pytest.fixture
@@ -26,8 +26,8 @@ def plugin(monkeypatch):
     instance._clean = False
     instance._retry_keyword = "失败"
     instance._auto_cf = 0
-    monkeypatch.setattr(instance, "signin_site", Mock(side_effect=lambda site: (site["name"], "签到成功")))
-    monkeypatch.setattr(instance, "login_site", Mock(side_effect=lambda site: (site["name"], "登录成功")))
+    monkeypatch.setattr(instance, "signin_site", Mock(side_effect=lambda site: SiteResult(site["name"], "签到成功", True)))
+    monkeypatch.setattr(instance, "login_site", Mock(side_effect=lambda site: SiteResult(site["name"], "登录成功", True)))
     return instance
 
 
@@ -74,7 +74,10 @@ def test_all_expands_each_run_and_records_real_ids(plugin, monkeypatch, type_str
     calls = getattr(plugin, method).call_args_list
     assert Counter(call.args[0]["id"] for call in calls) == Counter([1, "custom"])
     history = next(call.kwargs["value"] for call in plugin.save_data.call_args_list if call.kwargs.get("key") == key)
-    assert history == {"do": [1, "custom"], "retry": [1, "custom"] if retry_keyword is None else []}
+    assert history == {
+        "do": [1, "custom"], "retry": [1, "custom"] if retry_keyword is None else [],
+        "results": {str(site_id): {"success": True, "message": f"{type_str}成功"} for site_id in [1, "custom"]},
+    }
     assert f"全部{type_str}数量: 2" in plugin.post_message.call_args.kwargs["text"]
     assert plugin.update_config.call_args.args[0]["sign_sites"] == ["all"]
     plugin.get_data.side_effect = lambda key=None: history if key == type_str + "-" + today.strftime("%Y-%m-%d") else None

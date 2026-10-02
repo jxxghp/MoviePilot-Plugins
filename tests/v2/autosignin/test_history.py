@@ -6,8 +6,8 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-
 from app.plugins.autosignin import AutoSignIn
+from app.plugins.autosignin.result import SiteResult
 
 
 @pytest.fixture
@@ -37,8 +37,8 @@ def history_plugin(monkeypatch):
         get_indexers=lambda: [{"id": 1, "name": "签到站"}, {"id": 2, "name": "登录站"}]))
     monkeypatch.setattr("app.plugins.autosignin.SiteOper", lambda: SimpleNamespace(
         list_order_by_pri=lambda: []))
-    monkeypatch.setattr(plugin, "signin_site", Mock(return_value=("签到站", "签到成功")))
-    monkeypatch.setattr(plugin, "login_site", Mock(return_value=("登录站", "模拟登录成功")))
+    monkeypatch.setattr(plugin, "signin_site", Mock(return_value=SiteResult("签到站", "签到成功", True)))
+    monkeypatch.setattr(plugin, "login_site", Mock(return_value=SiteResult("登录站", "模拟登录成功", True)))
     plugin._sign_sites = [1]
     plugin._login_sites = [2]
     plugin._notify = False
@@ -51,11 +51,11 @@ def history_plugin(monkeypatch):
 def day_records(day):
     """构造同一天的签到、登录状态与共享明细。"""
     return {
-        f"签到-{day:%Y-%m-%d}": {"do": [1], "retry": []},
-        f"登录-{day:%Y-%m-%d}": {"do": [2], "retry": []},
+        f"签到-{day:%Y-%m-%d}": {"do": [1], "retry": [], "results": {"1": {"success": True, "message": "签到成功"}}},
+        f"登录-{day:%Y-%m-%d}": {"do": [2], "retry": [], "results": {"2": {"success": True, "message": "模拟登录成功"}}},
         f"{day.month}月{day.day}日": [
-            {"site": "签到站", "status": "签到成功"},
-            {"site": "登录站", "status": "模拟登录成功"},
+            {"site": "签到站", "status": "签到成功", "site_id": 1, "type": "签到", "success": True},
+            {"site": "登录站", "status": "模拟登录成功", "site_id": 2, "type": "登录", "success": True},
         ],
     }
 
@@ -113,7 +113,7 @@ def test_daily_execution_retains_fourteen_days_and_renders_matrix(history_plugin
         day = today - timedelta(days=age)
         label = f"{day.month}月{day.day}日"
         assert [node["props"]["title"] for node in dots if node["props"]["title"].startswith(label + " ")] == [
-            f"{label} 已签到", f"{label} 登录成功",
+            f"{label} 签到成功", f"{label} 模拟登录成功",
         ]
     assert any(node.get("text") == "14天" for node in nodes)
 
@@ -128,13 +128,15 @@ def test_retry_and_forced_run_preserve_previous_days(history_plugin, type_str, s
     storage.update(deepcopy(yesterday))
     task = getattr(plugin, method)
     site_name = task.return_value[0]
-    task.side_effect = [(site_name, "请求失败"), task.return_value, task.return_value]
+    task.side_effect = [SiteResult(site_name, "请求失败", False), task.return_value, task.return_value]
     key = f"{type_str}-{today:%Y-%m-%d}"
 
     plugin._AutoSignIn__do(today, type_str, [site_id])
-    assert storage[key] == {"do": [site_id], "retry": [site_id]}
+    assert storage[key] == {"do": [site_id], "retry": [site_id],
+                            "results": {str(site_id): {"success": False, "message": "请求失败"}}}
     plugin._AutoSignIn__do(today, type_str, [site_id])
-    assert storage[key] == {"do": [site_id], "retry": []}
+    assert storage[key] == {"do": [site_id], "retry": [],
+                            "results": {str(site_id): {"success": True, "message": task.return_value.message}}}
     plugin._AutoSignIn__do(today, type_str, [site_id])
     assert task.call_count == 2
     plugin._clean = True
@@ -142,3 +144,89 @@ def test_retry_and_forced_run_preserve_previous_days(history_plugin, type_str, s
     assert task.call_count == 3
     assert plugin._clean is False
     assert {key: storage[key] for key in yesterday} == yesterday
+
+
+@pytest.mark.parametrize("retry_keyword", ["超时", None])
+def test_failed_result_is_retried_and_never_rendered_as_success(history_plugin, monkeypatch, retry_keyword):
+    """失败未命中关键词也必须重试，通知、历史和详情页均保持失败。"""
+    plugin, storage, clock = history_plugin
+    today = datetime(2026, 10, 2)
+    clock.now.return_value = today
+    plugin._notify = True
+    plugin._retry_keyword = retry_keyword
+    notify = Mock()
+    monkeypatch.setattr(plugin, "post_message", notify)
+    plugin.signin_site.return_value = SiteResult("签到站", "签到失败，未确认签到结果", False)
+
+    plugin._AutoSignIn__do(today, "签到", [1])
+
+    assert storage["签到-2026-10-02"]["retry"] == [1]
+    text = notify.call_args.kwargs["text"]
+    assert "未确认签到结果" in text and "签到成功" not in text and "下次签到数量: 1" in text
+    nodes = list(page_nodes(plugin.get_page()))
+    dots = [node for node in nodes if node.get("props", {}).get("title", "").startswith("10月2日 ")]
+    assert any(node["props"].get("class", "").endswith("--error") for node in dots)
+    assert not any(node["props"].get("class", "").endswith("--success") for node in dots)
+    plugin._AutoSignIn__do(today, "签到", [1])
+    assert plugin.signin_site.call_count == 2
+
+
+def test_old_attempt_without_evidence_is_rechecked(history_plugin):
+    """升级后的当日旧 do 记录可能是假成功，缺少明确结果时重新执行。"""
+    plugin, storage, clock = history_plugin
+    today = datetime(2026, 10, 2)
+    clock.now.return_value = today
+    storage["签到-2026-10-02"] = {"do": [1], "retry": []}
+    plugin._AutoSignIn__do(today, "签到", [1])
+    plugin.signin_site.assert_called_once()
+    assert storage["签到-2026-10-02"]["results"]["1"]["success"] is True
+
+
+@pytest.mark.parametrize("detail", [None, "签到失败，验证码错误", "仿真签到成功", "签到成功"])
+def test_legacy_history_does_not_invent_success(history_plugin, detail):
+    """旧 do 不能覆盖失败明细；没有明细或仅有仿真登录证据时也不能显示签到成功。"""
+    plugin, storage, clock = history_plugin
+    clock.now.return_value = datetime(2026, 10, 2)
+    storage["签到-2026-10-02"] = {"do": [1], "retry": []}
+    if detail:
+        storage["10月2日"] = [{"site": "签到站", "status": detail}]
+    nodes = list(page_nodes(plugin.get_page()))
+    dots = [node for node in nodes if node.get("props", {}).get("title", "").startswith("10月2日 ")]
+    assert not any(node["props"].get("class", "").endswith("--success") for node in dots)
+
+
+def test_login_only_result_is_not_counted_as_signin(history_plugin):
+    """仅模拟登录的站点可以完成访问任务，但不能在签到矩阵中显示绿色签到成功。"""
+    plugin, _storage, clock = history_plugin
+    today = datetime(2026, 10, 2)
+    clock.now.return_value = today
+    plugin.signin_site.return_value = SiteResult("签到站", "模拟登录成功", True)
+    plugin._AutoSignIn__do(today, "签到", [1])
+    nodes = list(page_nodes(plugin.get_page()))
+    dots = [node for node in nodes if "未执行签到" in node.get("props", {}).get("title", "")]
+    assert dots and all(node["props"]["class"].endswith("--warning") for node in dots)
+
+
+def test_retry_preserves_other_site_results_and_uses_real_ids(history_plugin, monkeypatch):
+    """同名站点、自定义站点按 ID 分别记录；仅重试失败项时保留其他站点成功证据。"""
+    plugin, storage, clock = history_plugin
+    today = datetime(2026, 10, 2)
+    clock.now.return_value = today
+    sites = [{"id": 1, "name": "同名"}, {"id": 2, "name": "同名"}]
+    monkeypatch.setattr("app.plugins.autosignin.SitesHelper", lambda: SimpleNamespace(get_indexers=lambda: sites))
+    monkeypatch.setattr(plugin, "_AutoSignIn__custom_sites", lambda: [{"id": "custom", "name": "自定义"}])
+    plugin._retry_keyword = "超时"
+    plugin.signin_site.side_effect = lambda site: SiteResult(
+        site["name"], "签到成功" if site["id"] == 1 else "签到失败", site["id"] == 1)
+    plugin._AutoSignIn__do(today, "签到", [1, 2, "custom"])
+    assert storage["签到-2026-10-02"]["retry"] == [2, "custom"]
+    nodes = list(page_nodes(plugin.get_page()))
+    assert any(node.get("text") == "同名（1）" for node in nodes)
+    assert any(node.get("text") == "同名（2）" for node in nodes)
+    plugin.signin_site.reset_mock()
+    plugin.signin_site.side_effect = lambda site: SiteResult(site["name"], "签到成功", True)
+    plugin._AutoSignIn__do(today, "签到", [1, 2, "custom"])
+    assert {call.args[0]["id"] for call in plugin.signin_site.call_args_list} == {2, "custom"}
+    history = storage["签到-2026-10-02"]
+    assert history["retry"] == []
+    assert all(history["results"][site_id]["success"] for site_id in ("1", "2", "custom"))

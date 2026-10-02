@@ -43,7 +43,7 @@ class YemaPT(_ISiteSigninHandler):
                             referer=site_info.get('url')
                             ).get_res(urljoin(site_info.get('url'), "api/consumer/checkIn")))
 
-        if res and res.json().get("success"):
+        if res is not None and res.status_code == 200 and res.json().get("success") is True:
             return True, "签到成功"
         elif res is not None:
             return False, f"签到失败，签到结果：{res.json().get('errorMessage')}"
@@ -70,7 +70,7 @@ class YemaPT(_ISiteSigninHandler):
                             referer=site_info.get('url')
                             ).get_res(urljoin(site_info.get('url'), "api/user/profile")))
 
-        if res and res.json().get("success"):
+        if res is not None and res.status_code == 200 and res.json().get("success") is True:
             return True, "模拟登录成功"
         elif res is not None:
             return False, f"模拟登录失败，状态码：{res.status_code}"

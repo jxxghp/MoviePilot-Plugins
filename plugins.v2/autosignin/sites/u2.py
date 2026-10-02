@@ -36,13 +36,22 @@ class U2(_ISiteSigninHandler):
 
     @classmethod
     def _is_success_response(cls, response_text: str) -> bool:
-        """判断 U2 签到响应是否跳转回签到页，兼容相对和绝对 URL。"""
+        """识别需要回读的签到页跳转；跳转本身不作为签到成功凭据。"""
         match = cls._success_redirect_regex.search(response_text)
         if not match:
             return False
 
         target = urlparse(urljoin("https://u2.dmhy.org/showup.php", match.group(1)))
         return target.netloc.casefold() == cls.site_url and target.path == "/showup.php"
+
+    @classmethod
+    def _has_signed_state(cls, html_text: str) -> bool:
+        """已登录且显示完成状态时确认签到，仍含答题参数的页面不能确认。"""
+        if not html_text or not SiteUtils.is_logged_in(html_text):
+            return False
+        html = etree.HTML(html_text)
+        return (not html.xpath('//input[@name="req"] | //form[contains(@action, "showup.php")]')
+                and cls.sign_in_result(html_text, cls._sign_regex))
 
     @classmethod
     def match(cls, url: str) -> bool:
@@ -89,8 +98,7 @@ class U2(_ISiteSigninHandler):
             return False, '签到失败，Cookie已失效'
 
         # 判断是否已签到
-        sign_status = self.sign_in_result(html_res=html_text,
-                                          regexs=self._sign_regex)
+        sign_status = self._has_signed_state(html_text)
         if sign_status:
             logger.info(f"{site} 今日已签到")
             return True, '今日已签到'
@@ -144,10 +152,13 @@ class U2(_ISiteSigninHandler):
             logger.error(f"{site} 签到失败，签到接口请求失败")
             return False, '签到失败，签到接口请求失败'
 
-        # U2 可能返回相对或绝对跳转地址，统一按最终签到页判断成功。
+        # 相对或绝对跳转只表示提交结束，回读站点确认签到状态已经改变。
         if self._is_success_response(sign_res.text):
-            logger.info(f"{site} 签到成功")
-            return True, '签到成功'
-        else:
-            logger.error(f"{site} 签到失败，未知原因")
-            return False, '签到失败，未知原因'
+            checked_page = self.get_page_source(url="https://u2.dmhy.org/showup.php",
+                                                cookie=site_cookie, ua=ua, proxy=proxy,
+                                                render=render, timeout=timeout)
+            if self._has_signed_state(checked_page):
+                logger.info(f"{site} 签到成功")
+                return True, '签到成功'
+        logger.error(f"{site} 签到失败，未确认签到结果")
+        return False, '签到失败，未确认签到结果'

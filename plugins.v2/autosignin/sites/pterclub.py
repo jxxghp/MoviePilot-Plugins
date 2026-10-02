@@ -4,6 +4,7 @@ from typing import Tuple
 from ruamel.yaml import CommentedMap
 
 from app.log import logger
+from app.plugins.autosignin.result import has_signin_evidence
 from app.plugins.autosignin.sites import _ISiteSigninHandler
 from app.utils.string import StringUtils
 
@@ -56,12 +57,13 @@ class PTerClub(_ISiteSigninHandler):
         except Exception as e:
             logger.error(f"{site} 签到失败，签到接口返回数据异常，错误信息：{str(e)}")
             return False, '签到失败，签到接口返回数据异常'
-        if sign_dict['status'] == '1':
+        if sign_dict.get('status') == '1':
             # {"status":"1","data":" (签到已成功300)","message":"<p>这是您的第<b>237</b>次签到，
             # 已连续签到<b>237</b>天。</p><p>本次签到获得<b>300</b>克猫粮。</p>"}
             logger.info(f"{site} 签到成功")
             return True, '签到成功'
-        else:
+        if sign_dict.get('status') == '0' and has_signin_evidence(sign_dict.get('message')):
             # {"status":"0","data":"抱歉","message":"您今天已经签到过了，请勿重复刷新。"}
             logger.info(f"{site} 今日已签到")
             return True, '今日已签到'
+        return False, '签到失败，签到接口未返回明确的成功或重复签到结果'

@@ -88,10 +88,10 @@ class TTG(_ISiteSigninHandler):
             return False, '签到失败，签到接口请求失败'
 
         sign_res.encoding = "utf-8"
-        if self._success_text in sign_res.text:
+        if self.sign_in_result(sign_res.text, [self._success_text]):
             logger.info(f"{site} 签到成功")
             return True, '签到成功'
-        if self._sign_text in sign_res.text:
+        if self.sign_in_result(sign_res.text, [self._sign_text]):
             logger.info(f"{site} 今日已签到")
             return True, '今日已签到'
 

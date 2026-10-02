@@ -4,11 +4,13 @@ from abc import ABCMeta, abstractmethod
 from typing import Tuple
 
 import chardet
+from lxml import etree
 from ruamel.yaml import CommentedMap
 
 from app.core.config import settings
 from app.helper.browser import PlaywrightHelper
 from app.log import logger
+from app.plugins.autosignin.result import visible_html
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
 
@@ -75,7 +77,7 @@ class _ISiteSigninHandler(metaclass=ABCMeta):
             res = RequestUtils(headers=headers,
                                proxies=settings.PROXY if proxy else None,
                                timeout=timeout or 20).get_res(url=url)
-            if res is not None:
+            if res is not None and res.status_code == 200:
                 # 使用chardet检测字符编码
                 raw_data = res.content
                 if raw_data:
@@ -94,10 +96,16 @@ class _ISiteSigninHandler(metaclass=ABCMeta):
     @staticmethod
     def sign_in_result(html_res: str, regexs: list) -> bool:
         """
-        判断是否签到成功
+        仅匹配可见页面中的签到结果，脚本和隐藏模板里的文案不代表已执行。
         """
-        html_text = re.sub(r"#\d+", "", re.sub(r"\d+px", "", html_res))
+        html_text = re.sub(r"#\d+", "", re.sub(r"\d+px", "", visible_html(html_res)))
+        document = etree.HTML(html_text)
+        text = "".join(document.itertext()) if document is not None else ""
+        if re.search(r"(?:签到|簽到)(?:失败|失敗|未成功)|(?:未|没有|沒有)(?:签到|簽到)成功", text):
+            return False
         for regex in regexs:
-            if re.search(str(regex), html_text):
+            # 纯文案只查正文，不能命中 onclick/title 等属性里的成功提示。
+            target = html_text if "<" in regex or "value=" in regex else text
+            if re.search(str(regex), target):
                 return True
         return False
