@@ -7,7 +7,11 @@ from unittest.mock import Mock
 
 import pytest
 from app.plugins.autosignin import AutoSignIn
-from app.plugins.autosignin.result import has_signin_evidence
+from app.plugins.autosignin.result import (
+    SiteResult,
+    has_login_evidence,
+    has_signin_evidence,
+)
 from app.plugins.autosignin.sites import _ISiteSigninHandler
 from app.plugins.autosignin.sites.btschool import BTSchool
 from app.plugins.autosignin.sites.hares import Hares
@@ -64,9 +68,13 @@ def test_generic_requires_signin_evidence(monkeypatch, render, page):
     browser = Mock(return_value=SimpleNamespace(get_page_source=Mock(return_value=page)))
     monkeypatch.setattr("app.plugins.autosignin.RequestUtils", requests)
     monkeypatch.setattr("app.plugins.autosignin.PlaywrightHelper", browser)
-    success, message = AutoSignIn._AutoSignIn__signin_base(site_info(render=render))
-    assert success is False
-    assert "失败" in message
+    result = AutoSignIn._AutoSignIn__signin_base(site_info(render=render))
+    assert result.success is False
+    assert result.logged_in is (_LOGIN in page)
+    if result.logged_in:
+        assert result.message == "登录成功，签到未确认"
+    else:
+        assert "失败" in result.message
 
 
 @pytest.mark.parametrize("render", [False, True])
@@ -87,16 +95,176 @@ def test_generic_preserves_confirmed_results(monkeypatch, render, page):
         get_res=Mock(return_value=response(page)))))
     monkeypatch.setattr("app.plugins.autosignin.PlaywrightHelper", Mock(return_value=SimpleNamespace(
         get_page_source=Mock(return_value=page))))
-    assert AutoSignIn._AutoSignIn__signin_base(site_info(render=render)) == (True, "签到成功")
+    assert AutoSignIn._AutoSignIn__signin_base(site_info(render=render)) == SiteResult("测试站", "签到成功", True, True)
 
 
 @pytest.mark.parametrize("status", [302, 403, 404, 500])
-def test_http_error_does_not_fall_back_to_logged_in_homepage(monkeypatch, status):
-    """HTTP 错误中即使有登录导航和成功文案，也不能通过回退首页确认签到。"""
+def test_http_error_falls_back_to_login_without_claiming_signin(monkeypatch, status):
+    """签到接口错误时访问首页保号，首页登录成功仍不能冒充签到完成。"""
+    plugin = object.__new__(AutoSignIn)
+    plugin._site_schema = []
+    stats = SimpleNamespace(success=Mock(), fail=Mock())
+    monkeypatch.setattr("app.plugins.autosignin.SiteOper", Mock(return_value=stats))
     request = SimpleNamespace(get_res=Mock(side_effect=[response(_SIGNED, status), response(_LOGIN)]))
     monkeypatch.setattr("app.plugins.autosignin.RequestUtils", Mock(return_value=request))
-    assert AutoSignIn._AutoSignIn__signin_base(site_info())[0] is False
-    request.get_res.assert_called_once_with(url="https://pt.example/attendance.php")
+    result = plugin.signin_site(site_info())
+    assert result == SiteResult("测试站", "登录成功，签到未确认", False, True)
+    assert [call.kwargs["url"] for call in request.get_res.call_args_list] == [
+        "https://pt.example/attendance.php", "https://pt.example/",
+    ]
+    stats.success.assert_called_once()
+    stats.fail.assert_not_called()
+
+
+@pytest.mark.parametrize("page", [
+    _LOGIN,
+    '<shark-icon-button href="logout.php">退出</shark-icon-button>',
+    '<button onclick="logout()">退出</button>',
+    '<form action="/signout"><button>退出</button></form>',
+    '<button>退出登录</button>',
+    '<a role="button">Sign out</a>',
+    _LOGIN + '<div hidden><input type="password"></div>',
+])
+def test_visible_user_controls_confirm_login(page):
+    """退出按钮、新版模板及隐藏登录弹窗不应导致已登录站点误判失效。"""
+    assert has_login_evidence(page)
+
+
+@pytest.mark.parametrize("page", [
+    "", '<p>登录成功后可以签到</p>',
+    '<script>const logout = \'<a href="logout.php">退出</a>\';</script>',
+    '<template>' + _LOGIN + '</template>',
+    '<div hidden>' + _LOGIN + '</div>',
+    _LOGIN + '<input type="password">',
+    _LOGIN + '<input type="PASSWORD">',
+])
+def test_public_or_login_pages_do_not_confirm_login(page):
+    """登录页、公开文案、隐藏控件不能用作保号访问成功的证据。"""
+    assert not has_login_evidence(page)
+
+
+@pytest.mark.parametrize("render", [False, True])
+def test_unrecognized_attendance_page_checks_homepage_with_same_options(monkeypatch, render):
+    """签到页不带用户导航时，使用同一 Cookie、UA、代理和超时访问首页确认登录。"""
+    plugin = object.__new__(AutoSignIn)
+    plugin._site_schema = []
+    monkeypatch.setattr("app.plugins.autosignin.SiteOper", Mock())
+    request = SimpleNamespace(get_res=Mock(side_effect=[response("签到页面"), response(_LOGIN)]))
+    browser = SimpleNamespace(get_page_source=Mock(side_effect=["签到页面", _LOGIN]))
+    requests = Mock(return_value=request)
+    monkeypatch.setattr("app.plugins.autosignin.RequestUtils", requests)
+    monkeypatch.setattr("app.plugins.autosignin.PlaywrightHelper", Mock(return_value=browser))
+    monkeypatch.setattr("app.plugins.autosignin.settings", SimpleNamespace(
+        PROXY={"https": "http://proxy.example"}, PROXY_SERVER={"server": "http://proxy.example"}))
+    result = plugin.signin_site(site_info(url="https://pt.example/tracker/attendance.php?action=sign", render=render, proxy=True))
+    assert result == SiteResult("测试站", "登录成功，签到未确认", False, True)
+    getter = browser.get_page_source if render else request.get_res
+    assert getter.call_args.kwargs["url"] == "https://pt.example/tracker/"
+    options = getter.call_args.kwargs if render else requests.call_args.kwargs
+    assert options["cookies"] == "uid=test"
+    assert options["ua"] == "test" and options["timeout"] == 15
+    assert options["proxies"] == ({"server": "http://proxy.example"} if render else {"https": "http://proxy.example"})
+
+
+@pytest.mark.parametrize("render", [False, True])
+def test_confirmed_login_does_not_need_second_request(monkeypatch, render):
+    """签到页已有登录凭据时完成保号访问，不增加首页请求。"""
+    plugin = object.__new__(AutoSignIn)
+    plugin._site_schema = []
+    monkeypatch.setattr("app.plugins.autosignin.SiteOper", Mock())
+    request = SimpleNamespace(get_res=Mock(return_value=response(_LOGIN)))
+    browser = SimpleNamespace(get_page_source=Mock(return_value=_LOGIN))
+    monkeypatch.setattr("app.plugins.autosignin.RequestUtils", Mock(return_value=request))
+    monkeypatch.setattr("app.plugins.autosignin.PlaywrightHelper", Mock(return_value=browser))
+    assert plugin.signin_site(site_info(render=render)).logged_in
+    getter = browser.get_page_source if render else request.get_res
+    getter.assert_called_once()
+
+
+@pytest.mark.parametrize("page, error", [
+    ('<form><input type="password"></form>', "Cookie已失效"),
+    ("维护中", "未识别到登录状态"),
+    ('<html><title>Just a moment...</title><p>Checking your browser</p></html>', "Cloudflare"),
+    ("", "空页面"),
+    ('<template>' + _LOGIN + '</template>', "未识别到登录状态"),
+])
+@pytest.mark.parametrize("render", [False, True])
+def test_login_fallback_must_verify_homepage(monkeypatch, render, page, error):
+    """首页也没有登录凭据时保留失败，不把可访问的公开页面当作保号成功。"""
+    plugin = object.__new__(AutoSignIn)
+    plugin._site_schema = []
+    stats = SimpleNamespace(success=Mock(), fail=Mock())
+    monkeypatch.setattr("app.plugins.autosignin.SiteOper", Mock(return_value=stats))
+    monkeypatch.setattr("app.plugins.autosignin.RequestUtils", Mock(return_value=SimpleNamespace(
+        get_res=Mock(side_effect=[response("", 404), response(page)]))))
+    monkeypatch.setattr("app.plugins.autosignin.PlaywrightHelper", Mock(return_value=SimpleNamespace(
+        get_page_source=Mock(side_effect=["404 Not Found", page]))))
+    result = plugin.signin_site(site_info(render=render))
+    assert not result.success and not result.logged_in and not result.completed
+    assert error in result.message
+    if error != "Cookie已失效":
+        assert "Cookie已失效" not in result.message
+    stats.success.assert_not_called()
+    stats.fail.assert_called_once()
+
+
+@pytest.mark.parametrize("status", [302, 403, 404, 468, 500])
+def test_login_rejects_http_error_even_with_user_navigation(monkeypatch, status):
+    """错误响应中出现退出导航不能证明本次首页访问成功。"""
+    monkeypatch.setattr("app.plugins.autosignin.RequestUtils", Mock(return_value=SimpleNamespace(
+        get_res=Mock(return_value=response(_LOGIN, status)))))
+    assert AutoSignIn._AutoSignIn__login_base(site_info())[0] is False
+
+
+@pytest.mark.parametrize("signin_message", ["签到失败，未确认签到结果", "签到失败，Cookie已失效", "签到失败，验证码错误"])
+def test_dedicated_login_recovers_visit_but_api_keeps_signin_false(monkeypatch, signin_message):
+    """专用签到失败后可用登录接口确认访问，签到 API 分别返回两种状态且统计只累计一次。"""
+    plugin = object.__new__(AutoSignIn)
+    login = Mock(return_value=(True, "模拟登录成功"))
+    handler = Mock(spec=["signin", "login"], return_value=SimpleNamespace(
+        signin=Mock(return_value=(False, signin_message)), login=login))
+    monkeypatch.setattr(plugin, "_AutoSignIn__build_class", Mock(return_value=handler))
+    stats = SimpleNamespace(success=Mock(), fail=Mock())
+    monkeypatch.setattr("app.plugins.autosignin.SiteOper", Mock(return_value=stats))
+    monkeypatch.setattr("app.plugins.autosignin.SitesHelper", Mock(return_value=SimpleNamespace(
+        get_indexer=Mock(return_value=site_info()))))
+    monkeypatch.setattr("app.plugins.autosignin.settings.API_TOKEN", "test")
+    result = plugin.signin_by_domain("https://pt.example/", "test")
+    assert result.success is False
+    assert result.data == {"signin_success": False, "login_success": True}
+    assert "登录成功，签到未确认" in result.message and "失败" not in result.message
+    login.assert_called_once()
+    stats.success.assert_called_once()
+    stats.fail.assert_not_called()
+
+
+def test_login_only_adapter_is_not_signin_success():
+    """馒头等仅模拟登录的适配器明确记录已登录，不能成为签到成功。"""
+    result = AutoSignIn._site_result("馒头", True, "模拟登录成功", "签到")
+    assert result == SiteResult("馒头", "模拟登录成功（未执行签到）", False, True)
+    assert result.completed
+
+
+def test_btschool_unconfirmed_attendance_preserves_login_visit(monkeypatch):
+    """学校适配器没有独立登录接口时，回退首页仍可确认登录保号。"""
+    plugin = object.__new__(AutoSignIn)
+    plugin._site_schema = [BTSchool]
+    monkeypatch.setattr("app.plugins.autosignin.SiteOper", Mock())
+    monkeypatch.setattr(BTSchool, "get_page_source", Mock(return_value=_LOGIN))
+    request = SimpleNamespace(get_res=Mock(return_value=response(_LOGIN)))
+    monkeypatch.setattr("app.plugins.autosignin.RequestUtils", Mock(return_value=request))
+    assert plugin.signin_site(site_info(url="https://pt.btschool.club/")) == SiteResult(
+        "测试站", "登录成功，签到未确认", False, True)
+    request.get_res.assert_called_once_with(url="https://pt.btschool.club/")
+
+
+@pytest.mark.parametrize("url", ["https://pt.example/", "https://pt.example/tracker", "https://pt.example/index.php?view=user"])
+def test_login_preserves_configured_non_attendance_url(monkeypatch, url):
+    """仅去掉签到页面及其查询参数，其他自定义站点入口保持原样。"""
+    request = SimpleNamespace(get_res=Mock(return_value=response(_LOGIN)))
+    monkeypatch.setattr("app.plugins.autosignin.RequestUtils", Mock(return_value=request))
+    assert AutoSignIn._AutoSignIn__login_base(site_info(url=url)) == (True, "模拟登录成功")
+    request.get_res.assert_called_once_with(url=url)
 
 
 @pytest.mark.parametrize("page", [
@@ -246,6 +414,7 @@ def test_result_boolean_reaches_api_and_site_statistics(monkeypatch, state, mess
     plugin = object.__new__(AutoSignIn)
     handler = Mock(return_value=SimpleNamespace(signin=Mock(return_value=(state, message))))
     monkeypatch.setattr(plugin, "_AutoSignIn__build_class", Mock(return_value=handler))
+    monkeypatch.setattr(plugin, "_login_result", Mock(return_value=SiteResult("测试站", "登录失败", False)))
     stats = SimpleNamespace(success=Mock(), fail=Mock())
     monkeypatch.setattr("app.plugins.autosignin.SiteOper", Mock(return_value=stats))
     monkeypatch.setattr("app.plugins.autosignin.SitesHelper", Mock(return_value=SimpleNamespace(

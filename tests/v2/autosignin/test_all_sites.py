@@ -26,8 +26,8 @@ def plugin(monkeypatch):
     instance._clean = False
     instance._retry_keyword = "失败"
     instance._auto_cf = 0
-    monkeypatch.setattr(instance, "signin_site", Mock(side_effect=lambda site: SiteResult(site["name"], "签到成功", True)))
-    monkeypatch.setattr(instance, "login_site", Mock(side_effect=lambda site: SiteResult(site["name"], "登录成功", True)))
+    monkeypatch.setattr(instance, "signin_site", Mock(side_effect=lambda site: SiteResult(site["name"], "签到成功", True, True)))
+    monkeypatch.setattr(instance, "login_site", Mock(side_effect=lambda site: SiteResult(site["name"], "登录成功", True, True)))
     return instance
 
 
@@ -76,7 +76,7 @@ def test_all_expands_each_run_and_records_real_ids(plugin, monkeypatch, type_str
     history = next(call.kwargs["value"] for call in plugin.save_data.call_args_list if call.kwargs.get("key") == key)
     assert history == {
         "do": [1, "custom"], "retry": [1, "custom"] if retry_keyword is None else [],
-        "results": {str(site_id): {"success": True, "message": f"{type_str}成功"} for site_id in [1, "custom"]},
+        "results": {str(site_id): {"success": True, "message": f"{type_str}成功", "logged_in": True} for site_id in [1, "custom"]},
     }
     assert f"全部{type_str}数量: 2" in plugin.post_message.call_args.kwargs["text"]
     assert plugin.update_config.call_args.args[0]["sign_sites"] == ["all"]

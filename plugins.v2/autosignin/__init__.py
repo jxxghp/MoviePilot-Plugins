@@ -17,10 +17,9 @@ from app.helper.module import ModuleHelper
 from app.helper.sites import SitesHelper
 from app.log import logger
 from app.plugins import _PluginBase
-from app.plugins.autosignin.result import SiteResult, has_signin_evidence
+from app.plugins.autosignin.result import SiteResult, has_login_evidence, has_login_form, has_signin_evidence
 from app.schemas.types import EventType, NotificationType
 from app.utils.http import RequestUtils
-from app.utils.site import SiteUtils
 from app.utils.string import StringUtils
 from app.utils.timer import TimerUtils
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -38,7 +37,7 @@ class AutoSignIn(_PluginBase):
     # 插件图标
     plugin_icon = "signin.png"
     # 插件版本
-    plugin_version = "2.9.9"
+    plugin_version = "2.9.10"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -484,7 +483,8 @@ class AutoSignIn(_PluginBase):
                                                     '1、5位cron表达式；'
                                                     '2、配置间隔（小时），如2.3/9-23（9-23点之间每隔2.3小时执行一次）；'
                                                     '3、周期不填默认9-23点随机执行2次。'
-                                                    '每天首次全量执行，其余执行命中重试关键词的站点。'
+                                                    '每天首次全量执行，其余重试未确认登录或命中重试关键词的站点。'
+                                                    '已确认登录但签到未确认的站点会单独记录登录成功。'
                                         }
                                     }
                                 ]
@@ -604,6 +604,8 @@ class AutoSignIn(_PluginBase):
                                 all_data["login"].append(record)
                             else:
                                 all_data["signin"].append(record)
+                                if record.get("logged_in"):
+                                    all_data["login"].append({**record, "status": "登录成功", "type": "登录", "success": True})
 
             # 获取"签到-yyyy-mm-dd"和"登录-yyyy-mm-dd"格式数据
             signin_history = self.get_data(key="签到-" + day_formatted)
@@ -621,10 +623,18 @@ class AutoSignIn(_PluginBase):
                     result = (signin_history.get("results") or {}).get(str(site_id))
                     if result:
                         status_text = result.get("message") or "签到结果未确认"
-                        if not result.get("success") and self._status_meta(status_text)["level"] == "success":
+                        if not result.get("success") and not result.get("logged_in") and self._status_meta(status_text)["level"] == "success":
                             status_text = f"签到失败：{status_text}"
                         if result.get("success") and "登录成功" in status_text:
                             status_text += "（未执行签到）"
+                        if result.get("logged_in"):
+                            all_data["login"].append({
+                                "site": site_name,
+                                "status": "登录成功",
+                                "date": day_str,
+                                "day_obj": day,
+                                "site_id": site_id,
+                            })
                     elif any(record.get("site") == site_name and record.get("date") == day_str
                              for record in all_data["signin"]):
                         # 旧 do 只代表执行过，不能覆盖原始明细中的失败结果。
@@ -1178,14 +1188,14 @@ class AutoSignIn(_PluginBase):
                 cls._build_stat_item(
                     label="今日签到",
                     value=f"{signin_stats.get('success') or 0}/{signin_total}",
-                    meta=f"异常 {signin_problem_count} · 未记录 {signin_missing_count}",
+                    meta=f"失败 {signin_stats.get('error') or 0} · 未确认 {signin_stats.get('warning') or 0} · 未记录 {signin_missing_count}",
                     color=signin_color,
                     icon="mdi-calendar-check"
                 ),
                 cls._build_stat_item(
-                    label="异常重试",
+                    label="签到未完成",
                     value=str(signin_problem_count),
-                    meta=f"失败 {signin_stats.get('error') or 0} · 重试 {signin_stats.get('warning') or 0}",
+                    meta=f"失败 {signin_stats.get('error') or 0} · 未确认 {signin_stats.get('warning') or 0}",
                     color="error" if signin_stats.get("error") else "warning",
                     icon="mdi-alert-circle-outline"
                 ),
@@ -1528,7 +1538,8 @@ class AutoSignIn(_PluginBase):
             # 今日未签|登录站点
             no_sites = [site for site in do_sites if
                         site.get("id") not in already_sites or site.get("id") in retry_sites
-                        or not results.get(str(site.get("id")), {}).get("success")]
+                        or not (results.get(str(site.get("id")), {}).get("success")
+                                or results.get(str(site.get("id")), {}).get("logged_in"))]
 
             if not no_sites:
                 logger.info(f"今日 {today} 已{type_str}，无重新{type_str}站点，本次任务结束")
@@ -1536,7 +1547,7 @@ class AutoSignIn(_PluginBase):
 
             # 任务站点 = 需要重试+今日未do
             do_sites = no_sites
-            logger.info(f"今日 {today} 已执行{type_str}，重试失败、未确认或命中关键词的站点")
+            logger.info(f"今日 {today} 已执行{type_str}，重试未确认登录或命中关键词的站点")
 
         if not do_sites:
             logger.info(f"没有需要{type_str}的站点")
@@ -1566,6 +1577,7 @@ class AutoSignIn(_PluginBase):
                         "site_id": site.get("id"),
                         "type": type_str,
                         "success": s.success,
+                        "logged_in": s.logged_in,
                     })
             else:
                 today_data = [{
@@ -1574,6 +1586,7 @@ class AutoSignIn(_PluginBase):
                     "site_id": site.get("id"),
                     "type": type_str,
                     "success": s.success,
+                    "logged_in": s.logged_in,
                 } for site, s in zip(do_sites, status)]
             # 保存数据
             self.save_data(key, today_data)
@@ -1597,9 +1610,9 @@ class AutoSignIn(_PluginBase):
                 site_name = s[0]
                 # ThreadPool.map 保持输入顺序，直接绑定 ID，兼容同名和自定义站点。
                 site_id = site.get("id")
-                results[str(site_id)] = {"success": s.success, "message": s.message}
+                results[str(site_id)] = {"success": s.success, "message": s.message, "logged_in": s.logged_in}
 
-                if 'Cookie已失效' in s.message and site_id in builtin_site_ids:
+                if not s.logged_in and 'Cookie已失效' in s.message and site_id in builtin_site_ids:
                     # 触发自动登录插件登录
                     logger.info(f"触发站点 {site_name} 自动登录更新Cookie和Ua")
                     self.eventmanager.send_event(EventType.PluginAction,
@@ -1608,7 +1621,7 @@ class AutoSignIn(_PluginBase):
                                                      "action": "site_refresh"
                                                  })
                 # 记录本次命中重试关键词的站点
-                if not s.success:
+                if not s.completed:
                     retry_sites.append(site_id)
                 if self._retry_keyword:
                     if site_id:
@@ -1621,9 +1634,9 @@ class AutoSignIn(_PluginBase):
                             retry_msg.append(s)
                             continue
 
-                if not s.success:
+                if not s.completed:
                     failed_msg.append(s)
-                elif "登录成功" in s.message:
+                elif not s.success or "登录成功" in s.message:
                     login_success_msg.append(s)
                 elif "仿真签到成功" in str(s):
                     fz_sign_msg.append(s)
@@ -1662,11 +1675,18 @@ class AutoSignIn(_PluginBase):
                     signin_message += retry_msg
 
                 signin_message = "\n".join([f'【{s[0]}】{s[1]}' for s in signin_message if s])
+                if type_str == "签到":
+                    result_counts = (f"确认签到成功: {sum(s.success for s in status)} \n"
+                                     f"仅确认登录: {sum(s.logged_in and not s.success for s in status)} \n")
+                else:
+                    result_counts = f"确认登录成功: {sum(s.success for s in status)} \n"
+                result_counts += f"登录或访问失败: {sum(not s.completed for s in status)} \n"
                 self.post_message(title=f"【站点自动{type_str}】",
                                   mtype=NotificationType.SiteMessage,
                                   text=f"全部{type_str}数量: {len(selected_site_ids)} \n"
                                        f"本次{type_str}数量: {len(do_sites)} \n"
                                        f"下次{type_str}数量: {len(retry_sites)} \n"
+                                       f"{result_counts}"
                                        f"{signin_message}"
                                   )
             if event:
@@ -1708,7 +1728,8 @@ class AutoSignIn(_PluginBase):
             result = self.signin_site(site_info)
             return schemas.Response(
                 success=result.success,
-                message=f"站点【{result.site_name}】{result.message}"
+                message=f"站点【{result.site_name}】{result.message}",
+                data={"signin_success": result.success, "login_success": result.logged_in},
             )
 
     def signin_site(self, site_info: CommentedMap) -> SiteResult:
@@ -1724,13 +1745,21 @@ class AutoSignIn(_PluginBase):
             except Exception as e:
                 traceback.print_exc()
                 state, message = False, f"签到失败：{str(e)}"
+            result = self._site_result(site_info.get("name"), state, message, "签到")
         else:
-            state, message = self.__signin_base(site_info)
-        result = self._site_result(site_info.get("name"), state, message, "签到")
+            result = self.__signin_base(site_info)
+        if not result.completed:
+            # 签到入口可能不存在或未包含用户导航，另行访问首页/登录接口确认保号访问。
+            login_result = self._login_result(site_info, site_module)
+            if login_result.success:
+                logger.info(f"{result.site_name} 已确认登录，原签到结果：{result.message}")
+                result = SiteResult(result.site_name, "登录成功，签到未确认", False, True)
+            else:
+                result = result._replace(message=f"{result.message}；{login_result.message}")
         # 统计
         seconds = (datetime.now() - start_time).seconds
         domain = StringUtils.get_url_domain(site_info.get('url'))
-        if result.success:
+        if result.completed:
             SiteOper().success(domain=domain, seconds=seconds)
         else:
             SiteOper().fail(domain)
@@ -1745,17 +1774,19 @@ class AutoSignIn(_PluginBase):
             message = f"{action}失败，未返回可确认的结果"
         elif not success and "失败" not in message:
             message = f"{action}失败：{message}"
-        return SiteResult(site_name, message, success)
+        if success and action == "签到" and "登录成功" in message:
+            return SiteResult(site_name, f"{message}（未执行签到）", False, True)
+        return SiteResult(site_name, message, success, success)
 
     @staticmethod
-    def __signin_base(site_info: CommentedMap) -> Tuple[bool, str]:
+    def __signin_base(site_info: CommentedMap) -> SiteResult:
         """
         通用签到处理
         :param site_info: 站点信息
         :return: 签到结果信息
         """
         if not site_info:
-            return False, "签到失败，缺少站点信息"
+            return SiteResult("", "签到失败，缺少站点信息", False)
         site = site_info.get("name")
         site_url = site_info.get("url")
         site_cookie = site_info.get("cookie")
@@ -1766,7 +1797,7 @@ class AutoSignIn(_PluginBase):
         timeout = site_info.get("timeout") or 60
         if not site_url or not site_cookie:
             logger.warn(f"未配置 {site} 的站点地址或Cookie，无法签到")
-            return False, "签到失败，未配置站点地址或Cookie"
+            return SiteResult(site, "签到失败，未配置站点地址或Cookie", False)
         # 访问签到接口后必须确认站点返回的完成状态。
         try:
             # 访问链接
@@ -1788,26 +1819,27 @@ class AutoSignIn(_PluginBase):
                                    timeout=timeout
                                    ).get_res(url=checkin_url)
                 if res is None:
-                    return False, "签到失败，无法打开网站！"
+                    return SiteResult(site, "签到失败，无法打开网站！", False)
                 if under_challenge(res.text):
-                    return False, "签到失败，站点被Cloudflare防护，请打开站点浏览器仿真"
+                    return SiteResult(site, "签到失败，站点被Cloudflare防护，请打开站点浏览器仿真", False)
                 if res.status_code != 200:
-                    return False, f"签到失败，状态码：{res.status_code}！"
+                    return SiteResult(site, f"签到失败，状态码：{res.status_code}！", False)
                 page_source = res.text
             if not page_source:
-                return False, "签到失败，站点返回空页面"
+                return SiteResult(site, "签到失败，站点返回空页面", False)
             if under_challenge(page_source):
-                return False, "签到失败，无法通过Cloudflare！"
-            if not SiteUtils.is_logged_in(page_source):
-                return False, "签到失败，Cookie已失效或未识别到登录状态"
+                return SiteResult(site, "签到失败，无法通过Cloudflare！", False)
+            if not has_login_evidence(page_source):
+                return SiteResult(site, "签到失败，未识别到登录状态", False)
             if has_signin_evidence(page_source):
                 logger.info(f"{site} 签到成功，已确认站点返回的签到状态")
-                return True, "签到成功"
-            return False, "签到失败，未确认签到结果，请到站点检查是否需要手动签到或验证码"
+                return SiteResult(site, "签到成功", True, True)
+            logger.info(f"{site} 登录成功，签到未确认")
+            return SiteResult(site, "登录成功，签到未确认", False, True)
         except Exception as e:
             logger.warn("%s 签到失败：%s" % (site, str(e)))
             traceback.print_exc()
-            return False, f"签到失败：{str(e)}！"
+            return SiteResult(site, f"签到失败：{str(e)}！", False)
 
     def login_site(self, site_info: CommentedMap) -> SiteResult:
         """
@@ -1816,15 +1848,7 @@ class AutoSignIn(_PluginBase):
         site_module = self.__build_class(site_info.get("url"))
         # 开始记时
         start_time = datetime.now()
-        if site_module and hasattr(site_module, "login"):
-            try:
-                state, message = site_module().login(site_info)
-            except Exception as e:
-                traceback.print_exc()
-                state, message = False, f"模拟登录失败：{str(e)}"
-        else:
-            state, message = self.__login_base(site_info)
-        result = self._site_result(site_info.get("name"), state, message, "模拟登录")
+        result = self._login_result(site_info, site_module)
         # 统计
         seconds = (datetime.now() - start_time).seconds
         domain = StringUtils.get_url_domain(site_info.get('url'))
@@ -1834,6 +1858,18 @@ class AutoSignIn(_PluginBase):
             SiteOper().fail(domain)
         return result
 
+    def _login_result(self, site_info: CommentedMap, site_module: Any) -> SiteResult:
+        """复用专用登录接口或首页验证，不重复累计站点访问统计。"""
+        if site_module and hasattr(site_module, "login"):
+            try:
+                state, message = site_module().login(site_info)
+            except Exception as e:
+                traceback.print_exc()
+                state, message = False, f"模拟登录失败：{str(e)}"
+        else:
+            state, message = self.__login_base(site_info)
+        return self._site_result(site_info.get("name"), state, message, "模拟登录")
+
     @staticmethod
     def __login_base(site_info: CommentedMap) -> Tuple[bool, str]:
         """
@@ -1842,7 +1878,7 @@ class AutoSignIn(_PluginBase):
         :return: 签到结果信息
         """
         if not site_info:
-            return False, ""
+            return False, "模拟登录失败，缺少站点信息"
         site = site_info.get("name")
         site_url = site_info.get("url")
         site_cookie = site_info.get("cookie")
@@ -1852,12 +1888,13 @@ class AutoSignIn(_PluginBase):
         proxy_server = settings.PROXY_SERVER if site_info.get("proxy") else None
         timeout = site_info.get("timeout") or 60
         if not site_url or not site_cookie:
-            logger.warn(f"未配置 {site} 的站点地址或Cookie，无法签到")
-            return False, ""
+            logger.warn(f"未配置 {site} 的站点地址或Cookie，无法登录")
+            return False, "模拟登录失败，未配置站点地址或Cookie"
         # 模拟登录
         try:
             # 访问链接
-            site_url = str(site_url).replace("attendance.php", "")
+            if "attendance.php" in site_url:
+                site_url = urljoin(site_url, "./")
             logger.info(f"开始站点模拟登录：{site}，地址：{site_url}...")
             if render:
                 page_source = PlaywrightHelper().get_page_source(url=site_url,
@@ -1865,38 +1902,29 @@ class AutoSignIn(_PluginBase):
                                                                  ua=ua,
                                                                  proxies=proxy_server,
                                                                  timeout=timeout)
-                if not SiteUtils.is_logged_in(page_source):
-                    if under_challenge(page_source):
-                        return False, f"无法通过Cloudflare！"
-                    return False, f"仿真登录失败，Cookie已失效！"
-                else:
-                    return True, "模拟登录成功"
             else:
                 res = RequestUtils(cookies=site_cookie,
                                    ua=ua,
                                    proxies=proxies,
                                    timeout=timeout
                                    ).get_res(url=site_url)
-                # 判断登录状态
-                if res and res.status_code in [200, 500, 403]:
-                    if not SiteUtils.is_logged_in(res.text):
-                        if under_challenge(res.text):
-                            msg = "站点被Cloudflare防护，请打开站点浏览器仿真"
-                        elif res.status_code == 200:
-                            msg = "Cookie已失效"
-                        else:
-                            msg = f"状态码：{res.status_code}"
-                        logger.warn(f"{site} 模拟登录失败，{msg}")
-                        return False, f"模拟登录失败，{msg}！"
-                    else:
-                        logger.info(f"{site} 模拟登录成功")
-                        return True, f"模拟登录成功"
-                elif res is not None:
-                    logger.warn(f"{site} 模拟登录失败，状态码：{res.status_code}")
-                    return False, f"模拟登录失败，状态码：{res.status_code}！"
-                else:
-                    logger.warn(f"{site} 模拟登录失败，无法打开网站")
+                if res is None:
                     return False, f"模拟登录失败，无法打开网站！"
+                if under_challenge(res.text):
+                    return False, "模拟登录失败，站点被Cloudflare防护，请打开站点浏览器仿真"
+                if res.status_code != 200:
+                    return False, f"模拟登录失败，状态码：{res.status_code}！"
+                page_source = res.text
+            if not page_source:
+                return False, "模拟登录失败，站点返回空页面"
+            if under_challenge(page_source):
+                return False, "模拟登录失败，无法通过Cloudflare！"
+            if not has_login_evidence(page_source):
+                if has_login_form(page_source):
+                    return False, "模拟登录失败，Cookie已失效"
+                return False, "模拟登录失败，未识别到登录状态"
+            logger.info(f"{site} 模拟登录成功")
+            return True, "模拟登录成功"
         except Exception as e:
             logger.warn("%s 模拟登录失败：%s" % (site, str(e)))
             traceback.print_exc()

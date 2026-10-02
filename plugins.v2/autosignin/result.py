@@ -3,15 +3,22 @@
 import re
 from typing import NamedTuple
 
+from app.utils.site import SiteUtils
 from lxml import etree
 
 
 class SiteResult(NamedTuple):
-    """保留处理器的真实状态，供统计、通知、重试和 API 使用。"""
+    """分别保留请求动作的完成状态与登录证据，登录保号不能冒充签到。"""
 
     site_name: str
     message: str
     success: bool
+    logged_in: bool = False
+
+    @property
+    def completed(self) -> bool:
+        """已签到或确认登录均完成本轮访问任务，签到 API 仍单独使用 success。"""
+        return self.success or self.logged_in
 
 
 def visible_html(source: str) -> str:
@@ -38,6 +45,32 @@ def visible_html(source: str) -> str:
             if parent is not None:
                 parent.remove(node)
     return etree.tostring(document, encoding="unicode", method="html")
+
+
+def has_login_form(source: str) -> bool:
+    """仅在可见页面确实要求输入密码时判定 Cookie 登录已失效。"""
+    document = etree.HTML(visible_html(source))
+    return document is not None and bool(document.xpath(
+        "//input[translate(@type, 'PASSWORD', 'password')='password']"
+    ))
+
+
+def has_login_evidence(source: str) -> bool:
+    """识别可见的用户导航或退出控件，兼容新模板且排除隐藏模板和登录表单。"""
+    source = visible_html(source)
+    document = etree.HTML(source)
+    if document is None or document.xpath("//input[translate(@type, 'PASSWORD', 'password')='password']"):
+        return False
+    if SiteUtils.is_logged_in(source):
+        return True
+    for node in document.xpath("//a | //button | //form | //*[@role='button'] | //shark-icon-button"):
+        for attr in ("href", "action", "formaction", "data-url", "onclick", "lay-on"):
+            if re.search(r"\b(?:logout|logoff|signout)\b", node.get(attr, ""), re.IGNORECASE):
+                return True
+        label = re.sub(r"\s+", "", "".join(node.itertext())).lower()
+        if node.tag != "form" and label in {"退出登录", "退出登錄", "登出", "logout", "signout"}:
+            return True
+    return False
 
 
 def has_signin_evidence(source: str) -> bool:
