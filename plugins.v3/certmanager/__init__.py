@@ -32,11 +32,11 @@ class CertManager(_PluginBase):
     # 插件名称
     plugin_name = "证书管理"
     # 插件描述
-    plugin_desc = "一键安装 acme.sh、申请证书、手动部署证书并自动续期，自动重载 nginx。"
+    plugin_desc = "SSL 证书部署、申请与自动续期。"
     # 插件图标
-    plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/ssl.png"
+    plugin_icon = "certmanager.png"
     # 插件版本
-    plugin_version = "1.4.0"
+    plugin_version = "1.4.1"
     # 插件作者
     plugin_author = "LLL001a"
     # 作者主页
