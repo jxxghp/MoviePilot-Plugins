@@ -30,7 +30,7 @@ def test_plugin_metadata() -> None:
     """插件元数据应与市场索引保持一致。"""
     plugin = _make_plugin()
     assert plugin.plugin_name == "证书管理"
-    assert plugin.plugin_version == "1.4.0"
+    assert plugin.plugin_version == "1.4.1"
     assert plugin.plugin_config_prefix == "certmanager_"
     assert plugin.auth_level == 1
 
@@ -1304,10 +1304,19 @@ def test_detail_page_points_to_config() -> None:
     assert "配置页" in page_str
 
 
-def test_plugin_desc_mentions_install_and_issue() -> None:
-    """插件描述应准确反映安装与申请能力。"""
-    assert "acme.sh" in CertManager.plugin_desc
-    assert "申请证书" in CertManager.plugin_desc
+def test_plugin_desc_covers_core_capabilities() -> None:
+    """插件描述应简洁并覆盖核心能力。"""
+    desc = CertManager.plugin_desc
+    assert "证书" in desc
+    assert "部署" in desc
+    assert "申请" in desc
+    assert "续期" in desc
+
+
+def test_plugin_icon_is_local_file() -> None:
+    """插件图标应指向仓库内的图标文件，而非不存在的远程路径。"""
+    assert CertManager.plugin_icon == "certmanager.png"
+    assert not CertManager.plugin_icon.startswith("http")
 
 
 def test_lookup_credentials_extracts_fields(tmp_path: Path) -> None:
