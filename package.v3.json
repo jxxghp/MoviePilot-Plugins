@@ -900,5 +900,46 @@
       "v1.1.0": "DNS 服务商改为可输入下拉框，支持 acme.sh 全部 190+ 服务商；新增一键下载 DNS 插件脚本；凭据拆分为两个独立输入框并给出示例",
       "v1.0.0": "初始版本：支持手动部署证书（粘贴 PEM 文本并自动校验）、自动申请证书（acme.sh DNS-01 验证）、自动续期（定时检查并重载 nginx）"
     }
+  },
+  "QbUploadLimiter": {
+    "name": "QB上传限速",
+    "description": "仅处理 MoviePilot 已整理入库成功的种子：分享率达到全局或站点单独阈值后自动限制上传速度（qBittorrent 与全局上传限速取较小值）；可选 AI 智能限速——调用系统设置的大模型按种子分享率、上传活跃度与站点账号分享率逐种子智能决策限速；支持多下载器、站点筛选、定时检测，停用/卸载自动恢复不限速。",
+    "labels": "下载管理,Qbittorrent,Transmission,限速,分享率,站点,AI",
+    "version": "2.0.0",
+    "icon": "Qbittorrent_A.png",
+    "author": "xlmc",
+    "level": 1,
+    "release": true,
+    "system_version": ">=3.0.0",
+    "history": {
+      "v2.0.0": "V3 专用实现：导入迁移到 app.sdk（config/logging/plugin/services/network）与 app.agent.llm.helper；站点账号分享率改用 app.db.oper.site.SiteOper、整理入库记录改用 app.db.oper.transferhistory.TransferHistoryOper、下载历史改用 app.db.oper.downloadhistory，不再使用 SessionFactory 与宿主 Model；通知渠道枚举改用 NotificationChannel。功能与 v1.3.19 一致。"
+    }
+  },
+  "EmosUpload": {
+    "name": "EMOS上传",
+    "description": "MoviePilot 下载完成后自动上传到 EMOS（Emby 资源站上传分发系统），轮询下载器检测下载完成即上传源文件，支持服务器端识别、版本对比、分片并发上传。",
+    "labels": "上传,EMOS,Emby,资源站",
+    "version": "3.0.0",
+    "icon": "Emos_A.svg",
+    "author": "xlmc",
+    "level": 1,
+    "system_version": ">=3.0.0",
+    "history": {
+      "v3.0.0": "V3 专用实现：导入迁移到 app.sdk（config/events/logging/plugin/services/utilities）；通知渠道枚举改用 NotificationChannel。功能与 v2.1.0 一致。"
+    }
+  },
+  "ScrapeFileClean": {
+    "name": "源文件联动清理",
+    "description": "为手动清理下载目录设计：手动删除源文件后，自动联动清理媒体库中对应的硬链接文件、刮削文件（元数据、图片、字幕）与转移记录，支持延迟删除防止误删",
+    "labels": "文件整理,媒体库",
+    "version": "2.0.0",
+    "icon": "clean.png",
+    "author": "xlmc",
+    "level": 1,
+    "release": true,
+    "system_version": ">=3.0.0",
+    "history": {
+      "v2.0.0": "V3 专用实现：导入迁移到 app.sdk（events/logging/plugin）；转移记录改用 app.db.oper.transferhistory.TransferHistoryOper；通知消息类型改用 MessageType。功能与 1.0.7 一致。"
+    }
   }
 }
