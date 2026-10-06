@@ -39,7 +39,7 @@ class MediaServerMsg(_PluginBase):
     # 插件图标
     plugin_icon = "mediaplay.png"
     # 插件版本
-    plugin_version = "1.8.5"
+    plugin_version = "1.8.6"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -522,8 +522,13 @@ class MediaServerMsg(_PluginBase):
             # 通用去重：构造去重键
             item_id = getattr(event_info, 'item_id', '')
             if item_id:
-                # 使用标准化后的事件类型去重，避免同类事件别名造成重复通知。
-                dedupe_key = f"{server_name}-{event_action_type}-{item_id}" if server_name else f"{event_action_type}-{item_id}"
+                # 使用标准化后的事件类型和条目身份去重，避免同类事件别名造成重复通知。
+                dedupe_key = self._build_dedupe_key(
+                    event_info=event_info,
+                    item_id=item_id,
+                    server_name=server_name,
+                    event_action_type=event_action_type
+                )
                 # 检查是否已处理过该事件
                 if dedupe_key in self.__get_elements():
                     logger.debug(f"检测到重复Webhook事件，已处理过: {dedupe_key}")
@@ -680,6 +685,39 @@ class MediaServerMsg(_PluginBase):
 
         except Exception as e:
             logger.error(f"处理Webhook事件时发生错误: {str(e)}", exc_info=True)
+
+    @classmethod
+    def _build_dedupe_key(cls,
+                          event_info: WebhookEventInfo,
+                          item_id: str,
+                          server_name: Optional[str],
+                          event_action_type: Optional[str]) -> str:
+        """
+        构造Webhook事件的去重键
+
+        剧集条目不能只以 item_id 作为身份：Emby 对同一部剧的所有季集都上报
+        同一个 SeriesId，只用 item_id 会把同剧集的不同集数判为重复事件丢弃，
+        使聚合消息最终只剩一集。因此存在季集号时把它一并并入条目身份。
+
+        Args:
+            event_info (WebhookEventInfo): Webhook事件信息
+            item_id (str): 事件中的媒体条目ID
+            server_name (Optional[str]): 媒体服务器名称
+            event_action_type (Optional[str]): 标准化后的事件类型
+
+        Returns:
+            str: 去重键
+        """
+        identity_parts = [str(item_id)]
+        season_id = getattr(event_info, 'season_id', None)
+        episode_id = getattr(event_info, 'episode_id', None)
+        if season_id is not None:
+            identity_parts.append(f"S{season_id}")
+        if episode_id is not None:
+            identity_parts.append(f"E{episode_id}")
+        identity = "-".join(identity_parts)
+        return f"{server_name}-{event_action_type}-{identity}" if server_name \
+            else f"{event_action_type}-{identity}"
 
     def _get_series_id(self, event_info: WebhookEventInfo) -> Optional[str]:
         """
