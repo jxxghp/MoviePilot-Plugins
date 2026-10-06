@@ -927,5 +927,19 @@
     "history": {
       "v3.0.0": "V3 专用实现：导入迁移到 app.sdk（config/events/logging/plugin/services/utilities）；通知渠道枚举改用 NotificationChannel。功能与 v2.1.0 一致。"
     }
+  },
+  "ScrapeFileClean": {
+    "name": "源文件联动清理",
+    "description": "为手动清理下载目录设计：手动删除源文件后，自动联动清理媒体库中对应的硬链接文件、刮削文件（元数据、图片、字幕）与转移记录，支持延迟删除防止误删",
+    "labels": "文件整理,媒体库",
+    "version": "2.0.0",
+    "icon": "clean.png",
+    "author": "xlmc",
+    "level": 1,
+    "release": true,
+    "system_version": ">=3.0.0",
+    "history": {
+      "v2.0.0": "V3 专用实现：导入迁移到 app.sdk（events/logging/plugin）；转移记录改用 app.db.oper.transferhistory.TransferHistoryOper；通知消息类型改用 MessageType。功能与 1.0.7 一致。"
+    }
   }
 }
