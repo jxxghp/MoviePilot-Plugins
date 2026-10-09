@@ -14,7 +14,7 @@ def test_plugin_metadata() -> None:
     """插件元数据应与市场索引保持一致。"""
     plugin = _make_plugin()
     assert plugin.plugin_name == "邮箱通知"
-    assert plugin.plugin_version == "1.3.1"
+    assert plugin.plugin_version == "1.3.2"
     assert plugin.plugin_config_prefix == "emailmsg_"
 
 
@@ -474,3 +474,62 @@ def test_parse_text_fields() -> None:
     fields3 = plugin._parse_text_fields("文件名：Movie, Part 1.mkv，大小：5.26G")
     assert any(value == "Movie, Part 1.mkv" for _, value in fields3)
     assert ("大小", "5.26G") in fields3
+
+
+def test_download_image_returns_none_for_empty_url() -> None:
+    """空图片地址应返回 None。"""
+    plugin = _make_plugin()
+    assert plugin._download_image("") is None
+
+
+def test_download_image_returns_none_on_failure() -> None:
+    """图片下载失败时应返回 None，由调用方回退为远程引用。"""
+    plugin = _make_plugin()
+
+    def _raise_urlopen(request, timeout=None):
+        """模拟网络异常，避免测试期间发起真实出站请求。"""
+        raise OSError("network unreachable")
+
+    with patch("urllib.request.urlopen", _raise_urlopen):
+        assert plugin._download_image("https://example.invalid/poster.jpg") is None
+
+
+def test_download_image_sets_douban_referer() -> None:
+    """豆瓣图片下载应携带 Referer，避免防盗链 418。"""
+    plugin = _make_plugin()
+    captured = {}
+
+    class _FakeResponse:
+        """最小化响应对象，供 urlopen 打桩使用。"""
+
+        headers = {"Content-Type": "image/webp"}
+
+        def read(self) -> bytes:
+            """返回伪造图片内容。"""
+            return b"fake-image-bytes"
+
+        def __enter__(self):
+            """进入上下文。"""
+            return self
+
+        def __exit__(self, *args) -> None:
+            """退出上下文。"""
+            return None
+
+    def _fake_urlopen(request, timeout=None):
+        """记录请求头并返回伪造响应。"""
+        captured["headers"] = request.headers
+        return _FakeResponse()
+
+    with patch("urllib.request.urlopen", _fake_urlopen):
+        result = plugin._download_image(
+            "https://img3.doubanio.com/view/photo/l/public/p2935972343.webp"
+        )
+
+    assert result is not None
+    assert result[0] == b"fake-image-bytes"
+    assert result[1] == "image/webp"
+    # 请求头应包含豆瓣 Referer
+    headers = captured["headers"]
+    referer = headers.get("Referer") or headers.get("referer")
+    assert referer == "https://movie.douban.com/"

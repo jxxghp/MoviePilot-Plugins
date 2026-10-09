@@ -1,5 +1,7 @@
 import smtplib
 from email.header import Header
+from email.mime.image import MIMEImage
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr
 from typing import Any, Dict, List, Optional, Tuple
@@ -29,7 +31,7 @@ class EmailMsg(_PluginBase):
     # 插件图标
     plugin_icon = "Email_A.png"
     # 插件版本
-    plugin_version = "1.3.1"
+    plugin_version = "1.3.2"
     # 插件作者
     plugin_author = "LLL001a"
     # 作者主页
@@ -850,10 +852,49 @@ class EmailMsg(_PluginBase):
             '</div></div></body></html>'
         )
 
+    def _download_image(self, url: str) -> Optional[tuple]:
+        """下载海报图片，返回 (图片字节, MIME 类型)。
+
+        豆瓣图片有防盗链，需要携带 Referer 才能访问；下载失败时返回 None，
+        由调用方回退为远程 URL 引用。
+
+        :param url: 海报图片地址
+        :return: (图片字节, MIME 类型) 或 None
+        """
+        import urllib.request
+        if not url:
+            return None
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                          "AppleWebKit/537.36 (KHTML, like Gecko) "
+                          "Chrome/120.0.0.0 Safari/537.36",
+        }
+        # 豆瓣图片需要 Referer，否则返回 418
+        if "doubanio.com" in url:
+            headers["Referer"] = "https://movie.douban.com/"
+        try:
+            request = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(request, timeout=10) as response:
+                content = response.read()
+                content_type = response.headers.get("Content-Type", "image/jpeg")
+            if not content:
+                return None
+            # 规范化 MIME 类型
+            content_type = str(content_type).split(";")[0].strip().lower()
+            if not content_type.startswith("image/"):
+                content_type = "image/jpeg"
+            return content, content_type
+        except Exception as err:
+            logger.warn(f"邮箱通知：下载海报图片失败，将回退为远程引用：{str(err)}")
+            return None
+
     def _send_mail(self, recipients: List[str], title: str, text: str,
                    image: Optional[str] = None, link: Optional[str] = None,
                    msg_type: Optional[str] = None) -> bool:
         """通过 SMTP 发送邮件。
+
+        海报图片优先下载后内嵌（CID），避免豆瓣等图片防盗链导致邮件客户端
+        无法加载；下载失败时回退为远程 URL 引用。
 
         :param recipients: 收件人邮箱列表
         :param title: 邮件标题
@@ -870,9 +911,24 @@ class EmailMsg(_PluginBase):
         server = None
         try:
             port = int(self._smtp_port or 465)
+            # 尝试下载海报图片用于内嵌
+            image_data = self._download_image(image) if image else None
+            # 内嵌成功时 HTML 使用 cid 引用，否则回退远程 URL
+            html_image = "cid:poster" if image_data else image
             # 生成美化后的 HTML 正文
-            html_body = self._build_html(title, text, image=image, link=link, msg_type=msg_type)
-            msg = MIMEText(html_body, "html", "utf-8")
+            html_body = self._build_html(title, text, image=html_image, link=link, msg_type=msg_type)
+            if image_data:
+                # 内嵌图片：使用 related 复合类型，图片作为内联附件
+                msg = MIMEMultipart("related")
+                msg.attach(MIMEText(html_body, "html", "utf-8"))
+                img_bytes, img_mime = image_data
+                subtype = img_mime.split("/")[-1] if "/" in img_mime else "jpeg"
+                img = MIMEImage(img_bytes, _subtype=subtype)
+                img.add_header("Content-ID", "<poster>")
+                img.add_header("Content-Disposition", "inline", filename="poster")
+                msg.attach(img)
+            else:
+                msg = MIMEText(html_body, "html", "utf-8")
             msg["Subject"] = Header(title or "MoviePilot 通知", "utf-8")
             msg["From"] = formataddr((str(Header("MoviePilot", "utf-8")), self._sender))
             # To 使用发件人自身地址，收件人地址放入 Bcc（密送），避免收件人之间互相看到邮箱地址
