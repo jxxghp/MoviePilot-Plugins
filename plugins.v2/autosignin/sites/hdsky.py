@@ -81,7 +81,7 @@ class HDSky(_ISiteSigninHandler):
                                                 data={'action': 'new'})
             if image_res and image_res.status_code == 200:
                 image_json = json.loads(image_res.text)
-                if image_json["success"]:
+                if image_json.get("success") is True:
                     img_hash = image_json["code"]
                     break
                 res_times += 1
@@ -125,7 +125,7 @@ class HDSky(_ISiteSigninHandler):
                                    proxies=settings.PROXY if proxy else None
                                    ).post_res(url='https://hdsky.me/showup.php', data=data)
                 if res and res.status_code == 200:
-                    if json.loads(res.text)["success"]:
+                    if json.loads(res.text).get("success") is True:
                         logger.info(f"{site} 签到成功")
                         return True, '签到成功'
                     elif str(json.loads(res.text)["message"]) == "date_unmatch":

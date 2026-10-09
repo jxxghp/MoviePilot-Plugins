@@ -10,8 +10,10 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHECKER = REPO_ROOT / ".github/scripts/check_plugin_versions.py"
+CSS_CHECKER = REPO_ROOT / ".github/scripts/check_federation_css.py"
 PRE_PUSH = REPO_ROOT / ".githooks/pre-push"
 PR_WORKFLOW = REPO_ROOT / ".github/workflows/plugin-gate.yml"
+RELEASE_WORKFLOW = REPO_ROOT / ".github/workflows/release.yml"
 TEST_RUNNER = REPO_ROOT / "tests/run.py"
 
 
@@ -39,6 +41,7 @@ def _write_fixture(repo: Path, package_version: str, source_version: str) -> Non
     checker_target = repo / ".github/scripts/check_plugin_versions.py"
     checker_target.parent.mkdir(parents=True)
     shutil.copy2(CHECKER, checker_target)
+    shutil.copy2(CSS_CHECKER, repo / ".github/scripts/check_federation_css.py")
 
 
 def _run_checker(repo: Path, *package_files: Path | str) -> subprocess.CompletedProcess[str]:
@@ -250,7 +253,30 @@ def test_current_repository_passes_version_gate() -> None:
 
 
 def test_full_test_runner_includes_ci_gate_tests() -> None:
-    """push 前全量入口必须执行 CI 工具测试，防止门禁实现脱离常规回归。"""
+    """V3 全量入口必须执行 CI、专用实现和仍兼容 V3 的 V2 实现。"""
     runner = TEST_RUNNER.read_text(encoding="utf-8")
 
-    assert 'for generation in ("ci", "v3", "v2", "v1"):' in runner
+    assert 'for generation in ("ci", "v3", "v2"):' in runner
+    assert "compatible_v2_test_targets" in runner
+
+
+def test_pr_workflow_uses_uv_backend_environment() -> None:
+    """PR 门禁复用主程序锁定的 uv 测试环境。"""
+    workflow = PR_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "uv sync --locked" in workflow
+    assert "../MoviePilot/.venv/bin/python tests/run.py" in workflow
+
+
+def test_release_workflow_packages_missing_target_tag_from_v2_first() -> None:
+    """缺少目标版本时必须打包，且同版本重复条目优先采用 V2 目录。"""
+    workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+
+    assert 'git diff --quiet "$tag" -- "$plugin_dir"' in workflow
+    assert 'git tag --list "${plugin_id}_v*"' not in workflow
+    assert workflow.index('process_package "package.v2.json"') < workflow.index(
+        'process_package "package.json"'
+    )
+    assert workflow.index('process_package "package.json"') < workflow.index(
+        'process_package "package.v3.json"'
+    )

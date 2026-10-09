@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -28,6 +28,9 @@ jobs:
 
       - name: Check plugin versions
         run: python .github/scripts/check_plugin_versions.py package.json package.v2.json package.v3.json
+
+      - name: Check federation plugin CSS
+        run: python .github/scripts/check_federation_css.py
 
       - name: Build and release changed plugins
         env:
@@ -57,16 +60,9 @@ jobs:
               plugin_version="${entry##*|}"
               plugin_id_lc="$(echo "$plugin_id" | tr '[:upper:]' '[:lower:]')"
 
-              case "$pkg_file" in
-                package.v3.json) plugin_root="plugins.v3" ;;
-                package.v2.json) plugin_root="plugins.v2" ;;
-                *) plugin_root="plugins" ;;
-              esac
-              plugin_dir="${plugin_root}/${plugin_id_lc}"
-
-              if [ ! -d "$plugin_dir" ]; then
-                echo "WARN: directory for $plugin_id not found under $plugin_root/, skip."
-                continue
+              if ! plugin_dir="$(bash .github/scripts/select_plugin_release_dir.sh "$pkg_file" "$plugin_id_lc")"; then
+                echo "Missing plugin directory for $plugin_id in $pkg_file" >&2
+                exit 1
               fi
 
               tag="${plugin_id}_v${plugin_version}"
@@ -81,18 +77,15 @@ jobs:
                 continue
               fi
 
-              # Existing per-plugin tags make unchanged directories a no-op.
-              prev_tag="$(git tag --list "${plugin_id}_v*" --sort=-version:refname | head -n 1 || true)"
-
               changed=1
-              if [ -n "$prev_tag" ]; then
-                if git diff --quiet "$prev_tag" -- "$plugin_dir"; then
+              if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+                if git diff --quiet "$tag" -- "$plugin_dir"; then
                   changed=0
                 fi
               fi
 
               if [ "$changed" -eq 0 ]; then
-                echo "No changes in $plugin_dir since $prev_tag, skip packaging $plugin_id."
+                echo "No changes in $plugin_dir since $tag, skip packaging $plugin_id."
                 if gh release view "$tag" >/dev/null 2>&1; then
                   gh release edit "$tag" --notes "$release_notes"
                 fi
@@ -120,6 +113,6 @@ jobs:
             done
           }
 
-          process_package "package.json"
           process_package "package.v2.json"
+          process_package "package.json"
           process_package "package.v3.json"

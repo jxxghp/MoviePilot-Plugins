@@ -56,7 +56,8 @@ MoviePilot-Plugins/
 - 目录名必须是插件类名的小写，例如 `class AutoSignIn` 对应目录 `autosignin/`。
 - 插件主类必须定义在该目录的 `__init__.py` 中。
 - 插件目录内可附带：
-  - `requirements.txt`：额外 Python 依赖
+  - `pyproject.toml`：V3 插件的额外 Python 依赖
+  - `requirements.txt`：V1/V2 历史插件的额外 Python 依赖
   - `README.md`：插件专属使用说明
   - `dist/assets/`：Vue 联邦构建产物
   - 其他运行时所需静态文件
@@ -127,7 +128,7 @@ MoviePilot 当前的插件版本选择逻辑可以概括为：
 - 同一个插件若在 `package.v2.json` 中已有专用实现，就不要再依赖 `package.json` 中的兼容声明做“隐式覆盖”。
 - 只有维护历史 V2 插件时，才继续使用 `plugins.v2/` 和 `package.v2.json`。
 - 旧插件确实跨版本共用一套实现时，才使用 `package.json + "v2": true` 的方式。
-- 依赖 V3 新合同的实现必须放入 `plugins.v3/` 并在 `package.v3.json` 声明 `system_version: ">=3.0.0"`。
+- 依赖 V3 新合同的实现必须放入 `plugins.v3/` 并在 `package.v3.json` 声明 `system_version: ">=3.0.0"`；依赖某个 3.x 版本才提供的宿主能力时，把下界提高到该版本，例如 `">=3.0.11"`。
 - 依赖宿主新增能力的插件需要同步声明 `system_version`，否则旧版 MoviePilot 仍可能看到更新入口但安装后无法加载。
 
 涉及媒体识别、搜索、订阅、下载、整理、刮削、媒体库事件、插件自有媒体数据、
@@ -188,10 +189,24 @@ MoviePilot 当前的插件版本选择逻辑可以概括为：
 
 1. 在目标代 `plugins/`、`plugins.v2/` 或 `plugins.v3/` 下新建目录
 2. 在 `__init__.py` 中实现插件类
-3. 如有依赖，增加 `requirements.txt`
+3. 如有依赖，V3 增加 `pyproject.toml`，V1/V2 保留 `requirements.txt`
 4. 在对应代 `package*.json` 中补齐元数据
 5. 如有插件文档，在插件目录补充 `README.md`
 6. 如有 Vue UI，构建后把产物放进 `dist/assets/`
+
+V3 的 `pyproject.toml` 只承载插件依赖：依赖写入 `[project].dependencies`，版本使用
+`dynamic = ["version"]`，真实插件版本仍由插件类和 `package.v3.json` 维护。插件不提交
+`uv.lock`，因为宿主不会按插件锁文件创建独立环境；安装时由 MoviePilot 在共享运行环境中
+统一解析，并保护主程序已锁定的核心依赖。需要额外包索引时使用 `tool.uv.index` 和
+`tool.uv.sources`，不要在插件代码中直接执行 pip 或 uv。
+
+V3 插件通过 `app.sdk.network.AsyncRequestUtils` 发起异步 HTTP 请求时使用 HTTPX2；自管客户端
+使用 `httpx2.AsyncClient`，不得通过 `httpx2.alias_httpx()` 改写进程级导入。第三方 SDK 继续使用
+其自身声明的 HTTP 客户端版本。SDK 默认把 HTTPX2 请求异常转换为 `None`；传入
+`raise_exception=True` 时捕获 `httpx2.RequestError`，HTTP 状态错误仍由插件按业务显式处理。
+
+插件测试统一使用生产命名空间 `app.plugins.<plugin_id>`。测试引导由主程序共享实现暴露
+对应代际源码，插件仓不维护顶层导入兼容层，避免同一源码形成重复模块和重复实例。
 
 ### 6.3 维护版本一致性
 
@@ -266,6 +281,7 @@ yarn dev
 - 任一 `package*.json` 发生变更时，工作流会触发
 - 只有索引条目中声明了 `"release": true` 的插件会参与自动打包
 - 工作流会按索引文件严格映射到 `plugins/`、`plugins.v2/` 或 `plugins.v3/` 查找目录
+- 自动发布分别读取 `package.json`、`package.v2.json` 和 `package.v3.json`；`v3` 兼容标记只影响插件在 V3 中的可用性，不改变历史版本的发布规则
 - Release Tag 格式为 `插件ID_v插件版本号`
 - 压缩包文件名格式为 `插件目录小写_v插件版本号.zip`
 - 若插件目录自上一个 Tag 以来没有变化，则会跳过打包

@@ -58,10 +58,10 @@ class HDCity(_ISiteSigninHandler):
 
         # 判断是否已签到
         # '已连续签到278天，此次签到您获得了100魔力值奖励!'
-        if self._success_text in html_text:
+        if self.sign_in_result(html_text, [self._success_text]):
             logger.info(f"{site} 签到成功")
             return True, '签到成功'
-        if self._repeat_text in html_text:
+        if self.sign_in_result(html_text, [self._repeat_text]):
             logger.info(f"{site} 今日已签到")
             return True, '今日已签到'
         logger.error(f"{site} 签到失败，签到接口返回 {html_text}")

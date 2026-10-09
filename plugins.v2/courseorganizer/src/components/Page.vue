@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 
 const props = defineProps({
   api: { type: Object, default: () => ({}) },
@@ -36,6 +36,13 @@ let fileTransferSource = null
 const fileTransferText = ref('')
 const fileTransferValue = ref(null)
 const fileTransferSeenActive = ref(false)
+const ignoredSystemEntries = new Set([
+  '#recycle',
+  '@eadir',
+  '.ds_store',
+  'thumbs.db',
+  'desktop.ini',
+])
 
 const hasItems = computed(() => items.value.length > 0)
 const reviewSummary = computed(() => (
@@ -72,12 +79,24 @@ function unwrap(response) {
   return body?.data ?? body ?? {}
 }
 
+function isIgnoredSystemItem(item) {
+  const rawTitle = String(item?.raw_title || '').trim().toLowerCase()
+  return rawTitle.startsWith('.') || ignoredSystemEntries.has(rawTitle)
+}
+
+function visibleReviewItems(data) {
+  const rows = Array.isArray(data) ? data : (data?.items || [])
+  return Array.isArray(rows) ? rows.filter(item => !isIgnoredSystemItem(item)) : []
+}
+
 function errorMessage(errorValue, fallback) {
   return errorValue?.message || fallback
 }
 
-function openMoviePilotSettings() {
+async function openMoviePilotSettings() {
   const target = settingsUrl.value || '#/setting'
+  emit('close')
+  await nextTick()
   window.location.assign(target)
 }
 
@@ -175,11 +194,10 @@ async function loadReview() {
   loading.value = true
   error.value = ''
   rowErrors.value = {}
-  selectedCandidates.value = {}   
   try {
     const response = await props.api.get('plugin/CourseOrganizer/review')
     const data = unwrap(response)
-    items.value = Array.isArray(data) ? data : (data.items || [])
+    items.value = visibleReviewItems(data)
     if (Array.isArray(data?.libraries) && data.libraries.length) {
       libraries.value = data.libraries
     } else {
@@ -192,7 +210,18 @@ async function loadReview() {
     monitoringRules.value = Array.isArray(data?.monitoring_rules) ? data.monitoring_rules : []
     incomingPath.value = data?.incoming_path || ''
     settingsUrl.value = data?.settings_url || '#/setting'
-    tmdbCandidates.value = {}
+    const restoredCandidates = {}
+    const restoredSelections = {}
+    for (const row of items.value) {
+      const candidate = row?.selected_candidate
+      const candidateKey = row?.selected_candidate_key || candidate?.candidate_key || ''
+      if (candidate?.candidate_key && candidate.candidate_key === candidateKey) {
+        restoredCandidates[row.raw_title] = [candidate]
+        restoredSelections[row.raw_title] = candidateKey
+      }
+    }
+    tmdbCandidates.value = restoredCandidates
+    selectedCandidates.value = restoredSelections
     selectedKeys.value = []
   } catch (loadError) {
     error.value = errorMessage(loadError, '加载人工复核列表失败')
@@ -223,10 +252,8 @@ async function searchTmdb(row, silent = false) {
   if (!silent) notice.value = ''
   clearRowError(row)
   removeKey(tmdbSearchFailedKeys, row.raw_title)
-  tmdbCandidates.value = { ...tmdbCandidates.value, [row.raw_title]: [] }
-  const sel = { ...selectedCandidates.value }
-  delete sel[row.raw_title]
-  selectedCandidates.value = sel
+  const selectedKey = selectedCandidateFor(row) || row.selected_candidate_key || ''
+  const selectedCandidate = row.selected_candidate
   try {
     const response = await props.api.post('plugin/CourseOrganizer/review/tmdb/search', {
       raw_title: row.raw_title,
@@ -234,7 +261,14 @@ async function searchTmdb(row, silent = false) {
       search_name: (row.final_title && row.final_title.trim()) || row.raw_title,
     })
     const data = unwrap(response)
-    const candidates = Array.isArray(data?.items) ? data.items : []
+    let candidates = Array.isArray(data?.items) ? data.items : []
+    if (
+      selectedKey
+      && selectedCandidate?.candidate_key === selectedKey
+      && !candidates.some(candidate => candidate.candidate_key === selectedKey)
+    ) {
+      candidates = [selectedCandidate, ...candidates]
+    }
     tmdbCandidates.value = { ...tmdbCandidates.value, [row.raw_title]: candidates }
     if (!silent) notice.value = data?.message || '已找到 TMDB 候选'
   } catch (searchError) {
@@ -247,7 +281,7 @@ async function searchTmdb(row, silent = false) {
 }
 
 async function autoSearchAll() {
-  const todo = items.value.filter(item => !item.source_pending)
+  const todo = items.value.filter(item => !item.source_pending && !item.selected_candidate_key)
   for (const item of todo) {
     await searchTmdb(item, true)
   }
@@ -611,8 +645,8 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
     <VAlert v-if="rulesMessage" type="warning" variant="tonal" density="compact" class="mb-2" role="alert">
       {{ rulesMessage }}
     </VAlert>
-    <VAlert v-if="monitoringEnabled" type="warning" variant="tonal" density="compact" class="mb-2" role="alert">
-      {{ monitoringRuleText }}已开启自动监控，确认前请先关闭，避免文件被提前整理。
+    <VAlert v-if="monitoringEnabled" type="error" variant="tonal" density="compact" class="mb-2" role="alert">
+      {{ monitoringRuleText }}与当前来源目录重叠；插件已自动禁止自动整理，仅保留安全预览。
     </VAlert>
     <VAlert v-if="batchRunning || organizingKey" type="info" variant="tonal" density="compact" class="mb-2" role="status">
       <template v-if="batchRunning">
@@ -740,7 +774,7 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
                 hide-details
                 density="compact"
                 variant="outlined"
-                label="选择匹配的 TMDB 作品"
+                :label="selectedCandidateFor(row) ? '已关联的 TMDB 作品' : '选择匹配的 TMDB 作品'"
                 class="mt-1"
                 :disabled="batchRunning || isSaving(row) || isTmdbLoading(row) || isOrganizing(row)"
                 :aria-label="`选择 TMDB 候选：${row.raw_title}`"
@@ -905,7 +939,7 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
             hide-details
             density="compact"
             variant="outlined"
-            label="选择匹配的 TMDB 作品"
+            :label="selectedCandidateFor(row) ? '已关联的 TMDB 作品' : '选择匹配的 TMDB 作品'"
             class="mb-3"
             :disabled="batchRunning || isSaving(row) || isTmdbLoading(row) || isOrganizing(row)"
             :aria-label="`选择 TMDB 候选：${row.raw_title}`"
@@ -987,22 +1021,30 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
         <VCardText class="course-help-content">
           <div>
             <strong>1. 目录来自 MoviePilot</strong>
-            <p>插件直接读取「设置 → 存储 &amp; 目录」，沿用媒体类型、媒体类别、存储、整理方式、智能重命名、影视刮削和自动监控。</p>
+            <p>插件直接读取「设置 → 存储 &amp; 目录」，沿用媒体类型、媒体类别、存储、整理方式、智能重命名和影视刮削。</p>
           </div>
           <div>
-            <strong>2. 先扫描，再确认</strong>
-            <p>重新扫描不会移动文件。检查建议名称和目标媒体库后，「确认并整理」才会执行文件操作。</p>
+            <strong>2. 文件夹何时显示</strong>
+            <p>插件会递归检查整个文件夹。目录内没有正在下载的临时或缓存文件，并且内容保持稳定后，才会显示在待整理列表。</p>
           </div>
           <div>
-            <strong>3. 两种整理方式</strong>
+            <strong>3. 自动整理符合条件的项目</strong>
+            <p>默认只扫描并生成建议，不会移动文件。开启自动整理后，仅识别可靠且目标媒体库明确的项目会自动执行；不确定项目仍等待人工确认。</p>
+          </div>
+          <div>
+            <strong>4. 智能助手（如 DeepSeek）</strong>
+            <p>插件直接使用 MoviePilot「设置 → 智能助手」中的模型，无需在插件内重复配置。复杂目录名会先提取 TMDB 搜索词再复核候选；不可用或判断不明确时不会自动整理。</p>
+          </div>
+          <div>
+            <strong>5. 两种整理方式</strong>
             <p>已关联媒体信息的项目使用 MoviePilot 的 TMDB 整理；课程等无媒体 ID 的项目按确认后的标题整理。</p>
           </div>
           <div>
-            <strong>4. 人工确认期间</strong>
-            <p>请关闭相同来源目录的自动监控，避免文件在确认前被系统提前整理。</p>
+            <strong>6. 避免重复监控</strong>
+            <p>同一来源目录不要同时启用 MoviePilot 自动监控和插件自动整理，避免两个任务竞争同一批文件。</p>
           </div>
           <div>
-            <strong>5. 批量任务自动排队</strong>
+            <strong>7. 批量任务自动排队</strong>
             <p>可勾选多个项目后批量整理。任务会按顺序逐项执行，失败项目保留并继续下一项。</p>
           </div>
         </VCardText>

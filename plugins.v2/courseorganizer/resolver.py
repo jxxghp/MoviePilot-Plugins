@@ -42,7 +42,14 @@ def _coerce_str(value: Any, default: str = "") -> str:
 
 def _coerce_iter(value: Any, default: Tuple[str, ...]) -> Tuple[str, ...]:
     if isinstance(value, (list, tuple)):
-        return tuple(item.strip().lower() for item in value if str(item).strip())
+        output: List[str] = []
+        for item in value:
+            if item is None:
+                continue
+            text = str(item).strip()
+            if text:
+                output.append(text.lower())
+        return tuple(output)
     if isinstance(value, str):
         return tuple(item.strip().lower() for item in value.split(",") if item.strip())
     return default
@@ -61,9 +68,6 @@ class NamingConfig:
 
     @classmethod
     def sanitize(cls, raw: Any) -> "NamingConfig":
-        if isinstance(raw, cls):
-            return raw
-
         def _read_field(mapping: Any, attr: str, default: Any) -> Any:
             if isinstance(mapping, dict):
                 return mapping.get(attr)
@@ -78,7 +82,10 @@ class NamingConfig:
         raw_payload: Dict[str, Any]
         if isinstance(raw, dict):
             mode = str(raw.get("mode", raw.get("naming_mode", "off")) or "off")
-            sources_value = raw.get("sources", raw.get("naming_sources", ""))
+            sources_value = raw.get(
+                "sources",
+                raw.get("naming_sources", cls.__dataclass_fields__["sources"].default),
+            )
             auto_threshold_raw = raw.get(
                 "auto_threshold",
                 raw.get("naming_auto_threshold", cls.__dataclass_fields__["auto_threshold"].default),
@@ -110,7 +117,7 @@ class NamingConfig:
             sources_value = _read_field(
                 raw,
                 "sources",
-                _read_field(raw, "naming_sources", ("",)),
+                _read_field(raw, "naming_sources", cls.__dataclass_fields__["sources"].default),
             )
             auto_threshold_raw = _read_field(
                 raw,
@@ -149,11 +156,15 @@ class NamingConfig:
         if mode not in {"off", "preview", "apply"}:
             mode = "off"
 
-        sources = tuple(
-            source
-            for source in _coerce_iter(sources_value if sources_value is not None else (), ())
-            if source in {"themoviedb", "douban"}
-        )
+        normalized_sources: List[str] = []
+        for source in _coerce_iter(
+            sources_value if sources_value is not None else (), ()
+        ):
+            if source in {"hk", "tw", "sg"}:
+                source = "themoviedb"
+            if source in {"themoviedb", "douban"} and source not in normalized_sources:
+                normalized_sources.append(source)
+        sources = tuple(normalized_sources)
         if not sources:
             sources = ("themoviedb", "douban")
 
@@ -219,6 +230,10 @@ class SmartNamingResolver:
     SEARCH_TTL_SECONDS = 30 * 24 * 60 * 60
     ERROR_TTL_SECONDS = 60 * 60
     SEARCH_CACHE_MAX = 500
+    AI_QUERY_TTL_SECONDS = 30 * 24 * 60 * 60
+    AI_QUERY_ERROR_TTL_SECONDS = 60 * 60
+    AI_QUERY_CACHE_MAX = 500
+    AI_QUERY_CACHE_KEY = "naming_ai_query_cache_v1"
     IDENTITY_MAX = 500
     PREVIEW_MAX = 200
     AI_ERROR_MAX = 100
@@ -239,6 +254,7 @@ class SmartNamingResolver:
 
     def clear(self) -> None:
         self._save_data("naming_search_cache_v1", {})
+        self._save_data(self.AI_QUERY_CACHE_KEY, {})
         self._save_data("naming_identity_v1", {})
         self._save_data("naming_preview_v1", [])
         self._save_data("naming_ai_errors_v1", [])
@@ -291,6 +307,12 @@ class SmartNamingResolver:
         now = int(self._clock())
         config = NamingConfig.sanitize(config)
         hints = naming.parse_title(raw_title)
+        if config.mode == "off":
+            return self._decision(
+                status="local_fallback",
+                raw_title=raw_title,
+                hints=hints,
+            )
         directory_hints = naming.DirectoryHints(
             media_count=directory.media_count,
             seasons=directory.seasons,
@@ -466,8 +488,24 @@ class SmartNamingResolver:
                         margin=evaluation.margin,
                         reason_codes=self._merge_reason_codes(("manual_query",), override_diagnostics),
                         source_errors=search_result.errors,
-                        final_root=naming.format_root_name(query_hints, top.candidate, append_tmdb_id=config.append_tmdb_id),
-                        final_prefix=naming.format_file_prefix(naming.format_root_name(query_hints, top.candidate, append_tmdb_id=config.append_tmdb_id)),
+                        final_root=naming.format_root_name(
+                            query_hints,
+                            top.candidate,
+                            append_tmdb_id=(
+                                config.append_tmdb_id
+                                and top.candidate.source == "themoviedb"
+                            ),
+                        ),
+                        final_prefix=naming.format_file_prefix(
+                            naming.format_root_name(
+                                query_hints,
+                                top.candidate,
+                                append_tmdb_id=(
+                                    config.append_tmdb_id
+                                    and top.candidate.source == "themoviedb"
+                                ),
+                            )
+                        ),
                     )
                 else:
                     decision = self._decision(
@@ -496,18 +534,33 @@ class SmartNamingResolver:
             if matched_override.action == "candidate":
                 cached = self._load_query_candidate_cache(raw_title)
                 search_sources = self._provider_search_sources(config.sources)
+                allowed_sources = set(config.sources)
                 search_key = self._query_hash(hints, search_sources)
                 candidates_by_key = {
                     item.key: item
                     for item in self._identity_candidates(self._load_identity(raw_title))
+                    if item.source in allowed_sources
                 }
-                candidates_by_key.update({item.key: item for item in cached})
+                candidates_by_key.update(
+                    {
+                        item.key: item
+                        for item in cached
+                        if item.source in allowed_sources
+                    }
+                )
                 stored_candidate = self._load_manual_candidate(raw_title, matched_override.value)
-                if stored_candidate is not None:
+                if (
+                    stored_candidate is not None
+                    and stored_candidate.source in allowed_sources
+                ):
                     candidates_by_key[stored_candidate.key] = stored_candidate
                 if not candidates_by_key:
                     search_result = self._load_search_result(search_key, now, hints, search_sources)
-                    candidates_by_key = {item.key: item for item in search_result.candidates}
+                    candidates_by_key = {
+                        item.key: item
+                        for item in search_result.candidates
+                        if item.source in allowed_sources
+                    }
                 candidate = candidates_by_key.get(matched_override.value)
                 if candidate is None:
                     return self.record_decision(
@@ -530,7 +583,14 @@ class SmartNamingResolver:
                     candidate=candidate,
                     score=100,
                     margin=config.min_margin,
-                    final_root=naming.format_root_name(hints, candidate, append_tmdb_id=config.append_tmdb_id),
+                    final_root=naming.format_root_name(
+                        hints,
+                        candidate,
+                        append_tmdb_id=(
+                            config.append_tmdb_id
+                            and candidate.source == "themoviedb"
+                        ),
+                    ),
                     final_prefix=naming.format_file_prefix(
                         naming.format_root_name(hints, candidate, append_tmdb_id=False)
                     ),
@@ -554,13 +614,9 @@ class SmartNamingResolver:
                     target_output_root=target_output_root,
                 )
 
-        if config.mode == "off":
-            return self._decision(
-                status="local_fallback",
-                raw_title=raw_title,
-                hints=hints,
-            )
-
+        # AI only contributes a bounded search phrase.  All candidate scoring,
+        # whitelisting, and final media selection remain on the normal path.
+        hints = self._enrich_hints_with_ai_query(hints, raw_title, now, config)
         search_sources = self._provider_search_sources(config.sources)
         search_key = self._query_hash(hints, search_sources)
         identity = self._load_identity(raw_title)
@@ -571,6 +627,10 @@ class SmartNamingResolver:
         if identity is not None and self._identity_reusable(
             identity, search_key, now, has_matching_local_override, config.uncertain_policy
         ):
+            try:
+                identity_updated = int(identity.get("updated", now))
+            except (TypeError, ValueError):
+                identity_updated = now
             cached_candidates = identity_candidates
             adopted = self._identity_to_decision(
                 identity,
@@ -596,6 +656,7 @@ class SmartNamingResolver:
                     evaluation,
                     hints,
                     config,
+                    raw_title=raw_title,
                     source_errors=identity_source_errors,
                     reason_codes=override_diagnostics,
                     candidates=cached_candidates,
@@ -607,7 +668,7 @@ class SmartNamingResolver:
                         self._save_identity(
                             raw_title=raw_title,
                             decision=decision,
-                            now=now,
+                            now=identity_updated,
                             config=config,
                             hints=hints,
                             directory=directory_hints,
@@ -644,13 +705,13 @@ class SmartNamingResolver:
                         self._save_identity(
                             raw_title=raw_title,
                             decision=decision,
-                            now=now,
+                            now=identity_updated,
                             config=config,
                             hints=hints,
                             directory=directory_hints,
                             search_key=search_key,
                             decision_fingerprint=decision_fingerprint,
-                            candidates=evaluation.eligible,
+                            candidates=cached_candidates,
                             manual_local=has_matching_local_override,
                         )
                     return self.record_decision(
@@ -684,12 +745,18 @@ class SmartNamingResolver:
             )
 
         if not candidates:
+            fallback_status = (
+                "manual_review"
+                if config.uncertain_policy == "hold"
+                else "local_fallback"
+            )
             decision = self._decision(
-                status="local_fallback",
+                status=fallback_status,
                 raw_title=raw_title,
                 hints=hints,
                 reason_codes=self._merge_reason_codes(("no_candidates",), override_diagnostics),
                 source_errors=search_result.errors,
+                blocked_reason="manual_review" if fallback_status == "manual_review" else "",
             )
             self._save_identity(
                 raw_title=raw_title,
@@ -719,6 +786,7 @@ class SmartNamingResolver:
             evaluation,
             hints,
             config,
+            raw_title=raw_title,
             source_errors=search_result.errors,
             reason_codes=override_diagnostics,
             candidates=candidates,
@@ -811,6 +879,17 @@ class SmartNamingResolver:
             return False
         reason_codes = tuple(identity.get("reason_codes", ()))
         source_errors = tuple(identity.get("source_errors", ()))
+        manually_selected = bool(identity.get("manual_local", False)) or (
+            "manual_candidate" in reason_codes
+        )
+        if not manually_selected:
+            try:
+                updated = int(identity.get("updated", 0))
+            except (TypeError, ValueError):
+                updated = 0
+            ttl = self.ERROR_TTL_SECONDS if source_errors else self.SEARCH_TTL_SECONDS
+            if not 0 <= now - updated < ttl:
+                return False
         if status == "local_fallback" and (
             "all_search_failed" in reason_codes
             or "all_search_failed" in source_errors
@@ -866,7 +945,142 @@ class SmartNamingResolver:
         getter = getattr(self._provider, "resolve_sources", None)
         if callable(getter):
             return tuple(getter(requested))
-        return ("themoviedb", "douban")
+        resolved: List[str] = []
+        for value in requested:
+            source = str(value or "").strip().lower()
+            if source in {"hk", "tw", "sg"}:
+                source = "themoviedb"
+            if source in {"themoviedb", "douban"} and source not in resolved:
+                resolved.append(source)
+        return tuple(resolved)
+
+    @staticmethod
+    def _with_query_candidates(
+        hints: "naming.TitleHints",
+        candidates: Sequence["naming.QueryCandidate"],
+    ) -> "naming.TitleHints":
+        return naming.TitleHints(
+            raw_title=hints.raw_title,
+            local_title=hints.local_title,
+            year=hints.year,
+            season_hints=hints.season_hints,
+            query_candidates=tuple(candidates),
+            reason_codes=hints.reason_codes,
+        )
+
+    @staticmethod
+    def _needs_ai_query(hints: "naming.TitleHints") -> bool:
+        """Reserve LLM calls for names where rules have visibly removed noise."""
+        if len(hints.season_hints) >= 2:
+            return True
+        return naming.normalize_title(hints.raw_title) != naming.normalize_title(
+            hints.local_title
+        )
+
+    def _ai_query_schema(self) -> str:
+        return str(getattr(self._ai_reviewer, "QUERY_SCHEMA_VERSION", "1"))
+
+    def _ai_query_cache_key(self, hints: "naming.TitleHints") -> str:
+        return naming.query_hash(
+            raw_title=hints.raw_title,
+            queries=(
+                naming.QueryCandidate(
+                    text=hints.local_title,
+                    origin="ai_query_input",
+                    quality_bonus=0,
+                ),
+            ),
+            sources=("ai_query",),
+            provider_schema=self._ai_query_schema(),
+        )
+
+    def _prepend_ai_query(
+        self,
+        hints: "naming.TitleHints",
+        query: str,
+    ) -> "naming.TitleHints":
+        normalized = naming.normalize_title(query)
+        if not normalized:
+            return hints
+        remaining = [
+            candidate
+            for candidate in hints.query_candidates
+            if naming.normalize_title(candidate.text) != normalized
+        ]
+        return self._with_query_candidates(
+            hints,
+            (
+                naming.QueryCandidate(text=query, origin="ai_query", quality_bonus=5),
+                *remaining,
+            )[:3],
+        )
+
+    def _enrich_hints_with_ai_query(
+        self,
+        hints: "naming.TitleHints",
+        raw_title: str,
+        now: int,
+        config: NamingConfig,
+    ) -> "naming.TitleHints":
+        """Prepend a cached, safe LLM query without giving it decision authority."""
+        reviewer = self._ai_reviewer
+        suggest = getattr(reviewer, "suggest_query", None)
+        if (
+            not config.ai_review
+            or reviewer is None
+            or not callable(suggest)
+            or not self._needs_ai_query(hints)
+        ):
+            return hints
+
+        cache = self._load_json(self.AI_QUERY_CACHE_KEY, {})
+        if not isinstance(cache, dict):
+            cache = {}
+        cache_key = self._ai_query_cache_key(hints)
+        cached = cache.get(cache_key)
+        if isinstance(cached, dict):
+            parser_schema = str(cached.get("parser_schema", ""))
+            query_schema = str(cached.get("query_schema", ""))
+            if (
+                parser_schema == naming.PARSER_SCHEMA_VERSION
+                and query_schema == self._ai_query_schema()
+                and cached.get("raw_title") == hints.raw_title
+            ):
+                try:
+                    updated = int(cached.get("updated", 0))
+                except (TypeError, ValueError):
+                    updated = 0
+                ttl = (
+                    self.AI_QUERY_ERROR_TTL_SECONDS
+                    if bool(cached.get("failed", False))
+                    else self.AI_QUERY_TTL_SECONDS
+                )
+                if 0 <= now - updated < ttl:
+                    query = MoviePilotAIReviewer.validate_search_query(
+                        cached.get("query", "")
+                    )
+                    return self._prepend_ai_query(hints, query) if query else hints
+            cache.pop(cache_key, None)
+            self._save_data(self.AI_QUERY_CACHE_KEY, cache)
+
+        try:
+            query = MoviePilotAIReviewer.validate_search_query(
+                suggest(hints.raw_title, hints)
+            )
+        except Exception:
+            query = ""
+
+        cache[cache_key] = {
+            "updated": now,
+            "raw_title": hints.raw_title,
+            "query": query,
+            "failed": not bool(query),
+            "parser_schema": naming.PARSER_SCHEMA_VERSION,
+            "query_schema": self._ai_query_schema(),
+        }
+        self._prune_cache(cache, self.AI_QUERY_CACHE_MAX)
+        self._save_data(self.AI_QUERY_CACHE_KEY, cache)
+        return self._prepend_ai_query(hints, query) if query else hints
 
     def _augment_fallback_queries(
         self,
@@ -879,33 +1093,33 @@ class SmartNamingResolver:
         extra_texts = []
         for cand in primary:
             seen.add(naming.normalize_title(cand.text))
-        # 关键：从本地标题/原始名生成回退短名
-        base = hints.local_title or hints.raw_title or raw_title
-        for cand in primary:
-            base = cand.text or base
-            break
-        variants = self._trim_variants(base)
-        for text in variants:
-            key = naming.normalize_title(text)
-            if key and key not in seen:
-                seen.add(key)
-                extra_texts.append(text)
-        if not extra_texts or not hasattr(hints, "query_candidates"):
+        # Derive short fallbacks from the parsed title and every primary query.
+        # An AI term can occupy slot zero, so using only the first candidate
+        # would otherwise miss a useful shorter rule-based form.
+        bases = [hints.local_title or hints.raw_title or raw_title]
+        bases.extend(candidate.text for candidate in primary if candidate.text)
+        for base in bases:
+            for text in self._trim_variants(base):
+                key = naming.normalize_title(text)
+                if key and key not in seen:
+                    seen.add(key)
+                    extra_texts.append(text)
+        if not extra_texts:
             return hints
-        try:
-            from .naming import QueryCandidate
-        except Exception:
-            QueryCandidate = None
-        if QueryCandidate is None:
-            return hints
-        try:
-            new_queries = list(primary) + [
-                QueryCandidate(text=text, origin="fallback", quality_bonus=0)
-                for text in extra_texts
-            ]
-            return hints._replace(query_candidates=tuple(new_queries))
-        except Exception:
-            return hints
+        fallback_queries = [
+            naming.QueryCandidate(text=text, origin="fallback", quality_bonus=0)
+            for text in extra_texts
+        ]
+        if len(primary) + len(fallback_queries) <= 3:
+            return self._with_query_candidates(hints, list(primary) + fallback_queries)
+
+        # The provider receives at most three terms.  When the parser already
+        # filled all three slots, reserve the last slot for a genuinely new
+        # shorter fallback while retaining the first (possibly AI) term.
+        return self._with_query_candidates(
+            hints,
+            list(primary[:2]) + [fallback_queries[0]],
+        )
 
     def _trim_variants(self, text: str) -> list:
         """生成从完整名逐步去掉常见修饰词后的短名变体。"""
@@ -953,7 +1167,14 @@ class SmartNamingResolver:
         if "themoviedb" not in config.sources:
             return ProviderSearchResult((), ("themoviedb_not_enabled",), (), True)
 
+        try:
+            now = int(self._clock())
+        except (TypeError, ValueError, OverflowError):
+            now = int(time.time())
         hints = naming.parse_title(raw_title)
+        # Keep the AI term first when enabled; rule-generated variants remain
+        # available as low-cost fallbacks if the provider finds no exact match.
+        hints = self._enrich_hints_with_ai_query(hints, raw_title, now, config)
         # 搜索词自动回退：主解析词搜不到时，追加去掉常见修饰词后的短名，
         # 提高命中率（例如"黑冰高清修复版"→回退"黑冰"）。
         hints = self._augment_fallback_queries(hints, raw_title)
@@ -962,17 +1183,21 @@ class SmartNamingResolver:
             return ProviderSearchResult((), ("themoviedb_unavailable",), (), True)
 
         search_key = self._query_hash(hints, sources)
-        try:
-            now = int(self._clock())
-        except (TypeError, ValueError, OverflowError):
-            now = int(time.time())
         identity = self._load_identity(raw_title)
-        if isinstance(identity, dict) and identity.get("raw_title", raw_title) == raw_title:
+        if (
+            isinstance(identity, dict)
+            and identity.get("raw_title", raw_title) == raw_title
+            and identity.get("search_key") == search_key
+        ):
             try:
                 updated = int(identity.get("updated", 0))
             except (TypeError, ValueError):
                 updated = 0
-            if 0 <= now - updated < self.SEARCH_TTL_SECONDS:
+            identity_errors = tuple(identity.get("source_errors", ()))
+            identity_ttl = (
+                self.ERROR_TTL_SECONDS if identity_errors else self.SEARCH_TTL_SECONDS
+            )
+            if 0 <= now - updated < identity_ttl:
                 identity_candidates = tuple(
                     candidate
                     for candidate in self._identity_candidates(identity)
@@ -1005,15 +1230,17 @@ class SmartNamingResolver:
         evaluation: naming.MatchEvaluation,
         hints: naming.TitleHints,
         config: NamingConfig,
+        raw_title: Optional[str] = None,
         source_errors: Tuple[str, ...] = (),
         reason_codes: Tuple[str, ...] = (),
         candidates: Optional[Sequence[naming.MetadataCandidate]] = None,
     ) -> NamingDecision:
         _ = candidates
+        decision_raw_title = raw_title if raw_title is not None else hints.raw_title
         if evaluation.top is None:
             return self._decision(
                 status=evaluation.status,
-                raw_title=hints.raw_title,
+                raw_title=decision_raw_title,
                 hints=hints,
                 margin=evaluation.margin,
                 reason_codes=self._merge_reason_codes(evaluation.reason_codes, reason_codes),
@@ -1030,7 +1257,7 @@ class SmartNamingResolver:
             )
         return self._decision(
             status=evaluation.status,
-            raw_title=hints.raw_title,
+            raw_title=decision_raw_title,
             hints=hints,
             candidate=top,
             score=evaluation.top.score,
@@ -1043,7 +1270,12 @@ class SmartNamingResolver:
 
     @staticmethod
     def _valid_ai_confidence(confidence: Any) -> bool:
-        return isinstance(confidence, (int, float)) and math.isfinite(float(confidence)) and 0.85 <= float(confidence) <= 1.0
+        return (
+            not isinstance(confidence, bool)
+            and isinstance(confidence, (int, float))
+            and math.isfinite(float(confidence))
+            and 0.85 <= float(confidence) <= 1.0
+        )
 
     @staticmethod
     def _merge_reason_codes(
@@ -1199,10 +1431,10 @@ class SmartNamingResolver:
                 "last_query_key": search_key,
                 "last_query_candidates": [item.to_dict() for item in candidates],
                 "last_query_updated": now,
-                "updated": now,
                 "manual_override_config": config.manual_overrides,
             }
         )
+        identities.pop(raw_title, None)
         identities[raw_title] = identity
         self._prune_cache(identities, self.IDENTITY_MAX)
         self._save_data("naming_identity_v1", identities)
@@ -1295,16 +1527,21 @@ class SmartNamingResolver:
                     if retry_failed and (
                         cached.get("all_failed", False)
                         or not cached.get("candidates")
+                        or cached.get("errors")
                     ):
                         cache.pop(search_key, None)
                         self._save_data("naming_search_cache_v1", cache)
                     else:
-                        ttl = self.ERROR_TTL_SECONDS if cached.get("all_failed", False) else self.SEARCH_TTL_SECONDS
+                        ttl = (
+                            self.ERROR_TTL_SECONDS
+                            if cached.get("all_failed", False) or cached.get("errors")
+                            else self.SEARCH_TTL_SECONDS
+                        )
                         try:
                             updated = int(cached.get("updated", 0))
                         except (TypeError, ValueError):
                             updated = 0
-                        if now - updated < ttl:
+                        if 0 <= now - updated < ttl:
                             candidates = tuple(
                                 naming.MetadataCandidate.from_dict(item)
                                 for item in cached.get("candidates", ())
@@ -1343,19 +1580,21 @@ class SmartNamingResolver:
         return raw if raw is not None else default
 
     def _prune_cache(self, value: Any, max_items: int, by_key: str = "updated") -> None:
+        """Keep the most recently written entries using persisted collection order.
+
+        Wall-clock timestamps can move backwards after a VM/NAS snapshot restore.
+        JSON object/list order is stable, so writers touch refreshed entries by moving
+        them to the end and pruning always removes from the front.  ``by_key`` stays
+        in the signature for compatibility with older callers and stored payloads.
+        """
+        del by_key
         if isinstance(value, dict):
-            ordered = sorted(value.items(), key=lambda item: int(item[1].get(by_key, 0) if isinstance(item[1], dict) else 0))
-            if len(ordered) <= max_items:
-                return
-            value.clear()
-            for key, item in ordered[-max_items:]:
-                value[key] = item
+            overflow = len(value) - max_items
+            for key in tuple(value.keys())[:max(0, overflow)]:
+                value.pop(key, None)
             return
         if not isinstance(value, list):
             return
-        value.sort(
-            key=lambda item: int(item.get(by_key, 0)) if isinstance(item, dict) else 0,
-        )
         if len(value) > max_items:
             del value[: len(value) - max_items]
 
@@ -1463,7 +1702,8 @@ class SmartNamingResolver:
 
         for index, item in enumerate(rows):
             if isinstance(item, dict) and item.get("raw_title") == decision.raw_title:
-                rows[index] = row
+                rows.pop(index)
+                rows.append(row)
                 break
         else:
             rows.append(row)
@@ -1494,13 +1734,14 @@ class SmartNamingResolver:
                     return True
                 completed = dict(item)
                 completed["completed_at"] = completed_at
-                rows[index] = completed
+                rows.pop(index)
+                rows.append(completed)
                 try:
                     saved = self._save_data("naming_preview_v1", rows)
                 except Exception:
                     saved = False
                 if saved is False:
-                    continue
+                    break
                 try:
                     verified = copy.deepcopy(self._load_json("naming_preview_v1", []))
                 except Exception:
@@ -1557,6 +1798,7 @@ class SmartNamingResolver:
         if not isinstance(identities, dict):
             identities = {}
 
+        identities.pop(raw_title, None)
         identities[raw_title] = {
             "updated": now,
             "status": decision.status,

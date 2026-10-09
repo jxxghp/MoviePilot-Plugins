@@ -27,7 +27,7 @@ class LibraryScraper(_PluginBase):
     # 插件图标
     plugin_icon = "scraper.png"
     # 插件版本
-    plugin_version = "2.1.3"
+    plugin_version = "2.1.4"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -360,7 +360,7 @@ class LibraryScraper(_PluginBase):
                     file_path=file_path,
                     scraper_path=scraper_path,
                     mtype=file_mtype,
-                    tmdbid=file_meta.tmdbid
+                    tmdbid=self.__normalize_tmdbid(file_meta.tmdbid)
                 )
                 if scraper_item and not self.__contains_scrape_item(scraper_paths, scraper_item):
                     logger.info(f"发现刮削目标：{scraper_item}")
@@ -447,23 +447,32 @@ class LibraryScraper(_PluginBase):
         刮削一个媒体目录或媒体文件
         """
         # 优先读取本地nfo文件；文件路径中解析出的 tmdbid 作为兜底识别信息保留。
+        tmdbid = self.__normalize_tmdbid(tmdbid)
         if target_type == self._target_file:
             nfo_path = path.with_suffix(".nfo")
             if nfo_path.exists():
-                tmdbid = self.__get_tmdbid_from_nfo(nfo_path)
+                nfo_tmdbid = self.__get_tmdbid_from_nfo(nfo_path)
+                if nfo_tmdbid:
+                    tmdbid = nfo_tmdbid
         elif mtype == MediaType.MOVIE:
             # 电影
             movie_nfo = path / "movie.nfo"
             if movie_nfo.exists():
-                tmdbid = self.__get_tmdbid_from_nfo(movie_nfo)
+                nfo_tmdbid = self.__get_tmdbid_from_nfo(movie_nfo)
+                if nfo_tmdbid:
+                    tmdbid = nfo_tmdbid
             file_nfo = path / (path.stem + ".nfo")
             if not tmdbid and file_nfo.exists():
-                tmdbid = self.__get_tmdbid_from_nfo(file_nfo)
+                nfo_tmdbid = self.__get_tmdbid_from_nfo(file_nfo)
+                if nfo_tmdbid:
+                    tmdbid = nfo_tmdbid
         else:
             # 电视剧
             tv_nfo = path / "tvshow.nfo"
             if tv_nfo.exists():
-                tmdbid = self.__get_tmdbid_from_nfo(tv_nfo)
+                nfo_tmdbid = self.__get_tmdbid_from_nfo(tv_nfo)
+                if nfo_tmdbid:
+                    tmdbid = nfo_tmdbid
         if tmdbid:
             # 按TMDBID识别
             logger.info(f"读取到本地nfo文件的tmdbid：{tmdbid}")
@@ -526,7 +535,16 @@ class LibraryScraper(_PluginBase):
             if not child_mtype:
                 child_mtype = child_meta.type
             self.__scrape_path(path=child_file, mtype=child_mtype, target_type=self._target_file,
-                               tmdbid=child_meta.tmdbid)
+                               tmdbid=self.__normalize_tmdbid(child_meta.tmdbid))
+
+    @staticmethod
+    def __normalize_tmdbid(value: object) -> Optional[int]:
+        """过滤 NFO 或文件名中的空值、占位文本和非数字 TMDB ID。"""
+        try:
+            normalized = int(str(value).strip())
+        except (TypeError, ValueError):
+            return None
+        return normalized if normalized > 0 else None
 
     @staticmethod
     def __get_tmdbid_from_nfo(file_path: Path):
@@ -548,7 +566,8 @@ class LibraryScraper(_PluginBase):
             for xpath in xpaths:
                 tmdbid = reader.get_element_value(xpath)
                 if tmdbid:
-                    return tmdbid
+                    if normalized_tmdbid := LibraryScraper.__normalize_tmdbid(tmdbid):
+                        return normalized_tmdbid
         except Exception as err:
             logger.warn(f"从nfo文件中获取tmdbid失败：{str(err)}")
         return None

@@ -8,13 +8,13 @@ from pathlib import Path
 
 import pytest
 from app.schemas.types import MediaSource
-from doubanrank import DoubanRank
-from doubansync import DoubanSync
-from episodegroupmeta import EpisodeGroupMeta
-from historytov2 import HistoryToV2
-from maoyanrank import MaoyanRank
-from neodbsync import NeoDBSync
-from rsssubscribe import RssSubscribe
+from app.plugins.doubanrank import DoubanRank
+from app.plugins.doubansync import DoubanSync
+from app.plugins.episodegroupmeta import EpisodeGroupMeta
+from app.plugins.historytov2 import HistoryToV2
+from app.plugins.maoyanrank import MaoyanRank
+from app.plugins.neodbsync import NeoDBSync
+from app.plugins.rsssubscribe import RssSubscribe
 
 
 PLUGIN_CASES = (
@@ -28,7 +28,7 @@ PLUGIN_CASES = (
 INVALID_PAIRS = (
     {"media_source": MediaSource.TMDB.value, "media_id": "0"},
     {"media_source": MediaSource.TMDB.value, "media_id": "   "},
-    {"media_source": "unknown", "media_id": "999"},
+    {"media_source": "Plugin Source:Invalid", "media_id": "999"},
 )
 
 
@@ -125,7 +125,7 @@ def test_invalid_douban_fallback_continues_to_valid_tmdb(
             (MediaSource.IMDb, "tt123"),
         ),
         (
-            {"media_source": "unknown", "media_id": "999", "tvdbid": "456"},
+            {"media_source": "Plugin Source:Invalid", "media_id": "999", "tvdbid": "456"},
             (MediaSource.TVDB, "456"),
         ),
         (

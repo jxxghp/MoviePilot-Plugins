@@ -277,8 +277,24 @@ def _cn_num(token: str) -> int:
         return 1
 
 
+def _assert_no_symlink_entries(source: str) -> None:
+    """Fail closed when a direct-transfer source tree contains a symlink."""
+    def _raise_walk_error(error: OSError) -> None:
+        raise error
+
+    if os.path.islink(source):
+        raise ValueError("source_symlink")
+    for root, dirs, files in os.walk(
+        source, followlinks=False, onerror=_raise_walk_error
+    ):
+        for name in (*dirs, *files):
+            if os.path.islink(os.path.join(root, name)):
+                raise ValueError("source_tree_symlink")
+
+
 def _link_files_recursive(source: str, dest: str) -> None:
     """递归地把源目录的内容硬链（优先）或复制到目标目录；用于 hardlink/softlink 搬运。"""
+    _assert_no_symlink_entries(source)
     dest = os.path.abspath(dest)
     os.makedirs(dest, exist_ok=True)
     for root, dirs, files in os.walk(source):
@@ -318,16 +334,18 @@ class CourseOrganizer(_PluginBase):
     plugin_config_prefix = "courseorganizer_"
     auth_level = 1
     plugin_order = 90
-    plugin_version = "1.7.5"
+    plugin_version = "1.7.20"
     plugin_desc = "稳定后识别、分类并整理到电视剧、电影或儿童媒体库"
     plugin_author = "OneBigMoon"
-    author_url = "https://github.com/OneBigMoon/moviepilot-v2-course-organizer"
-    plugin_icon = "icons/courseorganizer.svg"
+    author_url = "https://github.com/OneBigMoon"
+    project_url = "https://github.com/OneBigMoon/moviepilot-v2-course-organizer"
+    plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/courseorganizer.png"
     plugin_repo = "https://github.com/OneBigMoon/moviepilot-v2-course-organizer"
 
     MEDIA_EXTENSIONS = {".mkv", ".mp4", ".avi", ".mov", ".wmv", ".flv", ".m4v", ".m4a"}
     SUBTITLE_EXTENSIONS = {".srt", ".ass", ".ssa", ".sub", ".vtt"}
     INCOMPLETE_SUFFIXES = (".partial", ".part", ".tmp", ".crdownload", ".incomplete", ".!qb")
+    SYSTEM_SCAN_ENTRY_NAMES = frozenset({"#recycle", "@eadir", ".ds_store", "thumbs.db", "desktop.ini"})
     DEFAULT_INTERVAL = 300
     DEFAULT_INCOMING = "/volume1/未整理"
     DEFAULT_TV_OUTPUT = "/volume1/TV"
@@ -628,7 +646,7 @@ class CourseOrganizer(_PluginBase):
     def _review_status_label(status: str, target_library: str = "") -> str:
         if status == "ignore":
             return "已跳过"
-        if status in {"auto_external", "local_fallback"} and target_library in naming.MANUAL_TARGET_LIBRARIES:
+        if status in {"auto_external", "local_fallback"} and target_library:
             return "可以整理"
         return "需要确认"
 
@@ -660,6 +678,38 @@ class CourseOrganizer(_PluginBase):
         if isinstance(rule, dict):
             return rule.get(key, default)
         return getattr(rule, key, default)
+
+    @staticmethod
+    def _paths_overlap(first: Any, second: Any) -> bool:
+        """Return whether two local paths are equal or one contains the other."""
+        if not first or not second:
+            return False
+        try:
+            first_path = os.path.normcase(
+                os.path.realpath(os.path.abspath(os.path.expanduser(str(first))))
+            )
+            second_path = os.path.normcase(
+                os.path.realpath(os.path.abspath(os.path.expanduser(str(second))))
+            )
+            return os.path.commonpath((first_path, second_path)) in {
+                first_path,
+                second_path,
+            }
+        except (OSError, TypeError, ValueError):
+            return False
+
+    @staticmethod
+    def _monitoring_conflict_message(context: Dict[str, Any]) -> str:
+        if not context.get("monitoring_enabled"):
+            return ""
+        incoming = str(context.get("incoming", "") or "").strip()
+        rules = [str(item) for item in context.get("monitoring_rules", []) if item]
+        rule_text = "、".join(rules) or "相关目录规则"
+        source_text = f"来源目录 {incoming}" if incoming else "当前来源目录"
+        return (
+            f"已自动检测到 {source_text} 与 MoviePilot 自动监控规则（{rule_text}）重叠；"
+            "为避免两个任务竞争文件，本插件已强制保持安全预览并禁止自动整理。"
+        )
 
     def _load_moviepilot_directory_rules(self) -> Tuple[List[Any], str]:
         """Read MoviePilot's directory rules without making them a plugin setting."""
@@ -796,6 +846,35 @@ class CourseOrganizer(_PluginBase):
         if len(source_paths) > 1:
             issues.append("三类规则的来源目录不一致，无法确定唯一待处理目录")
 
+        monitoring_conflicts: List[Dict[str, str]] = []
+        if incoming:
+            for rule in rules:
+                monitor_type = str(
+                    self._directory_rule_value(rule, "monitor_type", "") or ""
+                ).strip()
+                monitor_path = str(
+                    self._directory_rule_value(rule, "download_path", "") or ""
+                ).strip()
+                storage = str(
+                    self._directory_rule_value(rule, "storage", "local") or "local"
+                ).strip()
+                if (
+                    monitor_type
+                    and storage == "local"
+                    and self._paths_overlap(incoming, monitor_path)
+                ):
+                    monitoring_conflicts.append(
+                        {
+                            "title": str(
+                                self._directory_rule_value(rule, "name", "")
+                                or monitor_path
+                                or "未命名规则"
+                            ),
+                            "path": monitor_path,
+                            "monitor_type": monitor_type,
+                        }
+                    )
+
         if load_error:
             issues.insert(0, load_error)
         libraries = [selected[key] for key in ("tv", "movie", "children") if key in selected]
@@ -809,10 +888,11 @@ class CourseOrganizer(_PluginBase):
             "issues": list(dict.fromkeys(issues)),
             "message": "；".join(dict.fromkeys(issues)),
             "settings_url": "#/setting",
-            "monitoring_enabled": any(bool(item["monitor_type"]) for item in summaries),
-            "monitoring_rules": [
-                item["title"] for item in summaries if item["monitor_type"]
-            ],
+            "monitoring_enabled": bool(monitoring_conflicts),
+            "monitoring_rules": list(
+                dict.fromkeys(item["title"] for item in monitoring_conflicts)
+            ),
+            "monitoring_conflicts": monitoring_conflicts,
         }
 
     def _review_path_config(
@@ -821,6 +901,13 @@ class CourseOrganizer(_PluginBase):
         config = self._get_config()
         directory_context = context or self._moviepilot_directory_context()
         if not directory_context.get("available"):
+            if config.get("auto_organize"):
+                config["auto_organize"] = False
+                config["naming_mode"] = "preview"
+                config["monitoring_conflict"] = (
+                    "无法读取 MoviePilot 目录监控配置；为避免重复整理，"
+                    "本插件已强制保持安全预览并禁止自动整理。"
+                )
             return config
         selected = directory_context.get("selected", {})
         config["incoming"] = str(directory_context.get("incoming", ""))
@@ -830,20 +917,21 @@ class CourseOrganizer(_PluginBase):
             ("children", "children_output"),
         ):
             config[key] = str(selected.get(library, {}).get("path", ""))
+        conflict_message = self._monitoring_conflict_message(directory_context)
+        if conflict_message and config.get("auto_organize"):
+            config["auto_organize"] = False
+            config["naming_mode"] = "preview"
+            config["monitoring_conflict"] = conflict_message
         return config
 
     def _review_source_directory_ok(self, raw_title: str) -> bool:
-        """True when the source directory for a preview row still exists.
-
-        A missing directory means the residual preview row should stay hidden;
-        an existing directory whose safe snapshot is temporarily unavailable is
-        surfaced as "源目录待稳定" so the user can see the item.
-        """
-        config = self._review_path_config()
-        incoming = str(config.get("incoming", "") or "")
-        if not incoming or not raw_title:
+        if not raw_title:
             return False
-        return os.path.isdir(os.path.join(incoming, raw_title))
+        config = self._review_path_config()
+        return any(
+            os.path.isdir(os.path.join(incoming, raw_title))
+            for incoming in self._download_paths(config)
+        )
 
     @staticmethod
     def _source_identity(path: str) -> Optional[Dict[str, int]]:
@@ -868,6 +956,16 @@ class CourseOrganizer(_PluginBase):
         text = str(value)
         valid, _ = naming.validate_manual_raw_title(text)
         return text if valid else ascii(text)
+
+    @staticmethod
+    def _is_system_scan_entry(entry: str) -> bool:
+        return str(entry).strip().casefold() in CourseOrganizer.SYSTEM_SCAN_ENTRY_NAMES
+
+    @classmethod
+    def _is_ignored_scan_entry(cls, entry: str) -> bool:
+        """Return whether a top-level incoming entry is a system/hidden item."""
+        name = str(entry).strip()
+        return name.startswith(".") or cls._is_system_scan_entry(name)
 
     @staticmethod
     def _manifest_stat_tuple(
@@ -967,6 +1065,8 @@ class CourseOrganizer(_PluginBase):
                 | getattr(os, "O_NONBLOCK", 0)
             )
             for entry in children:
+                if cls._is_system_scan_entry(entry.name):
+                    continue
                 relative_path = (
                     f"{relative_prefix}/{entry.name}"
                     if relative_prefix
@@ -1210,39 +1310,42 @@ class CourseOrganizer(_PluginBase):
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def _current_source_binding(self, raw_title: str) -> Optional[Dict[str, Any]]:
+        if not raw_title:
+            return None
         config = self._review_path_config()
-        incoming = str(config.get("incoming", ""))
-        if not incoming or not os.path.isdir(incoming):
-            return None
-        source_path = os.path.join(incoming, raw_title)
-        if not self._is_within_realpath(incoming, source_path):
-            return None
-        source_realpath = os.path.realpath(os.path.abspath(source_path))
-        incoming_realpath = os.path.realpath(os.path.abspath(incoming))
-        if source_realpath == incoming_realpath:
-            return None
-        identity = self._source_identity(source_path)
-        if identity is None:
-            return None
-        tree = self._source_tree_manifest(source_realpath)
-        if tree is None:
-            return None
-        manifest, directory_manifest = tree
-        signature = [
-            (item[0], item[4], item[5])
-            for item in sorted(manifest, key=lambda item: self._natural_key(item[0]))
-        ]
-        return {
-            "source_path": source_realpath,
-            "source_identity": identity,
-            "source_snapshot_digest": self._snapshot_digest(signature),
-            "source_manifest": manifest,
-            "source_manifest_digest": self._manifest_digest(manifest),
-            "source_directory_manifest": directory_manifest,
-            "source_directory_manifest_digest": self._directory_manifest_digest(
-                directory_manifest
-            ),
-        }
+        for incoming in self._download_paths(config):
+            if not os.path.isdir(incoming):
+                continue
+            source_path = os.path.join(incoming, raw_title)
+            if not self._is_within_realpath(incoming, source_path):
+                continue
+            source_realpath = os.path.realpath(os.path.abspath(source_path))
+            incoming_realpath = os.path.realpath(os.path.abspath(incoming))
+            if source_realpath == incoming_realpath:
+                continue
+            identity = self._source_identity(source_path)
+            if identity is None:
+                continue
+            tree = self._source_tree_manifest(source_realpath)
+            if tree is None:
+                continue
+            manifest, directory_manifest = tree
+            signature = [
+                (item[0], item[4], item[5])
+                for item in sorted(manifest, key=lambda item: self._natural_key(item[0]))
+            ]
+            return {
+                "source_path": source_realpath,
+                "source_identity": identity,
+                "source_snapshot_digest": self._snapshot_digest(signature),
+                "source_manifest": manifest,
+                "source_manifest_digest": self._manifest_digest(manifest),
+                "source_directory_manifest": directory_manifest,
+                "source_directory_manifest_digest": self._directory_manifest_digest(
+                    directory_manifest
+                ),
+            }
+        return None
 
     @staticmethod
     def _source_bindings_equal(
@@ -1376,7 +1479,10 @@ class CourseOrganizer(_PluginBase):
 
     def _legacy_review_override(self, raw_title: str) -> Optional[naming.ManualOverride]:
         config = self._get_config()
-        parsed = naming.parse_manual_overrides(config.get("naming_manual_overrides", ""))
+        parsed = naming.parse_manual_overrides(
+            config.get("naming_manual_overrides", ""),
+            target_libraries=self._manual_target_libraries(),
+        )
         for item in parsed.overrides:
             if item.raw_title == raw_title:
                 return item
@@ -1479,7 +1585,7 @@ class CourseOrganizer(_PluginBase):
             if target_library is None:
                 target_library = ""
             if not isinstance(target_library, str) or (
-                target_library and target_library not in naming.MANUAL_TARGET_LIBRARIES
+                target_library and target_library not in self._manual_target_libraries()
             ):
                 return naming.ManualOverride(raw_title, "invalid")
             candidate_key = entry.get("candidate_key")
@@ -1502,7 +1608,7 @@ class CourseOrganizer(_PluginBase):
         final_title = entry.get("final_title")
         target_library = entry.get("target_library")
         valid_name, _ = naming.validate_manual_name(final_title)
-        if not valid_name or target_library not in naming.MANUAL_TARGET_LIBRARIES:
+        if not valid_name or target_library not in self._manual_target_libraries():
             return naming.ManualOverride(raw_title, "invalid")
         return naming.ManualOverride(
             raw_title,
@@ -1563,13 +1669,19 @@ class CourseOrganizer(_PluginBase):
         directory_context: Optional[Dict[str, Any]] = None,
         hide_missing_source: bool = False,
     ) -> List[Dict[str, Any]]:
+        directory_context = directory_context or self._moviepilot_directory_context()
         config = self._review_path_config(directory_context)
         rows = self._get_resolver().preview_rows()
-        labels = {"tv": "电视剧", "movie": "电影", "children": "儿童"}
+        selected = directory_context.get("selected", {})
+        labels = {
+            str(key): str(rule.get("title") or rule.get("name") or key)
+            for key, rule in selected.items()
+            if isinstance(rule, dict)
+        }
         roots = {
-            "tv": config.get("tv_output", ""),
-            "movie": config.get("movie_output", ""),
-            "children": config.get("children_output", ""),
+            str(key): str(rule.get("path", "") or "")
+            for key, rule in selected.items()
+            if isinstance(rule, dict)
         }
         requested_raw_title = raw_title
         try:
@@ -1581,6 +1693,8 @@ class CourseOrganizer(_PluginBase):
             if not isinstance(source, dict):
                 continue
             raw_value = source.get("raw_title", "")
+            if self._is_ignored_scan_entry(raw_value):
+                continue
             if requested_raw_title is not None and raw_value != requested_raw_title:
                 continue
             if source.get("completed_at") is not None:
@@ -1642,6 +1756,7 @@ class CourseOrganizer(_PluginBase):
                 if not self._source_bindings_equal(source_binding, expected_binding):
                     structured = naming.ManualOverride(raw_title, "invalid")
             override = structured if structured is not None else self._legacy_review_override(raw_title)
+            selected_candidate: Optional[naming.MetadataCandidate] = None
             if override is not None and override.action == "invalid":
                 item["status"] = "invalid_manual_decision"
                 item["target_library"] = ""
@@ -1656,11 +1771,11 @@ class CourseOrganizer(_PluginBase):
                 item["status"] = "local_fallback"
                 item["final_title"] = override.value
                 item["target_library"] = override.target_library
-                candidate = self._manual_candidate_for(raw_title, manual_payload)
-                if candidate is not None:
-                    item["source"] = candidate.source
-                    item["media_id"] = candidate.media_id
-                    item["media_type"] = candidate.media_type
+                selected_candidate = self._manual_candidate_for(raw_title, manual_payload)
+                if selected_candidate is not None:
+                    item["source"] = selected_candidate.source
+                    item["media_id"] = selected_candidate.media_id
+                    item["media_type"] = selected_candidate.media_type
                 elif isinstance(manual_payload, dict):
                     entry = manual_payload.get("items", {}).get(raw_title, {})
                     if isinstance(entry, dict):
@@ -1676,16 +1791,16 @@ class CourseOrganizer(_PluginBase):
                     "manual_confirm"
                 ]
             elif override is not None and override.action == "candidate":
-                candidate = self._manual_candidate_for(raw_title, manual_payload)
-                if candidate is None:
+                selected_candidate = self._manual_candidate_for(raw_title, manual_payload)
+                if selected_candidate is None:
                     item["status"] = "invalid_manual_decision"
                     item["target_library"] = ""
                     item["target_output_root"] = ""
                     item["reason_codes"] = ["invalid_manual_decision"]
                 else:
-                    item["source"] = candidate.source
-                    item["media_id"] = candidate.media_id
-                    item["media_type"] = candidate.media_type
+                    item["source"] = selected_candidate.source
+                    item["media_id"] = selected_candidate.media_id
+                    item["media_type"] = selected_candidate.media_type
                     entry = (
                         manual_payload.get("items", {}).get(raw_title, {})
                         if isinstance(manual_payload, dict)
@@ -1754,6 +1869,14 @@ class CourseOrganizer(_PluginBase):
                         item.get("reason_codes", ()),
                         override.action if override is not None else "",
                     ),
+                    "selected_candidate_key": (
+                        selected_candidate.key if selected_candidate is not None else ""
+                    ),
+                    "selected_candidate": (
+                        self._tmdb_candidate_response(selected_candidate)
+                        if selected_candidate is not None
+                        else None
+                    ),
                 }
             if include_internal:
                 result["_source_binding"] = source_binding
@@ -1772,14 +1895,20 @@ class CourseOrganizer(_PluginBase):
                     directory_context=directory_context,
                     hide_missing_source=True,
                 ),
-                "libraries": directory_context["libraries"],
-                "directory_rules": directory_context["rules"],
-                "rules_ready": directory_context["ready"],
-                "rules_message": directory_context["message"],
-                "monitoring_enabled": directory_context["monitoring_enabled"],
-                "monitoring_rules": directory_context["monitoring_rules"],
-                "incoming_path": directory_context["incoming"],
-                "settings_url": directory_context["settings_url"],
+                "libraries": list(directory_context.get("libraries", []) or []),
+                "directory_rules": list(directory_context.get("rules", []) or []),
+                "download_directories": list(
+                    directory_context.get("download_directories", []) or []
+                ),
+                "archive_directories": list(
+                    directory_context.get("archive_directories", []) or []
+                ),
+                "rules_ready": bool(directory_context.get("ready")),
+                "rules_message": str(directory_context.get("message", "") or ""),
+                "monitoring_enabled": False,
+                "monitoring_rules": [],
+                "incoming_path": str(directory_context.get("incoming", "") or ""),
+                "settings_url": "",
             },
         )
 
@@ -2004,7 +2133,7 @@ class CourseOrganizer(_PluginBase):
                 valid_name, _ = naming.validate_manual_name(final_title)
                 if not valid_name:
                     return self._review_response(False, message="建议名称无效")
-                if target_library not in naming.MANUAL_TARGET_LIBRARIES:
+                if target_library not in self._manual_target_libraries():
                     return self._review_response(False, message="目标媒体库无效")
                 directory_context = self._moviepilot_directory_context()
                 selected_rule = directory_context.get("selected", {}).get(target_library)
@@ -2249,9 +2378,9 @@ class CourseOrganizer(_PluginBase):
             return "failed"
         identity = self._confirmed_media_identity(course_name)
         if identity is not None:
-            media_source, media_id, _recognized_media_type = identity
+            media_source, media_id, recognized_media_type = identity
         else:
-            media_source, media_id = "", ""
+            media_source, media_id, recognized_media_type = "", "", "unknown"
         # 原生"识别+整理"只对可靠的 TMDB/豆瓣 身份有效；课程等本地/空身份走直接搬移。
         native_valid = media_source in {"themoviedb", "douban"} and bool(media_id)
 
@@ -2263,6 +2392,15 @@ class CourseOrganizer(_PluginBase):
                 ascii(course_name),
             )
             return "failed"
+        rule = dict(rule)
+        source_root = self._download_root_for_path(course_path)
+        if not source_root:
+            self._logger.warning(
+                "CourseOrganizer[event=native_transfer_rejected] item_course_repr=%s reason=download_root_missing",
+                ascii(course_name),
+            )
+            return "failed"
+        rule["download_path"] = source_root
         if not rule.get("renaming"):
             self._logger.warning(
                 "CourseOrganizer[event=native_transfer_rejected] item_course_repr=%s reason=renaming_disabled",
@@ -2312,7 +2450,11 @@ class CourseOrganizer(_PluginBase):
             tmdbid = int(media_id)
         else:
             doubanid = media_id
-        media_type = "movie" if decision.target_library == "movie" else "tv"
+        media_type = (
+            recognized_media_type
+            if recognized_media_type in {"movie", "tv"}
+            else ("movie" if decision.target_library == "movie" else "tv")
+        )
         try:
             with adapter.rename_context(course_path, decision.value):
                 result = adapter.manual_transfer(
@@ -2407,13 +2549,28 @@ class CourseOrganizer(_PluginBase):
 
         配合目录规则的搬运方式（move/copy/hardlink 等）。失败时不消费决定，保留记录可重试。
         """
-        source = os.path.realpath(os.path.abspath(str(course_path if isinstance(course_path, str) else "")))
+        raw_source = os.path.abspath(str(course_path if isinstance(course_path, str) else ""))
+        if os.path.islink(raw_source):
+            self._logger.warning(
+                "CourseOrganizer[event=direct_transfer_failed] item_course_repr=%s reason=source_symlink",
+                ascii(course_name),
+            )
+            return "failed"
+        source = os.path.realpath(raw_source)
         if not source or not os.path.isdir(source):
             self._logger.warning(
                 "CourseOrganizer[event=direct_transfer_failed] item_course_repr=%s reason=source_missing",
                 ascii(course_name),
             )
             return "no_media"
+        try:
+            _assert_no_symlink_entries(source)
+        except (OSError, ValueError):
+            self._logger.warning(
+                "CourseOrganizer[event=direct_transfer_failed] item_course_repr=%s reason=source_tree_symlink",
+                ascii(course_name),
+            )
+            return "failed"
         incoming = str(rule.get("download_path") or "")
         if incoming and not self._is_within_realpath(incoming, source):
             self._logger.warning(
@@ -2811,11 +2968,11 @@ class CourseOrganizer(_PluginBase):
         if not isinstance(binding, dict):
             return self._review_response(False, message="源目录已不存在或已变化，请刷新预览")
         target_library = str(current.get("target_library", "")).lower()
-        if target_library not in naming.MANUAL_TARGET_LIBRARIES:
+        if target_library not in self._manual_target_libraries():
             target_library = ""
         final_title = naming.format_selected_candidate_name(
             candidate,
-            append_tmdb_id=bool(config.get("naming_append_tmdb_id", False)),
+            append_tmdb_id=False,
         )
         if not self._save_manual_decision(
             str(raw_title),
@@ -2844,7 +3001,7 @@ class CourseOrganizer(_PluginBase):
         return self._review_response(True, latest or {}, "已保存 TMDB 关联")
 
     def get_page(self) -> List[Dict[str, Any]]:
-        config = self._get_config()
+        config = self._review_path_config()
         naming_mode = str(config["naming_mode"])
         rows: List[Dict[str, Any]] = []
         if naming_mode != "off":
@@ -2894,7 +3051,11 @@ class CourseOrganizer(_PluginBase):
         preview_subtitle = (
             "命名已关闭，仍会整理；此页未读取预览记录"
             if naming_mode == "off"
-            else f"{len(display_rows)} 条记录 · 只记录建议，不移动文件"
+            else (
+                f"{len(display_rows)} 条记录 · 符合条件的项目将自动整理"
+                if naming_mode == "apply"
+                else f"{len(display_rows)} 条记录 · 只记录建议，不移动文件"
+            )
         )
         preview_table = {
             "component": "VDataTableVirtual",
@@ -3043,70 +3204,36 @@ class CourseOrganizer(_PluginBase):
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         config = self._get_config()
         defaults = dict(config)
-        advanced = [
+        context = self._moviepilot_directory_context()
+        content: List[Dict[str, Any]] = [
             {
-                "component": "VTextField",
-                "props": {
-                    "model": "naming_sources",
-                    "label": "识别来源（逗号分隔）",
-                    "aria-label": "识别来源（逗号分隔）",
-                    "density": "comfortable",
-                    "variant": "outlined",
-                },
+                "component": "VAlert",
+                "props": {"type": "info", "variant": "tonal", "class": "mb-3"},
+                "text": (
+                    "插件独立维护下载目录和归档目录，可添加多个目录。"
+                    "自动识别仅映射现有 tv/movie/children 内置 key；"
+                    "其他归档目录可在人工确认时选择。"
+                ),
             },
             {
-                "component": "VTextField",
+                "component": "VAlert",
                 "props": {
-                    "model": "naming_auto_threshold",
-                    "label": "自动采用阈值（80~100）",
-                    "aria-label": "自动采用阈值（80~100）",
-                    "type": "number",
-                    "min": 80,
-                    "max": 100,
-                    "density": "comfortable",
-                    "variant": "outlined",
+                    "type": "warning" if not context.get("ready") else "success",
+                    "variant": "tonal",
+                    "density": "compact",
+                    "class": "mb-3",
                 },
-            },
-            {
-                "component": "VTextField",
-                "props": {
-                    "model": "naming_min_margin",
-                    "label": "领先幅度（5~30）",
-                    "aria-label": "领先幅度（5~30）",
-                    "type": "number",
-                    "min": 5,
-                    "max": 30,
-                    "density": "comfortable",
-                    "variant": "outlined",
-                },
+                "text": context.get("message")
+                or "已使用插件配置的下载目录和归档目录。",
             },
             {
                 "component": "VSwitch",
                 "props": {
-                    "model": "naming_append_tmdb_id",
-                    "label": "名称追加 TMDB ID",
-                    "aria-label": "名称追加 TMDB ID",
-                    "color": "primary",
-                },
-            },
-            {
-                "component": "VSwitch",
-                "props": {
-                    "model": "naming_ai_review",
-                    "label": "启用 AI 辅助复核",
-                    "aria-label": "启用 AI 辅助复核",
-                    "color": "primary",
-                },
-            },
-            {
-                "component": "VSwitch",
-                "props": {
-                    "model": "naming_clear_cache_once",
-                    "label": "一次性清空识别缓存",
-                    "aria-label": "一次性清空识别缓存",
-                    "hint": "下次运行时清除旧识别结果；执行后自动复位",
+                    "model": "auto_organize",
+                    "label": "自动整理符合条件的项目",
+                    "hint": "目录未完整配置或下载目录不可读取时，将自动保持安全预览。",
                     "persistent-hint": True,
-                    "color": "error",
+                    "color": "primary",
                 },
             },
         ]
@@ -3117,45 +3244,7 @@ class CourseOrganizer(_PluginBase):
                     "class": "courseorganizer-form",
                     "aria-label": "整理识别设置",
                 },
-                "content": [
-                    {
-                        "component": "VAlert",
-                        "props": {
-                            "type": "info",
-                            "variant": "tonal",
-                            "class": "mb-3",
-                        },
-                        "text": "目录和整理规则沿用 MoviePilot 系统设置，本插件只保留识别选项。",
-                    },
-                    {
-                        "component": "VBtn",
-                        "props": {
-                            "href": "#/setting",
-                            "prepend-icon": "mdi-folder-cog",
-                            "variant": "tonal",
-                            "color": "primary",
-                            "class": "mb-3",
-                            "aria-label": "打开 MoviePilot 存储与目录设置",
-                        },
-                        "text": "打开 MoviePilot 存储与目录设置",
-                    },
-                    {
-                        "component": "VExpansionPanels",
-                        "props": {"variant": "accordion"},
-                        "content": [
-                            {
-                                "component": "VExpansionPanel",
-                                "props": {"title": "高级识别设置", "value": "recognition"},
-                                "content": [
-                                    {
-                                        "component": "VExpansionPanelText",
-                                        "content": advanced,
-                                    }
-                                ],
-                            }
-                        ],
-                    },
-                ],
+                "content": content,
             }
         ], defaults
 
@@ -3203,116 +3292,96 @@ class CourseOrganizer(_PluginBase):
             self._run()
 
     def _run(self, force: bool = False) -> None:
+        run_config_local = getattr(self, "_run_config_local", None)
+        if run_config_local is None:
+            run_config_local = threading.local()
+            self._run_config_local = run_config_local
+        original_config = getattr(run_config_local, "config", _MANUAL_DATA_UNSET)
+        runtime_config = self._review_path_config()
+        run_config_local.config = dict(runtime_config)
+        try:
+            self._run_with_config(force)
+        finally:
+            if original_config is _MANUAL_DATA_UNSET:
+                try:
+                    del run_config_local.config
+                except AttributeError:
+                    pass
+            else:
+                run_config_local.config = original_config
+
+    def _run_with_config(self, force: bool = False) -> None:
         config = self._get_config()
         if not force and not config.get("enabled"):
             self._logger.debug("CourseOrganizer[event=wait] plugin disabled")
             return
 
-        incoming = config.get("incoming")
-        output_roots = {
-            "tv": config.get("tv_output"),
-            "movie": config.get("movie_output"),
-            "children": config.get("children_output"),
-        }
+        if config.get("monitoring_conflict"):
+            self._logger.warning(
+                "CourseOrganizer[event=directory_config_blocked] action=preview_only message=%s",
+                config["monitoring_conflict"],
+            )
 
-        if not incoming or not os.path.isdir(incoming):
-            self._logger.error("incoming path invalid")
+        downloads = self._download_paths(config)
+        output_roots = self._archive_output_roots(config)
+        if not downloads:
+            self._logger.error("download directories missing")
             return
-
-        missing_outputs = [name for name, path in output_roots.items() if not path]
-        if missing_outputs:
-            self._logger.error("output paths missing: %s", ",".join(missing_outputs))
+        if not output_roots:
+            self._logger.error("archive directories missing")
             return
 
         def canonical(path: Any) -> str:
             return os.path.realpath(os.path.abspath(str(path)))
 
-        incoming_path = canonical(incoming)
+        normalized_downloads = [(path, canonical(path)) for path in downloads]
         normalized_outputs = {
-            name: canonical(path) for name, path in output_roots.items()
+            key: canonical(path)
+            for key, path in output_roots.items()
+            if str(path or "").strip()
         }
-
-        for name, path in normalized_outputs.items():
-            if not os.path.isdir(path):
-                self._logger.error("output path not exist for library: %s", name)
+        if len(normalized_outputs) != len(output_roots):
+            self._logger.error("archive directory paths missing")
+            return
+        if len(set(normalized_outputs.values())) != len(normalized_outputs):
+            self._logger.error("archive directory paths overlap")
+            return
+        for _source_root, incoming in normalized_downloads:
+            if not os.path.isdir(incoming):
+                self._logger.error("download path invalid: %s", incoming)
+                return
+            if any(self._paths_overlap(incoming, output) for output in normalized_outputs.values()):
+                self._logger.error("download path overlaps archive directory: %s", incoming)
                 return
 
-        if len(set(normalized_outputs.values())) != len(normalized_outputs):
-            self._logger.error("output paths must be three distinct directories")
-            return
-
-        if any(path == os.path.realpath(os.path.abspath(os.sep)) for path in normalized_outputs.values()):
-            self._logger.error("filesystem root cannot be an output path")
-            return
-
-        try:
-            overlaps_source = any(
-                os.path.commonpath((incoming_path, path)) in {incoming_path, path}
-                for path in normalized_outputs.values()
-            )
-            overlaps_outputs = any(
-                os.path.commonpath((first, second)) in {first, second}
-                for first in normalized_outputs.values()
-                for second in normalized_outputs.values()
-                if first != second
-            )
-        except ValueError:
-            overlaps_source = True
-            overlaps_outputs = False
-
-        if overlaps_source:
-            self._logger.error("incoming output paths must not contain one another")
-            return
-
-        if overlaps_outputs:
-            self._logger.error("output paths must not contain one another")
-            return
-
-        trigger = "manual" if force else "scheduled"
-        mode = str(config.get("naming_mode") or "off")
-        self._logger.info(
-            "CourseOrganizer[event=scan_started] trigger=%s mode=%s",
-            trigger,
-            mode,
-        )
-        processed = 0
-        moved = 0
-        for entry in sorted(os.listdir(incoming), key=self._natural_key):
-            course_dir = os.path.join(incoming, entry)
-            if not os.path.isdir(course_dir):
-                continue
-            valid_title, _ = naming.validate_manual_raw_title(entry)
-            if not valid_title:
-                self._logger.warning(
-                    "CourseOrganizer[event=scan_entry_rejected] item_course_repr=%s",
-                    self._safe_log_value(entry),
-                )
-                continue
-            processed += 1
+        for source_root, incoming in normalized_downloads:
             try:
-                if self._process_course(entry, course_dir, source_root=incoming_path):
-                    moved += 1
-            except Exception as exc:
-                item_reason = exc.__class__.__name__
-                item_error = "exception"
-                self._logger.info(
-                    "CourseOrganizer[event=item_error] item_course=%s item_reason=%s item_error=%s",
-                    self._safe_log_value(entry),
-                    item_reason,
-                    item_error,
-                )
+                entries = sorted(os.listdir(incoming), key=self._natural_key)
+            except OSError as exc:
                 self._logger.error(
-                    "CourseOrganizer[event=item_error] item_course=%s item_reason=%s item_error=%s",
-                    self._safe_log_value(entry),
-                    item_reason,
-                    item_error,
+                    "CourseOrganizer[event=download_scan_failed] directory=%s reason=%s",
+                    self._safe_log_value(incoming),
+                    exc.__class__.__name__,
                 )
-        self._logger.info(
-            "CourseOrganizer[event=scan_completed] trigger=%s scanned=%d moved=%d",
-            trigger,
-            processed,
-            moved,
-        )
+                continue
+            for entry in entries:
+                if self._is_ignored_scan_entry(entry):
+                    continue
+                course_dir = os.path.join(incoming, entry)
+                if not os.path.isdir(course_dir):
+                    continue
+                try:
+                    self._process_course(
+                    entry,
+                    course_dir,
+                        source_root=source_root,
+                )
+                except Exception as exc:
+                    self._logger.exception(
+                        "CourseOrganizer[event=course_process_failed] item_course_repr=%s reason=%s",
+                        ascii(entry),
+                        exc.__class__.__name__,
+                    )
 
     @classmethod
     def _run_once_dispatch(cls, token: int) -> None:
@@ -3430,11 +3499,9 @@ class CourseOrganizer(_PluginBase):
         signature = (
             config.get("naming_mode"),
             config.get("naming_ai_review"),
-            config.get("naming_sources"),
             config.get("naming_auto_threshold"),
             config.get("naming_min_margin"),
             config.get("naming_uncertain_policy"),
-            config.get("naming_append_tmdb_id"),
             config.get("naming_manual_overrides"),
         )
         if self._resolver is None or self._resolver_signature != signature:
@@ -3708,14 +3775,10 @@ class CourseOrganizer(_PluginBase):
                 return False
 
             manual_target = str(decision.target_library or "").lower()
-            if manual_target in naming.MANUAL_TARGET_LIBRARIES:
+            archive = self._archive_directory_by_key(manual_target)
+            if archive is not None:
                 target_library = manual_target
-                output_key = {
-                    "tv": "tv_output",
-                    "movie": "movie_output",
-                    "children": "children_output",
-                }[target_library]
-                output_root = self._get_config().get(output_key)
+                output_root = archive.get("path")
                 route_result = LibraryRouteResult(
                     accepted=True,
                     library=target_library,
@@ -3751,12 +3814,8 @@ class CourseOrganizer(_PluginBase):
                     ",".join(route_result.reason_codes),
                 )
                 return False
-            output_key = {
-                "tv": "tv_output",
-                "movie": "movie_output",
-                "children": "children_output",
-            }.get(target_library)
-            output_root = self._get_config().get(output_key) if output_key else None
+            archive = self._archive_directory_by_key(target_library)
+            output_root = archive.get("path") if archive is not None else None
         if not output_root:
             self._logger.error("output path missing for library: %s", target_library)
             return False
@@ -4030,8 +4089,13 @@ class CourseOrganizer(_PluginBase):
         subtitle_map: Dict[int, Dict[str, List[str]]] = {}
         has_explicit_season = False
 
-        for root, _, filenames in os.walk(course_path):
+        for root, dirnames, filenames in os.walk(course_path):
+            dirnames[:] = [
+                name for name in dirnames if not self._is_ignored_scan_entry(name)
+            ]
             for filename in filenames:
+                if self._is_ignored_scan_entry(filename):
+                    continue
                 if self._is_incomplete(filename):
                     continue
 
@@ -4127,8 +4191,15 @@ class CourseOrganizer(_PluginBase):
 
     def _snapshot_signature(self, course_path: str) -> List[Tuple[str, int, int]]:
         snapshot: List[Tuple[str, int, int]] = []
-        for root, _, filenames in os.walk(course_path):
+        for root, dirnames, filenames in os.walk(course_path):
+            dirnames[:] = [
+                name
+                for name in dirnames
+                if not self._is_system_scan_entry(name)
+            ]
             for filename in filenames:
+                if self._is_system_scan_entry(filename):
+                    continue
                 file_path = os.path.join(root, filename)
                 try:
                     stats = os.stat(file_path)
@@ -4172,7 +4243,12 @@ class CourseOrganizer(_PluginBase):
 
     @classmethod
     def _has_incomplete_file(cls, course_path: str) -> bool:
-        for root, _, filenames in os.walk(course_path):
+        for root, dirnames, filenames in os.walk(course_path):
+            dirnames[:] = [
+                name
+                for name in dirnames
+                if not cls._is_system_scan_entry(name)
+            ]
             for filename in filenames:
                 if cls._is_incomplete(filename):
                     return True
@@ -5826,13 +5902,15 @@ class CourseOrganizer(_PluginBase):
             return value if 5 <= value <= 30 else default
 
         raw = config if isinstance(config, dict) else {}
-        naming_mode = str(raw.get("naming_mode", "preview") or "preview").strip().lower()
-        if naming_mode not in {"off", "preview", "apply"}:
-            naming_mode = "preview"
-
-        naming_uncertain_policy = str(raw.get("naming_uncertain_policy", "local")).lower()
-        if naming_uncertain_policy not in {"local", "hold"}:
-            naming_uncertain_policy = "local"
+        legacy_naming_mode = str(
+            raw.get("naming_mode", "preview") or "preview"
+        ).strip().lower()
+        legacy_auto_organize = legacy_naming_mode == "apply"
+        auto_organize = _coerce_bool(
+            raw.get("auto_organize", legacy_auto_organize),
+            legacy_auto_organize,
+        )
+        naming_mode = "apply" if auto_organize else "preview"
 
         return {
             "enabled": _coerce_bool(raw.get("enabled", False), False),
@@ -5844,19 +5922,12 @@ class CourseOrganizer(_PluginBase):
                 raw.get("children_output", raw.get("output", self.DEFAULT_CHILDREN_OUTPUT))
             ),
             "interval": self._normalize_interval(raw.get("interval", self.DEFAULT_INTERVAL)),
+            "auto_organize": auto_organize,
             "naming_mode": naming_mode,
-            "naming_sources": str(raw.get("naming_sources", "themoviedb,douban")),
             "naming_auto_threshold": _coerce_threshold(raw.get("naming_auto_threshold", 90), 90),
             "naming_min_margin": _coerce_margin(raw.get("naming_min_margin", 12), 12),
-            "naming_uncertain_policy": naming_uncertain_policy,
-            "naming_append_tmdb_id": _coerce_bool(
-                raw.get("naming_append_tmdb_id", False),
-                False,
-            ),
-            "naming_ai_review": _coerce_bool(
-                raw.get("naming_ai_review", False),
-                False,
-            ),
+            "naming_uncertain_policy": "hold",
+            "naming_ai_review": True,
             "naming_manual_overrides": str(raw.get("naming_manual_overrides", "")),
             "naming_clear_cache_once": _coerce_bool(
                 raw.get("naming_clear_cache_once", False),
@@ -5873,7 +5944,8 @@ class CourseOrganizer(_PluginBase):
             return cls.DEFAULT_INTERVAL
 
     def _get_config(self) -> Dict[str, Any]:
-        run_config = getattr(self._run_config_local, "config", None)
+        run_config_local = getattr(self, "_run_config_local", None)
+        run_config = getattr(run_config_local, "config", None)
         if isinstance(run_config, dict):
             return dict(run_config)
         try:
@@ -5899,3 +5971,373 @@ class CourseOrganizer(_PluginBase):
             return result is not False
         except Exception:
             return False
+
+    ARCHIVE_DIRECTORIES_KEY = "archive_directories"
+    DOWNLOAD_DIRECTORIES_KEY = "download_directories"
+    BUILTIN_ARCHIVE_DIRECTORIES = (
+        ("tv", "电视剧"),
+        ("movie", "电影"),
+        ("children", "儿童课程"),
+    )
+
+    @classmethod
+    def _directory_item_path(cls, value: Any) -> str:
+        return str(value or "").strip()
+
+    @classmethod
+    def _normalize_directory_key(
+        cls, value: Any, index: int, used: set[str], prefix: str
+    ) -> str:
+        candidate = re.sub(r"[^a-z0-9_-]+", "_", str(value or "").strip().lower())
+        candidate = candidate.strip("_-") or f"{prefix}_{index + 1}"
+        base = candidate
+        suffix = 2
+        while candidate in used:
+            candidate = f"{base}_{suffix}"
+            suffix += 1
+        used.add(candidate)
+        return candidate
+
+    @classmethod
+    def _normalize_download_directories(cls, raw: Dict[str, Any]) -> List[Dict[str, str]]:
+        values = raw.get(cls.DOWNLOAD_DIRECTORIES_KEY)
+        if not isinstance(values, list):
+            legacy = cls._directory_item_path(raw.get("incoming"))
+            values = [{"name": "下载目录", "path": legacy}] if legacy else []
+        output: List[Dict[str, str]] = []
+        for index, item in enumerate(values):
+            if isinstance(item, str):
+                item = {"path": item}
+            if not isinstance(item, dict):
+                continue
+            path = cls._directory_item_path(item.get("path"))
+            name = cls._directory_item_path(item.get("name", item.get("label")))
+            output.append(
+                {
+                    "name": name or f"下载目录 {index + 1}",
+                    "path": path,
+                }
+            )
+        return output
+
+    @classmethod
+    def _normalize_archive_directories(
+        cls, raw: Dict[str, Any]
+    ) -> List[Dict[str, str]]:
+        values = raw.get(cls.ARCHIVE_DIRECTORIES_KEY)
+        if not isinstance(values, list):
+            legacy_keys = ("tv_output", "movie_output", "children_output", "output")
+            if any(key in raw for key in legacy_keys):
+                values = [
+                    {
+                        "key": "tv",
+                        "name": "电视剧",
+                        "path": raw.get("tv_output", ""),
+                        "media_type": "tv",
+                    },
+                    {
+                        "key": "movie",
+                        "name": "电影",
+                        "path": raw.get("movie_output", ""),
+                        "media_type": "movie",
+                    },
+                    {
+                        "key": "children",
+                        "name": "儿童课程",
+                        "path": raw.get("children_output", raw.get("output", "")),
+                        "media_type": "tv",
+                        "category": "儿童",
+                    },
+                ]
+            else:
+                values = []
+        output: List[Dict[str, str]] = []
+        used: set[str] = set()
+        for index, item in enumerate(values):
+            if isinstance(item, str):
+                item = {"path": item}
+            if not isinstance(item, dict):
+                continue
+            default_key = (
+                cls.BUILTIN_ARCHIVE_DIRECTORIES[index][0]
+                if index < len(cls.BUILTIN_ARCHIVE_DIRECTORIES)
+                else f"archive_{index + 1}"
+            )
+            key = cls._normalize_directory_key(
+                item.get("key", item.get("id", default_key)),
+                index,
+                used,
+                "archive",
+            )
+            name = cls._directory_item_path(item.get("name", item.get("label")))
+            if not name:
+                name = next(
+                    (
+                        label
+                        for builtin_key, label in cls.BUILTIN_ARCHIVE_DIRECTORIES
+                        if builtin_key == key
+                    ),
+                    f"归档目录 {index + 1}",
+                )
+            output.append(
+                {
+                    "id": cls._directory_item_path(item.get("id")) or key,
+                    "key": key,
+                    "name": name,
+                    "label": name,
+                    "path": cls._directory_item_path(item.get("path")),
+                    "media_type": cls._directory_item_path(item.get("media_type")),
+                    "category": cls._directory_item_path(
+                        item.get("category", item.get("media_category"))
+                    ),
+                }
+            )
+        return output
+
+    @classmethod
+    def _archive_paths_by_key(cls, archives: List[Dict[str, str]]) -> Dict[str, str]:
+        return {
+            str(item.get("key", "")).strip(): str(item.get("path", "")).strip()
+            for item in archives
+            if str(item.get("key", "")).strip()
+        }
+
+    def _download_directories(
+        self, config: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, str]]:
+        source = config if isinstance(config, dict) else self._get_config()
+        values = source.get(self.DOWNLOAD_DIRECTORIES_KEY)
+        if isinstance(values, list):
+            return [dict(item) for item in values if isinstance(item, dict)]
+        return self._normalize_download_directories(source)
+
+    def _archive_directories(
+        self, config: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, str]]:
+        source = config if isinstance(config, dict) else self._get_config()
+        values = source.get(self.ARCHIVE_DIRECTORIES_KEY)
+        if isinstance(values, list):
+            return [dict(item) for item in values if isinstance(item, dict)]
+        return self._normalize_archive_directories(source)
+
+    def _download_paths(self, config: Optional[Dict[str, Any]] = None) -> List[str]:
+        return [
+            str(item.get("path", "")).strip()
+            for item in self._download_directories(config)
+            if str(item.get("path", "")).strip()
+        ]
+
+    def _download_root_for_path(
+        self, source_path: Any, config: Optional[Dict[str, Any]] = None
+    ) -> str:
+        for incoming in self._download_paths(config):
+            if self._is_within_realpath(incoming, str(source_path)):
+                return incoming
+        return ""
+
+    def _archive_output_roots(
+        self, config: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, str]:
+        return self._archive_paths_by_key(self._archive_directories(config))
+
+    def _archive_directory_by_key(
+        self, key: Any, config: Optional[Dict[str, Any]] = None
+    ) -> Optional[Dict[str, str]]:
+        normalized = str(key or "").strip().lower()
+        for item in self._archive_directories(config):
+            if str(item.get("key", "")).strip().lower() == normalized:
+                return item
+        return None
+
+    def _manual_target_libraries(self) -> set[str]:
+        return set(self._archive_output_roots())
+
+    @staticmethod
+    def _directory_is_readable(path: Any) -> bool:
+        text = str(path or "").strip()
+        return bool(
+            text
+            and os.path.isdir(text)
+            and os.access(text, os.R_OK | os.X_OK)
+        )
+
+    @classmethod
+    def _synthetic_archive_rule(
+        cls, archive: Dict[str, str], incoming: str
+    ) -> Dict[str, Any]:
+        return {
+            "title": archive["name"],
+            "value": archive["key"],
+            "name": archive["name"],
+            "media_category": archive.get("category", ""),
+            "media_type": archive.get("media_type", ""),
+            "download_path": incoming,
+            "path": archive["path"],
+            "monitor_type": "",
+            "storage": "local",
+            "library_storage": "local",
+            "transfer_type": "copy",
+            "renaming": True,
+            "scraping": False,
+            "notify": False,
+            "library_type_folder": False,
+            "library_category_folder": False,
+            "naming_format": "",
+            "movie_naming_format": "",
+            "synthetic": True,
+        }
+
+    def _moviepilot_directory_context(self) -> Dict[str, Any]:
+        # This historical method name is used throughout the review and transfer
+        # flow.  It now deliberately resolves only plugin-owned configuration.
+        config = self._get_config()
+        downloads = self._download_directories(config)
+        archives = self._archive_directories(config)
+        incoming = str(downloads[0].get("path", "")).strip() if downloads else ""
+        issues: List[str] = []
+        if not downloads:
+            issues.append("请至少添加一个下载目录")
+        for index, item in enumerate(downloads):
+            if not str(item.get("path", "")).strip():
+                issues.append(f"请填写下载目录 {index + 1}")
+        if not archives:
+            issues.append("请至少添加一个归档目录")
+        for index, item in enumerate(archives):
+            if not str(item.get("path", "")).strip():
+                issues.append(f"请填写归档目录 {index + 1}")
+
+        selected: Dict[str, Dict[str, Any]] = {}
+        libraries: List[Dict[str, Any]] = []
+        for archive in archives:
+            path = str(archive.get("path", "")).strip()
+            key = str(archive.get("key", "")).strip()
+            if not key or not path:
+                continue
+            rule = self._synthetic_archive_rule(archive, incoming)
+            selected[key] = rule
+            libraries.append(rule)
+
+        ready = (
+            bool(downloads)
+            and bool(archives)
+            and not issues
+            and len(selected) == len(archives)
+        )
+        return {
+            "available": True,
+            "incoming": incoming,
+            "download_directories": downloads,
+            "archive_directories": archives,
+            "libraries": libraries,
+            "rules": libraries,
+            "selected": selected,
+            "ready": ready,
+            "issues": list(dict.fromkeys(issues)),
+            "message": "；".join(dict.fromkeys(issues)),
+            "settings_url": "",
+            "monitoring_enabled": False,
+            "monitoring_rules": [],
+            "monitoring_conflicts": [],
+        }
+
+    def _review_path_config(
+        self, context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        config = self._get_config()
+        directory_context = context or self._moviepilot_directory_context()
+        config[self.DOWNLOAD_DIRECTORIES_KEY] = list(
+            directory_context.get("download_directories", [])
+        )
+        config[self.ARCHIVE_DIRECTORIES_KEY] = list(
+            directory_context.get("archive_directories", [])
+        )
+        config["incoming"] = str(directory_context.get("incoming", "") or "")
+        archive_paths = {
+            key: str(rule.get("path", "") or "")
+            for key, rule in directory_context.get("selected", {}).items()
+            if isinstance(rule, dict)
+        }
+        # Compatibility projections keep existing recognition and transfer code
+        # working for the built-in types.  The authoritative source remains the
+        # archive_directories list.
+        config["tv_output"] = archive_paths.get("tv", "")
+        config["movie_output"] = archive_paths.get("movie", "")
+        config["children_output"] = archive_paths.get("children", "")
+
+        if not directory_context.get("ready"):
+            if config.get("auto_organize"):
+                config["auto_organize"] = False
+                config["naming_mode"] = "preview"
+            config["monitoring_conflict"] = (
+                directory_context.get("message")
+                or "目录配置不完整，自动整理已暂停。"
+            )
+            return config
+
+        unreadable = [
+            path
+            for path in self._download_paths(config)
+            if not self._directory_is_readable(path)
+        ]
+        if unreadable:
+            if config.get("auto_organize"):
+                config["auto_organize"] = False
+                config["naming_mode"] = "preview"
+            config["monitoring_conflict"] = "下载目录不可读取，自动整理已暂停。"
+            return config
+
+        config["monitoring_conflict"] = ""
+        return config
+
+    def _normalize_config(self, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        def coerce_threshold(raw_value: Any, default: int) -> int:
+            try:
+                value = int(raw_value)
+            except (TypeError, ValueError):
+                return default
+            return value if 80 <= value <= 100 else default
+
+        def coerce_margin(raw_value: Any, default: int) -> int:
+            try:
+                value = int(raw_value)
+            except (TypeError, ValueError):
+                return default
+            return value if 5 <= value <= 30 else default
+
+        raw = config if isinstance(config, dict) else {}
+        legacy_naming_mode = str(raw.get("naming_mode", "preview") or "preview").strip().lower()
+        legacy_auto_organize = legacy_naming_mode == "apply"
+        auto_organize = _coerce_bool(
+            raw.get("auto_organize", legacy_auto_organize), legacy_auto_organize
+        )
+        downloads = self._normalize_download_directories(raw)
+        archives = self._normalize_archive_directories(raw)
+        archive_paths = self._archive_paths_by_key(archives)
+        incoming = str(downloads[0].get("path", "")).strip() if downloads else ""
+        return {
+            "enabled": _coerce_bool(raw.get("enabled", False), False),
+            "run_once": _coerce_bool(raw.get("run_once", False), False),
+            self.DOWNLOAD_DIRECTORIES_KEY: downloads,
+            self.ARCHIVE_DIRECTORIES_KEY: archives,
+            "incoming": incoming,
+            "tv_output": archive_paths.get("tv", ""),
+            "movie_output": archive_paths.get("movie", ""),
+            "children_output": archive_paths.get("children", ""),
+            "interval": self._normalize_interval(
+                raw.get("interval", self.DEFAULT_INTERVAL)
+            ),
+            "auto_organize": auto_organize,
+            "naming_mode": "apply" if auto_organize else "preview",
+            "naming_auto_threshold": coerce_threshold(
+                raw.get("naming_auto_threshold", 90), 90
+            ),
+            "naming_min_margin": coerce_margin(raw.get("naming_min_margin", 12), 12),
+            "naming_uncertain_policy": "hold",
+            "naming_ai_review": True,
+            "naming_manual_overrides": str(
+                raw.get("naming_manual_overrides", "") or ""
+            ),
+            "naming_clear_cache_once": _coerce_bool(
+                raw.get("naming_clear_cache_once", False), False
+            ),
+        }

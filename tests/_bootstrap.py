@@ -47,7 +47,7 @@ if str(_BACKEND_PATH) not in sys.path:
     sys.path.insert(0, str(_BACKEND_PATH))
 
 _bootstrap = import_module("app.testing.bootstrap")
-block_real_network = import_module("app.testing.network_guard").block_real_network
+block_real_network = import_module("app.testing.network").block_real_network
 
 
 def isolate_config_dir() -> str:

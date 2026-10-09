@@ -3,6 +3,7 @@ from typing import Tuple
 from ruamel.yaml import CommentedMap
 
 from app.log import logger
+from app.plugins.autosignin.result import has_signin_evidence
 from app.core.config import settings
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
@@ -11,7 +12,10 @@ from app.plugins.autosignin.sites import _ISiteSigninHandler
 
 class RousiPro(_ISiteSigninHandler):
     """
-    rousi pro 签到
+    使用 PeerGo 个人 API Key 执行 Rousi Pro 签到和模拟登录。
+
+    签到需要 attendance:claim 权限，模拟登录需要 profile:read 权限；
+    旧 Authorization Token 仅作为存量配置的兼容回退。
     """
     # 匹配的站点Url，每一个实现类都需要设置为自己的站点Url
     site_url = "rousi.pro"
@@ -19,7 +23,7 @@ class RousiPro(_ISiteSigninHandler):
     @staticmethod
     def _bearer_auth(value: str) -> str:
         """
-        将 API Key 或 Authorization Token 规范化为 Bearer 认证值。
+        将个人 API Key 或兼容 Authorization Token 规范化为 Bearer 认证值。
         """
         value = str(value or "").strip()
         return value if value.lower().startswith("bearer ") else f"Bearer {value}"
@@ -35,7 +39,17 @@ class RousiPro(_ISiteSigninHandler):
             payload = res.json() or {}
         except (TypeError, ValueError):
             return -1
-        return payload.get("code", -1) if isinstance(payload, dict) else -1
+        code = payload.get("code") if isinstance(payload, dict) else None
+        return code if type(code) is int else -1
+
+    @classmethod
+    def _already_signed(cls, res) -> bool:
+        """业务错误码还需明确重复签到提示，防止把其他 400 错误当作成功。"""
+        if res is None or res.status_code != 400 or cls._response_code(res) != 1:
+            return False
+        payload = res.json()
+        message = payload.get("message") or payload.get("msg")
+        return isinstance(message, str) and has_signin_evidence(message)
 
     @classmethod
     def match(cls, url: str) -> bool:
@@ -58,8 +72,8 @@ class RousiPro(_ISiteSigninHandler):
         token = str(site_info.get("token") or "").strip()
         timeout = site_info.get("timeout")
         if not apikey and not token:
-            logger.error(f"{site} 签到失败，缺少 API Key 或 Authorization 信息")
-            return False, "签到失败，缺少 API Key 或 Authorization 信息"
+            logger.error(f"{site} 签到失败，缺少个人 API Key 或兼容 Authorization 信息")
+            return False, "签到失败，缺少个人 API Key 或兼容 Authorization 信息"
 
         base_headers = {
             "Content-Type": "application/json",
@@ -74,7 +88,7 @@ class RousiPro(_ISiteSigninHandler):
             "proxies": settings.PROXY if site_info.get("proxy") else None,
         }
         res = None
-        auth_type = "API Key"
+        auth_type = "个人 API Key"
 
         if apikey:
             res = RequestUtils(
@@ -88,11 +102,11 @@ class RousiPro(_ISiteSigninHandler):
             if res is not None and res.status_code == 200 and code == 0:
                 logger.info(f"{site} 签到成功")
                 return True, "签到成功"
-            if res is not None and res.status_code == 400 and code == 1:
+            if self._already_signed(res):
                 logger.info(f"{site} 今日已签到")
                 return True, "今日已签到"
             if token:
-                logger.info(f"{site} API Key 签到认证未成功，回退 Authorization")
+                logger.info(f"{site} 个人 API Key 签到认证未成功，回退 Authorization")
 
         if token:
             auth_type = "Authorization"
@@ -108,12 +122,12 @@ class RousiPro(_ISiteSigninHandler):
         if res is not None and res.status_code == 200 and code == 0:
             logger.info(f"{site} 签到成功")
             return True, "签到成功"
-        elif res is not None and res.status_code == 400 and code == 1:
+        elif self._already_signed(res):
             logger.info(f"{site} 今日已签到")
             return True, "今日已签到"
-        elif res is not None and res.status_code == 401:
-            logger.error(f"{site} 签到失败，{auth_type} 已失效或不支持签到")
-            return False, f"签到失败，{auth_type} 已失效或不支持签到"
+        elif res is not None and res.status_code in (401, 403):
+            logger.error(f"{site} 签到失败，{auth_type} 已失效或权限不足")
+            return False, f"签到失败，{auth_type} 已失效或权限不足"
         elif res is not None:
             logger.error(f"{site} 签到失败，状态码：{res.status_code}")
             return False, f"签到失败，状态码：{res.status_code}"
@@ -133,8 +147,8 @@ class RousiPro(_ISiteSigninHandler):
         token = str(site_info.get("token") or "").strip()
         timeout = site_info.get("timeout")
         if not apikey and not token:
-            logger.error(f"{site} 模拟登录失败，缺少 API Key 或 Authorization 信息")
-            return False, "模拟登录失败，缺少 API Key 或 Authorization 信息"
+            logger.error(f"{site} 模拟登录失败，缺少个人 API Key 或兼容 Authorization 信息")
+            return False, "模拟登录失败，缺少个人 API Key 或兼容 Authorization 信息"
 
         base_headers = {
             "User-Agent": ua,
@@ -145,7 +159,7 @@ class RousiPro(_ISiteSigninHandler):
             "proxies": settings.PROXY if site_info.get("proxy") else None,
         }
         res = None
-        auth_type = "API Key"
+        auth_type = "个人 API Key"
 
         if apikey:
             res = RequestUtils(
@@ -156,7 +170,7 @@ class RousiPro(_ISiteSigninHandler):
                 logger.info(f"{site} 模拟登录成功")
                 return True, "模拟登录成功"
             if token:
-                logger.info(f"{site} API Key 模拟登录认证未成功，回退 Authorization")
+                logger.info(f"{site} 个人 API Key 模拟登录认证未成功，回退 Authorization")
 
         if token:
             auth_type = "Authorization"
@@ -168,9 +182,9 @@ class RousiPro(_ISiteSigninHandler):
         if res is not None and res.status_code == 200 and self._response_code(res) == 0:
             logger.info(f"{site} 模拟登录成功")
             return True, "模拟登录成功"
-        elif res is not None and res.status_code == 401:
-            logger.error(f"{site} 模拟登录失败，{auth_type} 已失效")
-            return False, f"模拟登录失败，{auth_type} 已失效"
+        elif res is not None and res.status_code in (401, 403):
+            logger.error(f"{site} 模拟登录失败，{auth_type} 已失效或权限不足")
+            return False, f"模拟登录失败，{auth_type} 已失效或权限不足"
         elif res is not None:
             logger.error(f"{site} 模拟登录失败，状态码：{res.status_code}")
             return False, f"模拟登录失败，状态码：{res.status_code}"

@@ -8,8 +8,9 @@
 - NVIDIA GPU 与可用驱动
 - MoviePilot 容器通过 NVIDIA Container Runtime 获得 GPU 访问权限
 - 容器内有 `ffmpeg` 和 `ffprobe`，并且 FFmpeg 包含 `hevc_nvenc`
-- 插件安装时可访问 PyPI 和 PyTorch CUDA 12.1 wheel 源
+- 插件安装时可访问 PyPI 和 PyTorch CUDA 12.6 wheel 源
 - 建议为 MoviePilot 容器配置至少 2 GiB 共享内存
+- 当前仅支持标准 `moviepilot-v3` 镜像；`moviepilot-v3t` 所需的 OpenCV 与 Safetensors free-threaded wheel 尚未发布
 
 Docker Compose 至少需要为 MoviePilot 服务增加 GPU 访问，例如：
 
@@ -22,7 +23,7 @@ services:
       NVIDIA_DRIVER_CAPABILITIES: compute,utility,video
 ```
 
-插件依赖会安装 `torch==2.4.1+cu121`、OpenCV、Spandrel 等推理包。依赖安装在 MoviePilot 的共享 Python 环境，体积较大；升级或重建 MoviePilot 镜像后可能需要重新安装插件依赖。
+插件依赖会安装 `torch==2.13.0+cu126`、OpenCV、Spandrel 等推理包。依赖安装在 MoviePilot 的共享 Python 环境，体积较大；升级或重建 MoviePilot 镜像后可能需要重新安装插件依赖。
 
 ## 路径
 

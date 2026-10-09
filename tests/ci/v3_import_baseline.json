@@ -1,0 +1,161 @@
+{
+  "legacy_imports": {
+    "animeupscale": {
+      "app.plugins._PluginBase": 1
+    },
+    "autoclean": {
+      "app.plugins._PluginBase": 1,
+      "app.schemas.NotificationType": 1
+    },
+    "autosports": {
+      "app.plugins._PluginBase": 1
+    },
+    "autosubtitle": {
+      "app.core.cache": 1,
+      "app.core.config": 1,
+      "app.core.context": 1,
+      "app.core.event": 1,
+      "app.core.meta.metabase": 1,
+      "app.core.metainfo": 1,
+      "app.helper.torrent": 1,
+      "app.log": 1,
+      "app.plugins._PluginBase": 1,
+      "app.schemas.NotificationType": 1,
+      "app.utils.http": 1,
+      "app.utils.system": 1
+    },
+    "autosubv2": {
+      "app.plugins._PluginBase": 1,
+      "app.schemas.types.NotificationType": 1
+    },
+    "bangumicoll": {
+      "app.plugins._PluginBase": 1,
+      "app.schemas.types.NotificationType": 1
+    },
+    "brushflow": {
+      "app.plugins._PluginBase": 1,
+      "app.schemas.NotificationType": 1
+    },
+    "chatgpt": {
+      "app.agent.llm.LLMHelper": 1,
+      "app.core.config": 1,
+      "app.core.event": 1,
+      "app.log": 1,
+      "app.plugins._PluginBase": 1,
+      "app.schemas.NotificationType": 1
+    },
+    "courseorganizer": {
+      "app.agent.llm.LLMHelper": 1,
+      "app.plugins._PluginBase": 1
+    },
+    "doubanrank": {
+      "app.plugins._PluginBase": 1
+    },
+    "doubansync": {
+      "app.plugins._PluginBase": 1
+    },
+    "downloadsitetag": {
+      "app.plugins._PluginBase": 1
+    },
+    "emailmsg": {
+      "app.plugins._PluginBase": 1,
+      "app.schemas.types.NotificationType": 1
+    },
+    "episodegroupmeta": {
+      "app.plugins._PluginBase": 1
+    },
+    "hdbluesignin": {
+      "app.plugins._PluginBase": 1,
+      "app.schemas.types.NotificationType": 1
+    },
+    "historytov2": {
+      "app.plugins._PluginBase": 1
+    },
+    "hrblocker": {
+      "app.db.site_oper": 1,
+      "app.plugins._PluginBase": 1,
+      "app.schemas.NotificationType": 1
+    },
+    "imdbsource": {
+      "app.plugins._PluginBase": 1
+    },
+    "iqiyidiscover": {
+      "app.plugins._PluginBase": 1
+    },
+    "libraryscraper": {
+      "app.plugins._PluginBase": 1
+    },
+    "lunatvsource": {
+      "app.agent.llm.LLMHelper": 2,
+      "app.plugins._PluginBase": 1
+    },
+    "maoyanrank": {
+      "app.plugins._PluginBase": 1
+    },
+    "mediadirwatcher": {
+      "app.plugins._PluginBase": 1
+    },
+    "mediainforenameenhancer": {
+      "app.plugins._PluginBase": 1
+    },
+    "mediaservermsg": {
+      "app.plugins._PluginBase": 1,
+      "app.schemas.types.NotificationType": 1
+    },
+    "moviepilotupdatenotify": {
+      "app.plugins._PluginBase": 1,
+      "app.schemas.NotificationType": 1
+    },
+    "neodbsync": {
+      "app.plugins._PluginBase": 1
+    },
+    "personmeta": {
+      "app.plugins._PluginBase": 1
+    },
+    "rsssubscribe": {
+      "app.plugins._PluginBase": 1
+    },
+    "shortcutmodified": {
+      "app.plugins._PluginBase": 1
+    },
+    "subtitleassistant": {
+      "app.core.cache": 3,
+      "app.core.config": 4,
+      "app.core.context": 2,
+      "app.core.event": 3,
+      "app.core.metainfo": 1,
+      "app.db.site_oper": 1,
+      "app.db.systemconfig_oper": 1,
+      "app.db.user_oper": 1,
+      "app.helper.sites": 1,
+      "app.helper.torrent": 1,
+      "app.log": 13,
+      "app.plugins._PluginBase": 1,
+      "app.utils.http": 4,
+      "app.utils.jieba": 1
+    },
+    "tvdbdiscover": {
+      "app.plugins._PluginBase": 1
+    },
+    "tvfirstwatch": {
+      "app.plugins._PluginBase": 1
+    },
+    "wpushmsg": {
+      "app.plugins._PluginBase": 1,
+      "app.schemas.types.NotificationType": 1
+    }
+  },
+  "host_data_access": {
+    "bangumicoll": {
+      "app.db.models.subscribehistory": 1
+    },
+    "historytov2": {
+      "app.db.SessionFactory": 1,
+      "app.db.models": 1
+    },
+    "subtitleassistant": {
+      "app.db.models.transferhistory": 1,
+      "app.db.models.user": 1
+    }
+  }
+}

@@ -1,7 +1,0 @@
---extra-index-url https://download.pytorch.org/whl/cu121
-numpy>=1.26,<2
-opencv-python-headless==4.10.0.84
-safetensors>=0.4,<1
-spandrel>=0.4,<0.5
-spandrel-extra-arches>=0.2,<0.3
-torch==2.4.1+cu121

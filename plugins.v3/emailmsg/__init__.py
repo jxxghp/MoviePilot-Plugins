@@ -1,0 +1,964 @@
+import smtplib
+from email.header import Header
+from email.mime.text import MIMEText
+from email.utils import formataddr
+from typing import Any, Dict, List, Optional, Tuple
+
+from fastapi import Body
+
+from app import schemas
+from app.sdk.config import settings
+from app.sdk.events import eventmanager, Event
+from app.sdk.logging import logger
+from app.sdk.services import ServiceConfigHelper
+from app.plugins import _PluginBase
+from app.schemas.types import EventType, NotificationType
+
+
+class EmailMsg(_PluginBase):
+    """邮箱消息通知插件。
+
+    通过 SMTP 发送邮件通知，收件人根据通知发送范围设置（all/user/admin）
+    从用户管理邮箱中获取，邮箱为空时跳过。
+    """
+
+    # 插件名称
+    plugin_name = "邮箱通知"
+    # 插件描述
+    plugin_desc = "支持通过 SMTP 发送邮件通知，收件人根据通知发送范围设置从用户管理邮箱中获取。"
+    # 插件图标
+    plugin_icon = "Email_A.png"
+    # 插件版本
+    plugin_version = "1.3.1"
+    # 插件作者
+    plugin_author = "LLL001a"
+    # 作者主页
+    author_url = "https://github.com/LLL001a"
+    # 插件配置项ID前缀
+    plugin_config_prefix = "emailmsg_"
+    # 加载顺序
+    plugin_order = 30
+    # 可使用的用户级别
+    auth_level = 1
+
+    # 私有属性
+    _enabled = False
+    _smtp_server = None
+    _smtp_port = None
+    _ssl = False
+    _sender = None
+    _password = None
+    _msgtypes = []
+    _template = "dark_card"
+
+    # 通知模板选项：按特点命名
+    TEMPLATES = {
+        "dark_card": "深色渐变卡片",
+        "poster_hero": "海报大字报",
+        "poster_full": "海报铺满背景",
+    }
+
+    def init_plugin(self, config: dict = None) -> None:
+        """根据插件配置初始化运行状态。"""
+        config = config or {}
+        self._enabled = bool(config.get("enabled"))
+        self._smtp_server = config.get("smtp_server")
+        self._smtp_port = config.get("smtp_port")
+        self._ssl = bool(config.get("ssl"))
+        self._sender = config.get("sender")
+        self._password = config.get("password")
+        self._msgtypes = config.get("msgtypes") or []
+        self._template = config.get("template") or "dark_card"
+
+    def get_state(self) -> bool:
+        """获取插件启用状态。"""
+        return self._enabled and bool(self._smtp_server and self._sender and self._password)
+
+    @staticmethod
+    def get_command() -> List[Dict[str, Any]]:
+        """返回插件远程命令列表。"""
+        return []
+
+    def get_api(self) -> List[Dict[str, Any]]:
+        """返回插件 API 列表。"""
+        return [
+            {
+                "path": "/send",
+                "endpoint": self.send_custom_notification,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "手动发送自定义通知",
+            }
+        ]
+
+    def get_form(self) -> Tuple[Optional[List[dict]], Dict[str, Any]]:
+        """返回插件配置表单与默认配置。"""
+        # 遍历 NotificationType 枚举，生成消息类型选项
+        msg_type_options = []
+        for item in NotificationType:
+            msg_type_options.append({
+                "title": item.value,
+                "value": item.name
+            })
+        return [
+            {
+                'component': 'VForm',
+                'content': [
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'enabled',
+                                            'label': '启用插件',
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'smtp_server',
+                                            'label': 'SMTP服务器',
+                                            'placeholder': 'smtp.qq.com',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'smtp_port',
+                                            'label': 'SMTP端口',
+                                            'placeholder': '465',
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'sender',
+                                            'label': '发件人邮箱',
+                                            'placeholder': 'xxx@qq.com',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'password',
+                                            'label': 'SMTP授权码/密码',
+                                            'placeholder': '邮箱授权码',
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'ssl',
+                                            'label': '使用SSL加密',
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSelect',
+                                        'props': {
+                                            'multiple': True,
+                                            'chips': True,
+                                            'model': 'msgtypes',
+                                            'label': '消息类型',
+                                            'items': msg_type_options
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSelect',
+                                        'props': {
+                                            'model': 'template',
+                                            'label': '通知模板',
+                                            'items': [
+                                                {'title': v, 'value': k}
+                                                for k, v in self.TEMPLATES.items()
+                                            ]
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '收件人根据通知发送范围设置（all/user/admin）从用户管理邮箱中获取，邮箱为空时跳过。多数邮箱需使用授权码而非登录密码。'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'custom_title',
+                                            'label': '手动发送 - 通知标题',
+                                            'placeholder': '请输入通知标题',
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextarea',
+                                        'props': {
+                                            'model': 'custom_text',
+                                            'label': '手动发送 - 通知内容',
+                                            'placeholder': '请输入通知内容',
+                                            'rows': 4,
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VBtn',
+                                        'props': {
+                                            'color': 'primary',
+                                            'variant': 'tonal',
+                                            'prepend-icon': 'mdi-send',
+                                            'onclick': "function(e) { window.MoviePilotAPI.post('plugin/EmailMsg/send', {title: model.custom_title, text: model.custom_text}).then(function(r) { if (r && r.success === false) { alert(r.message || '发送失败') } else { alert('发送成功'); model.custom_title = ''; model.custom_text = '' } }).catch(function(err) { console.error(err); alert('发送失败') }) }",
+                                        },
+                                        'text': '发送通知',
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ], {
+            "enabled": False,
+            "smtp_server": "",
+            "smtp_port": "465",
+            "sender": "",
+            "password": "",
+            "ssl": True,
+            "msgtypes": [],
+            "template": "dark_card"
+        }
+
+    def get_page(self) -> Optional[List[dict]]:
+        """返回插件详情页面，包含插件介绍。"""
+        return [
+            {
+                "component": "VCard",
+                "props": {
+                    "class": "mb-4",
+                    "variant": "tonal",
+                },
+                "content": [
+                    {
+                        "component": "VCardTitle",
+                        "props": {
+                            "class": "d-flex align-center",
+                        },
+                        "content": [
+                            {
+                                "component": "VIcon",
+                                "props": {
+                                    "icon": "mdi-email-outline",
+                                    "class": "mr-2",
+                                },
+                            },
+                            "插件介绍",
+                        ],
+                    },
+                    {
+                        "component": "VCardText",
+                        "content": [
+                            {
+                                "component": "VAlert",
+                                "props": {
+                                    "type": "info",
+                                    "variant": "tonal",
+                                    "text": "邮箱消息通知插件通过 SMTP 服务器发送邮件通知。收件人根据通知发送范围设置（all/user/admin）从用户管理邮箱中获取，邮箱为空时跳过。配置 SMTP 服务器、发件人邮箱与授权码后即可启用。",
+                                },
+                            },
+                        ],
+                    },
+                ],
+            },
+        ]
+
+    def send_custom_notification(self, payload: Optional[dict] = Body(default=None)) -> schemas.Response:
+        """手动发送自定义通知。
+
+        :param payload: 请求体，包含 title 与 text
+        :return: 发送结果
+        """
+        if not self.get_state():
+            return schemas.Response(success=False, message="插件未启用或 SMTP 配置不完整")
+
+        title = str((payload or {}).get("title") or "")
+        text = str((payload or {}).get("text") or "")
+        if not title and not text:
+            return schemas.Response(success=False, message="标题和内容不能同时为空")
+
+        # 手动发送默认发送给所有用户
+        recipients = self._get_recipients(NotificationType.Other, None, force_all=True)
+        if not recipients:
+            return schemas.Response(success=False, message="未获取到收件人邮箱")
+
+        if self._send_mail(recipients, title, text, msg_type=NotificationType.Other.value):
+            return schemas.Response(success=True, message=f"通知发送成功，收件人：{', '.join(recipients)}")
+        return schemas.Response(success=False, message="通知发送失败")
+
+    def _get_recipients(self, msg_type: NotificationType, username: Optional[str], force_all: bool = False) -> List[str]:
+        """根据通知发送范围设置获取收件人邮箱列表。
+
+        :param msg_type: 消息类型
+        :param username: 消息关联的用户名
+        :param force_all: 是否强制发送给所有用户（手动发送时使用）
+        :return: 收件人邮箱列表
+        """
+        from app.db.oper.user import UserOper
+
+        # 获取通知发送范围
+        if force_all:
+            notify_action = "all"
+        else:
+            notify_action = ServiceConfigHelper.get_notification_switch(msg_type)
+            if not notify_action:
+                # 未设置范围时默认发送给管理员
+                notify_action = "admin"
+
+        actions = notify_action.split(",")
+        recipients = []
+        useroper = UserOper()
+        superuser = settings.SUPERUSER or "admin"
+
+        for action in actions:
+            if action == "admin":
+                user = useroper.get_by_name(superuser)
+                if user and user.email:
+                    recipients.append(user.email)
+            elif action == "user" and username:
+                user = useroper.get_by_name(str(username))
+                if user and user.email:
+                    recipients.append(user.email)
+            elif action == "all":
+                for user in useroper.list():
+                    if user.email:
+                        recipients.append(user.email)
+
+        # 去重
+        return list(dict.fromkeys(recipients))
+
+    def _parse_text_fields(self, text: str) -> List[tuple]:
+        """解析通知正文为 (字段名, 值) 列表。
+
+        支持逗号、换行分隔的「字段名：值」格式，也兼容无字段名的纯文本。
+        字段值内的逗号、分号等标点会被保留，避免正文失真。
+        :param text: 通知正文
+        :return: (字段名, 值) 元组列表
+        """
+        if not text:
+            return []
+        import re as _re
+        fields = []
+        # 匹配「字段名：」位置（字段名不含冒号、逗号、分号、换行）
+        field_re = _re.compile(r"([^：:，,;；\n]{1,20})[：:]")
+        matches = list(field_re.finditer(text))
+        if not matches:
+            # 无字段名结构，按换行拆分保留纯文本
+            for part in _re.split(r"\n+", text):
+                part = part.strip()
+                if part:
+                    fields.append(("", part))
+            return fields
+        # 处理第一个字段名之前的纯文本
+        if matches[0].start() > 0:
+            prefix = text[:matches[0].start()].strip()
+            if prefix:
+                fields.append(("", prefix))
+        # 处理每个字段：值从冒号后到下一个字段名前，保留值内标点
+        for i, m in enumerate(matches):
+            name = m.group(1).strip()
+            start = m.end()
+            end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+            value = text[start:end].strip()
+            # 仅去掉值末尾的分隔符（逗号/分号/换行）
+            value = _re.sub(r"[，,;；\n]+$", "", value).strip()
+            fields.append((name, value))
+        return fields
+
+    def _build_html(self, title: str, text: str, image: Optional[str] = None,
+                    link: Optional[str] = None, msg_type: Optional[str] = None,
+                    template: Optional[str] = None) -> str:
+        """生成美化后的 HTML 邮件正文。
+
+        媒体类通知（有海报）使用配置的媒体模板；非媒体类通知（无海报）
+        自动降级为通用文本模板，避免无海报时仍套用媒体模板。
+
+        :param title: 邮件标题
+        :param text: 邮件正文
+        :param image: 海报图片地址
+        :param link: 跳转链接
+        :param msg_type: 消息类型名称
+        :param template: 通知模板（dark_card/poster_hero/poster_full）
+        :return: HTML 字符串
+        """
+        import html as html_lib
+        template = template or self._template or "dark_card"
+        safe_title = html_lib.escape(title or "MoviePilot 通知")
+        safe_type = html_lib.escape(msg_type or "通知")
+
+        # 非媒体类通知（无海报）自动降级为通用文本模板：
+        # 正文按行保留原始格式，不强制解析「字段名：值」，避免错误分段。
+        if not image:
+            return self._build_html_text_card(
+                safe_title, text, link, safe_type
+            )
+
+        # 解析正文字段
+        fields = self._parse_text_fields(text)
+        # 转义字段
+        safe_fields = [
+            (html_lib.escape(name), html_lib.escape(value))
+            for name, value in fields
+        ]
+
+        if template == "poster_full":
+            return self._build_html_poster_full(
+                safe_title, safe_fields, image, link, safe_type
+            )
+        if template == "poster_hero":
+            return self._build_html_poster_hero(
+                safe_title, safe_fields, image, link, safe_type
+            )
+        return self._build_html_dark_card(
+            safe_title, safe_fields, image, link, safe_type
+        )
+
+    def _build_html_text_card(self, safe_title: str, text: str,
+                              link: Optional[str], safe_type: str) -> str:
+        """通用文本模板：非媒体类通知（无海报）使用的简洁文本卡片。
+
+        正文按行保留原始格式展示，不强制解析「字段名：值」，
+        避免动作描述、路径、Markdown 等文本被错误分段。
+        """
+        import html as html_lib
+        # 按行拆分正文，保留每行原始内容（含冒号、emoji、Markdown 等）
+        line_rows = ""
+        for raw_line in (text or "").split("\n"):
+            line = raw_line.rstrip("\r")
+            if not line.strip():
+                # 空行渲染为间距
+                line_rows += '<div style="height:8px;"></div>'
+                continue
+            safe_line = html_lib.escape(line)
+            line_rows += (
+                f'<div style="margin-bottom:6px;color:#374151;'
+                f'word-break:break-word;">{safe_line}</div>'
+            )
+        fields_html = ""
+        if line_rows:
+            fields_html = (
+                '<div style="font-size:14px;color:#374151;line-height:1.9;'
+                f'text-align:left;margin-bottom:20px;">{line_rows}</div>'
+            )
+        # 按钮
+        button_html = ""
+        if link:
+            button_html = (
+                '<div style="text-align:center;margin:0;">'
+                f'<a href="{html_lib.escape(link)}" '
+                'style="display:inline-block;padding:12px 32px;background:#3f51b5;'
+                'color:#ffffff;text-decoration:none;border-radius:24px;'
+                'font-size:14px;font-weight:600;">查看详情</a>'
+                '</div>'
+            )
+        return (
+            '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"></head>'
+            '<body style="margin:0;padding:0;background-color:#f4f5f7;font-family:'
+            '\'Helvetica Neue\',Helvetica,Arial,\'PingFang SC\',\'Microsoft YaHei\',sans-serif;">'
+            '<div style="max-width:600px;margin:24px auto;background-color:#ffffff;'
+            'border-radius:16px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">'
+            '<div style="height:6px;background:linear-gradient(90deg,#3f51b5,#7c4dff);"></div>'
+            '<div style="padding:32px 32px 28px 32px;">'
+            f'<div style="margin-bottom:16px;"><span style="display:inline-block;'
+            'padding:4px 12px;background:#eef0fb;color:#3f51b5;border-radius:12px;'
+            f'font-size:12px;font-weight:600;">{safe_type}</span></div>'
+            f'<h1 style="margin:0 0 18px 0;font-size:20px;color:#1a1a1a;'
+            f'line-height:1.4;font-weight:700;">{safe_title}</h1>'
+            f'{fields_html}'
+            f'{button_html}'
+            '</div>'
+            '<div style="padding:16px 32px;background-color:#fafafa;'
+            'border-top:1px solid #eeeeee;text-align:center;font-size:12px;'
+            'color:#999999;">此邮件由 MoviePilot 邮箱通知插件自动发送</div>'
+            '</div></body></html>'
+        )
+
+    def _build_html_dark_card(self, safe_title: str, fields: List[tuple],
+                              image: Optional[str], link: Optional[str],
+                              safe_type: str) -> str:
+        """深色渐变卡片模板：横屏海报 + 字段名值靠左列表。"""
+        import html as html_lib
+        # 海报区域
+        poster_html = ""
+        if image:
+            poster_html = (
+                '<div style="text-align:center;margin:0 0 22px 0;">'
+                f'<img src="{html_lib.escape(image)}" alt="海报" '
+                'style="max-width:100%;max-height:300px;border-radius:14px;'
+                'box-shadow:0 6px 24px rgba(0,0,0,0.5);display:block;margin:0 auto;'
+                'border:1px solid rgba(255,255,255,0.1);"/>'
+                '</div>'
+            )
+        # 字段列表（靠左）
+        field_rows = ""
+        for name, value in fields:
+            if name:
+                field_rows += (
+                    f'<div style="margin-bottom:8px;">'
+                    f'<span style="color:#94a3b8;">{name}：</span>'
+                    f'<span style="font-weight:600;">{value}</span></div>'
+                )
+            else:
+                field_rows += (
+                    f'<div style="margin-bottom:8px;color:#e2e8f0;">{value}</div>'
+                )
+        fields_html = ""
+        if field_rows:
+            fields_html = (
+                '<div style="background:rgba(255,255,255,0.04);border-radius:12px;'
+                'padding:18px 20px;margin-bottom:22px;border:1px solid rgba(255,255,255,0.06);">'
+                f'<div style="font-size:13px;color:#e2e8f0;line-height:1.9;text-align:left;">'
+                f'{field_rows}</div></div>'
+            )
+        # 按钮
+        button_html = ""
+        if link:
+            button_html = (
+                '<div style="text-align:center;margin:0;">'
+                f'<a href="{html_lib.escape(link)}" '
+                'style="display:inline-block;padding:13px 32px;'
+                'background:linear-gradient(90deg,#6366f1,#8b5cf6);color:#ffffff;'
+                'text-decoration:none;border-radius:26px;font-size:14px;font-weight:600;'
+                'box-shadow:0 4px 16px rgba(99,102,241,0.4);">查看详情</a>'
+                '</div>'
+            )
+        return (
+            '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"></head>'
+            '<body style="margin:0;padding:0;background-color:#0f172a;font-family:'
+            '\'Helvetica Neue\',Helvetica,Arial,\'PingFang SC\',\'Microsoft YaHei\',sans-serif;">'
+            '<div style="max-width:600px;margin:24px auto;background-color:#1e293b;'
+            'border-radius:20px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.4);">'
+            '<div style="height:8px;background:linear-gradient(90deg,#6366f1,#8b5cf6,#ec4899);"></div>'
+            '<div style="padding:36px 36px 30px 36px;">'
+            f'<div style="margin-bottom:18px;"><span style="display:inline-block;'
+            'padding:5px 14px;background:rgba(99,102,241,0.2);color:#a5b4fc;'
+            'border-radius:20px;font-size:12px;font-weight:600;letter-spacing:0.5px;">'
+            f'{safe_type}</span></div>'
+            f'<h1 style="margin:0 0 20px 0;font-size:22px;color:#f1f5f9;'
+            f'line-height:1.4;font-weight:700;">{safe_title}</h1>'
+            f'{poster_html}'
+            f'{fields_html}'
+            f'{button_html}'
+            '</div>'
+            '<div style="padding:16px 36px;background-color:#0f172a;'
+            'border-top:1px solid rgba(255,255,255,0.06);text-align:center;'
+            'font-size:12px;color:#64748b;">此邮件由 MoviePilot 邮箱通知插件自动发送</div>'
+            '</div></body></html>'
+        )
+
+    def _build_html_poster_hero(self, safe_title: str, fields: List[tuple],
+                                image: Optional[str], link: Optional[str],
+                                safe_type: str) -> str:
+        """海报大字报模板：横屏海报全宽顶图 + 标题叠加 + 字段由上至下排列。"""
+        import html as html_lib
+        # 海报顶图
+        poster_html = ""
+        if image:
+            poster_html = (
+                '<div style="position:relative;height:300px;overflow:hidden;">'
+                f'<img src="{html_lib.escape(image)}" alt="海报" '
+                'style="width:100%;height:100%;object-fit:cover;display:block;"/>'
+                '<div style="position:absolute;bottom:0;left:0;right:0;height:130px;'
+                'background:linear-gradient(180deg,transparent,rgba(0,0,0,0.75));"></div>'
+                '<div style="position:absolute;bottom:20px;left:24px;right:24px;">'
+                f'<span style="display:inline-block;padding:3px 10px;'
+                'background:rgba(255,255,255,0.25);color:#ffffff;border-radius:4px;'
+                'font-size:12px;font-weight:600;backdrop-filter:blur(4px);'
+                f'margin-bottom:8px;">{safe_type}</span>'
+                f'<h1 style="margin:0;font-size:24px;color:#ffffff;line-height:1.4;'
+                f'font-weight:800;text-shadow:0 2px 8px rgba(0,0,0,0.5);">{safe_title}</h1>'
+                '</div></div>'
+            )
+        else:
+            poster_html = (
+                '<div style="padding:24px 28px 0 28px;">'
+                f'<span style="display:inline-block;padding:3px 10px;'
+                'background:#f3f4f6;color:#374151;border-radius:4px;'
+                f'font-size:12px;font-weight:600;">{safe_type}</span>'
+                f'<h1 style="margin:12px 0 0 0;font-size:24px;color:#111827;'
+                f'line-height:1.4;font-weight:800;">{safe_title}</h1></div>'
+            )
+        # 字段由上至下排列
+        field_rows = ""
+        for name, value in fields:
+            if name:
+                field_rows += (
+                    f'<div style="margin-bottom:6px;">{name}：{value}</div>'
+                )
+            else:
+                field_rows += f'<div style="margin-bottom:6px;">{value}</div>'
+        fields_html = ""
+        if field_rows:
+            fields_html = (
+                '<div style="font-size:14px;color:#374151;line-height:1.9;'
+                f'margin-bottom:18px;text-align:left;">{field_rows}</div>'
+                '<div style="border-top:1px solid #f3f4f6;margin-bottom:18px;"></div>'
+            )
+        # 按钮
+        button_html = ""
+        if link:
+            button_html = (
+                '<div style="text-align:center;">'
+                f'<a href="{html_lib.escape(link)}" '
+                'style="display:inline-block;padding:12px 36px;background:#111827;'
+                'color:#ffffff;text-decoration:none;border-radius:8px;'
+                'font-size:14px;font-weight:600;letter-spacing:0.5px;">查看详情</a>'
+                '</div>'
+            )
+        return (
+            '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"></head>'
+            '<body style="margin:0;padding:0;background-color:#fafafa;font-family:'
+            '\'Helvetica Neue\',Helvetica,Arial,\'PingFang SC\',\'Microsoft YaHei\',sans-serif;">'
+            '<div style="max-width:600px;margin:24px auto;background-color:#ffffff;'
+            'border-radius:16px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.1);">'
+            f'{poster_html}'
+            '<div style="padding:24px 28px 28px 28px;">'
+            f'{fields_html}'
+            f'{button_html}'
+            '</div>'
+            '<div style="padding:14px 28px;background-color:#f9fafb;'
+            'border-top:1px solid #f3f4f6;text-align:center;font-size:12px;'
+            'color:#9ca3af;">此邮件由 MoviePilot 邮箱通知插件自动发送</div>'
+            '</div></body></html>'
+        )
+
+    def _build_html_poster_full(self, safe_title: str, fields: List[tuple],
+                                image: Optional[str], link: Optional[str],
+                                safe_type: str) -> str:
+        """海报铺满背景模板：横屏海报铺满背景 + 文本浮层 + 字段胶囊标签。"""
+        import html as html_lib
+        # 字段胶囊标签（fields 已转义，不再重复转义）
+        tags_html = ""
+        if fields:
+            tag_items = []
+            for name, value in fields:
+                label = f"{name}：{value}" if name else value
+                tag_items.append(
+                    f'<span style="display:inline-block;padding:4px 12px;'
+                    'background:rgba(255,255,255,0.15);color:#ffffff;'
+                    'border-radius:14px;font-size:12px;backdrop-filter:blur(4px);'
+                    'border:1px solid rgba(255,255,255,0.15);">'
+                    f'{label}</span>'
+                )
+            # 两行标签
+            half = (len(tag_items) + 1) // 2
+            row1 = "".join(tag_items[:half])
+            row2 = "".join(tag_items[half:])
+            tags_html = (
+                f'<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;">{row1}</div>'
+                f'<div style="display:flex;flex-wrap:wrap;gap:8px;">{row2}</div>'
+            )
+        # 按钮
+        button_html = ""
+        if link:
+            button_html = (
+                f'<a href="{html_lib.escape(link)}" '
+                'style="display:inline-block;padding:13px 34px;'
+                'background:rgba(255,255,255,0.95);color:#111827;'
+                'text-decoration:none;border-radius:26px;font-size:14px;'
+                'font-weight:700;box-shadow:0 4px 16px rgba(0,0,0,0.3);">查看详情</a>'
+            )
+        # 海报背景：有 image 时用图片铺满，无 image 时用纯色背景
+        if image:
+            bg_html = (
+                f'<img src="{html_lib.escape(image)}" alt="海报" '
+                'style="width:100%;min-height:520px;object-fit:cover;display:block;'
+                'position:absolute;top:0;left:0;right:0;bottom:0;z-index:0;"/>'
+            )
+        else:
+            bg_html = (
+                '<div style="position:absolute;top:0;left:0;right:0;bottom:0;z-index:0;'
+                'background:linear-gradient(135deg,#1e293b,#334155);"></div>'
+            )
+        return (
+            '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"></head>'
+            '<body style="margin:0;padding:0;background-color:#111827;font-family:'
+            '\'Helvetica Neue\',Helvetica,Arial,\'PingFang SC\',\'Microsoft YaHei\',sans-serif;">'
+            '<div style="max-width:600px;margin:24px auto;border-radius:20px;'
+            'overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.5);position:relative;">'
+            f'{bg_html}'
+            '<div style="position:absolute;top:0;left:0;right:0;bottom:0;z-index:1;'
+            'background:linear-gradient(180deg,rgba(0,0,0,0.4) 0%,rgba(0,0,0,0.15) 40%,'
+            'rgba(0,0,0,0.85) 100%);"></div>'
+            '<div style="position:relative;z-index:2;min-height:520px;display:flex;'
+            'flex-direction:column;justify-content:space-between;padding:32px 28px 28px 28px;'
+            'box-sizing:border-box;">'
+            f'<div><span style="display:inline-block;padding:5px 14px;'
+            'background:rgba(255,255,255,0.2);color:#ffffff;border-radius:20px;'
+            'font-size:12px;font-weight:600;letter-spacing:0.5px;'
+            'backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,0.25);">'
+            f'{safe_type}</span></div>'
+            '<div>'
+            f'<h1 style="margin:0 0 16px 0;font-size:26px;color:#ffffff;'
+            f'line-height:1.4;font-weight:800;text-shadow:0 2px 12px rgba(0,0,0,0.6);">'
+            f'{safe_title}</h1>'
+            f'<div style="margin-bottom:22px;">{tags_html}</div>'
+            f'{button_html}'
+            '</div>'
+            '</div></div></body></html>'
+        )
+
+    def _send_mail(self, recipients: List[str], title: str, text: str,
+                   image: Optional[str] = None, link: Optional[str] = None,
+                   msg_type: Optional[str] = None) -> bool:
+        """通过 SMTP 发送邮件。
+
+        :param recipients: 收件人邮箱列表
+        :param title: 邮件标题
+        :param text: 邮件正文
+        :param image: 海报图片地址
+        :param link: 跳转链接
+        :param msg_type: 消息类型名称
+        :return: 发送是否成功
+        """
+        if not recipients:
+            logger.warn("邮箱消息通知：没有有效的收件人邮箱，跳过发送")
+            return False
+
+        server = None
+        try:
+            port = int(self._smtp_port or 465)
+            # 生成美化后的 HTML 正文
+            html_body = self._build_html(title, text, image=image, link=link, msg_type=msg_type)
+            msg = MIMEText(html_body, "html", "utf-8")
+            msg["Subject"] = Header(title or "MoviePilot 通知", "utf-8")
+            msg["From"] = formataddr((str(Header("MoviePilot", "utf-8")), self._sender))
+            # To 使用发件人自身地址，收件人地址放入 Bcc（密送），避免收件人之间互相看到邮箱地址
+            msg["To"] = formataddr((str(Header("MoviePilot", "utf-8")), self._sender))
+            msg["Bcc"] = ",".join(recipients)
+
+            if self._ssl:
+                server = smtplib.SMTP_SSL(self._smtp_server, port, timeout=15)
+            else:
+                # 未启用 SSL 时使用普通 SMTP 连接，不强制 STARTTLS，
+                # 避免不支持 STARTTLS 的服务器或 465 端口握手失败
+                server = smtplib.SMTP(self._smtp_server, port, timeout=15)
+
+            server.login(self._sender, self._password)
+            # 序列化邮件内容前移除 Bcc 头，避免 Bcc 头进入邮件正文导致收件人地址泄露；
+            # 收件人列表仍通过 SMTP envelope（sendmail 第二参数）投递。
+            del msg["Bcc"]
+            rejected = server.sendmail(self._sender, recipients, msg.as_string())
+            if rejected:
+                logger.warn(f"邮箱消息发送部分失败，拒收地址：{list(rejected.keys())}")
+                return False
+            logger.info(f"邮箱消息发送成功，收件人：{recipients}")
+            return True
+        except Exception as err:
+            logger.error(f"邮箱消息发送异常，{str(err)}")
+            return False
+        finally:
+            # 无论连接创建、握手、登录还是发送环节出错，都关闭 SMTP 连接，避免连接泄漏
+            if server is not None:
+                try:
+                    server.quit()
+                except Exception:
+                    pass
+
+    @eventmanager.register(EventType.NoticeMessage)
+    def send(self, event: Event) -> None:
+        """消息发送事件。"""
+        if not self.get_state():
+            return
+
+        if not event.event_data:
+            return
+
+        msg_body = event.event_data
+        # 渠道
+        channel = msg_body.get("channel")
+        if channel:
+            return
+        # 类型
+        msg_type: NotificationType = msg_body.get("type")
+        # 标题
+        title = msg_body.get("title")
+        # 文本
+        text = msg_body.get("text")
+        # 海报图片
+        image = msg_body.get("image")
+        # 跳转链接
+        link = msg_body.get("link")
+        # 用户名
+        username = msg_body.get("username")
+
+        if not title and not text:
+            logger.warn("标题和内容不能同时为空")
+            return
+
+        if (msg_type and self._msgtypes
+                and msg_type.name not in self._msgtypes):
+            logger.info(f"消息类型 {msg_type.value} 未开启消息发送")
+            return
+
+        # 获取收件人
+        recipients = self._get_recipients(msg_type, username)
+        if not recipients:
+            logger.warn("邮箱消息通知：未获取到收件人邮箱，跳过发送")
+            return
+
+        # 发送邮件
+        self._send_mail(
+            recipients,
+            title,
+            text,
+            image=image,
+            link=link,
+            msg_type=msg_type.value if msg_type else None,
+        )
+
+    def stop_service(self) -> None:
+        """退出插件。"""
+        return None

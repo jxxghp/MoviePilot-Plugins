@@ -2,7 +2,7 @@ from typing import List
 
 from app import schemas
 from app.runtime.config import settings
-from tvdbdiscover import TvdbDiscover
+from app.plugins.tvdbdiscover import TvdbDiscover
 
 
 def test_discover_route_declares_explicit_response_envelope() -> None:

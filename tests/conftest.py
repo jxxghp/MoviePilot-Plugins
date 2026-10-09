@@ -1,14 +1,18 @@
 """pytest 全局引导：按目标选择插件代际，CI 工具测试不加载后端。
 
-``tests/run.py`` 会把 v1/v2/v3 放到独立 pytest 进程中运行；这里据本次目标路径只注入对应
-插件目录，避免同一进程同时加载不同代的同名包。``tests/ci``
-只校验仓库工具和 workflow，不需要 MoviePilot 运行时。
+``tests/run.py`` 默认把 CI、V3 专用实现和兼容 V3 的 V2 实现放到独立 pytest 进程中运行；
+手工执行历史代测试时仍按目标路径注入对应插件目录，避免同一进程同时加载不同代的同名包。
+``tests/ci`` 只校验仓库工具和 workflow，不初始化 MoviePilot 运行时。
 """
 
 from __future__ import annotations
 
 import sys
+from dataclasses import fields
 from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
 
 # 相对导入本仓薄壳，先定位同级 MoviePilot 后端并加入 ``sys.path``，再复用主程序共享引导。
 from ._bootstrap import (
@@ -17,6 +21,54 @@ from ._bootstrap import (
     prepare_v2_backend,
     prepare_v3_backend,
 )
+
+
+def _configure_test_plugin_runtime() -> None:
+    """为绕过完整启动流程的插件测试装配最小插件 Runtime。"""
+    from app.runtime.config import settings
+    from app.runtime.extensions.plugin import manager as plugin_manager_module
+    from app.runtime.extensions.plugin.database import get_plugin_database
+    from app.runtime.extensions.plugin.manager import PluginManager
+    from app.runtime.extensions.plugin.runtime import (
+        PluginRuntimeEnvironment,
+        build_plugin_runtime,
+    )
+    from app.runtime.extensions.plugin.storage import (
+        get_plugin_instance_directory,
+        get_plugin_storage,
+    )
+    from app.runtime.extensions.plugin.system import get_plugin_system
+    from app.startup.initializers.plugins import (
+        _clear_plugin_default_target,
+        _set_plugin_default_target,
+    )
+
+    def build_test_plugin_runtime(host):
+        """构造使用隔离配置的插件运行时，避免隐式依赖生产组合根。"""
+        return build_plugin_runtime(
+            host,
+            PluginRuntimeEnvironment(
+                plugins_root=settings.ROOT_PATH / "app" / "plugins",
+                storage=get_plugin_storage,
+                instance_directory=get_plugin_instance_directory,
+                system=get_plugin_system,
+                database=get_plugin_database,
+                catalog_factory=lambda _mapper: None,
+                import_preparer=lambda **_kwargs: None,
+                import_scanner=lambda **_kwargs: None,
+                auth_level=lambda: 0,
+                remote_entry=host.get_plugin_remote_entry,
+                development=lambda: False,
+                logger=plugin_manager_module.logger,
+                set_default_target=_set_plugin_default_target,
+                clear_default_target=_clear_plugin_default_target,
+                # 测试不走安装流程，没有运行时声明快照；按宿主"未声明即兼容"的语义返回空映射
+                runtime_declaration=lambda _plugin_id: {},
+            ),
+            tool_build_max_attempts=PluginManager.AGENT_TOOLS_BUILD_MAX_ATTEMPTS,
+        )
+
+    plugin_manager_module.configure_plugin_runtime_factory(build_test_plugin_runtime)
 
 
 def _selected_generation(config) -> str:
@@ -49,6 +101,33 @@ def pytest_configure(config) -> None:
         prepare_v2_backend()
     else:
         prepare_v1_backend()
+    _configure_test_plugin_runtime()
+
+
+@pytest.fixture(autouse=True)
+def configure_plugin_chain_context(request):
+    """
+    为插件逻辑测试装配替身 Chain 运行上下文。
+
+    插件基类构造时会创建 PluginChain，生产环境由启动组合根配置运行上下文；插件仓测试
+    不走完整启动流程，未配置时构造插件会直接抛错。字段按宿主数据类动态填充 MagicMock，
+    宿主新增字段时不必同步修改；需要特定行为的用例仍可自行覆盖 provider。
+    """
+    if _selected_generation(request.config) == "ci":
+        yield
+        return
+
+    from app.application.chain.context import (
+        ChainRuntimeContext,
+        configure_chain_runtime_context_provider,
+    )
+
+    context = ChainRuntimeContext(**{item.name: MagicMock() for item in fields(ChainRuntimeContext)})
+    configure_chain_runtime_context_provider(lambda: context)
+    try:
+        yield
+    finally:
+        configure_chain_runtime_context_provider(None)
 
 
 def _report_session_cleanup_error(session, name: str, err: Exception) -> None:
@@ -76,3 +155,10 @@ def pytest_sessionfinish(session, exitstatus) -> None:
         LoggerManager.shutdown()
     except Exception as err:
         _report_session_cleanup_error(session, "logger manager", err)
+
+    try:
+        from app.runtime.extensions.plugin.manager import reset_plugin_runtime_factory
+
+        reset_plugin_runtime_factory()
+    except Exception as err:
+        _report_session_cleanup_error(session, "plugin runtime factory", err)

@@ -2,6 +2,7 @@ import datetime
 import random
 import re
 from typing import Tuple
+from urllib.parse import urljoin, urlparse
 
 from lxml import etree
 from ruamel.yaml import CommentedMap
@@ -10,6 +11,7 @@ from app.core.config import settings
 from app.log import logger
 from app.plugins.autosignin.sites import _ISiteSigninHandler
 from app.utils.http import RequestUtils
+from app.utils.site import SiteUtils
 from app.utils.string import StringUtils
 
 
@@ -27,8 +29,29 @@ class U2(_ISiteSigninHandler):
                    '<a href="showup.php">已簽到</a>',
                    '<a href="showup.php">已簽到</a>']
 
-    # 签到成功
-    _success_text = "window.location.href = 'showup.php';</script>"
+    # 签到成功时，U2 可能返回相对路径或绝对 URL 的跳转脚本。
+    _success_redirect_regex = re.compile(
+        r"window\s*\.\s*location\s*\.\s*href\s*=\s*['\"]([^'\"]+)['\"]"
+    )
+
+    @classmethod
+    def _is_success_response(cls, response_text: str) -> bool:
+        """识别需要回读的签到页跳转；跳转本身不作为签到成功凭据。"""
+        match = cls._success_redirect_regex.search(response_text)
+        if not match:
+            return False
+
+        target = urlparse(urljoin("https://u2.dmhy.org/showup.php", match.group(1)))
+        return target.netloc.casefold() == cls.site_url and target.path == "/showup.php"
+
+    @classmethod
+    def _has_signed_state(cls, html_text: str) -> bool:
+        """已登录且显示完成状态时确认签到，仍含答题参数的页面不能确认。"""
+        if not html_text or not SiteUtils.is_logged_in(html_text):
+            return False
+        html = etree.HTML(html_text)
+        return (not html.xpath('//input[@name="req"] | //form[contains(@action, "showup.php")]')
+                and cls.sign_in_result(html_text, cls._sign_regex))
 
     @classmethod
     def match(cls, url: str) -> bool:
@@ -57,7 +80,7 @@ class U2(_ISiteSigninHandler):
         if now.hour < 9:
             logger.error(f"{site} 签到失败，9点前不签到")
             return False, '签到失败，9点前不签到'
-        
+
         # 获取页面html
         html_text = self.get_page_source(url="https://u2.dmhy.org/showup.php",
                                          cookie=site_cookie,
@@ -69,13 +92,13 @@ class U2(_ISiteSigninHandler):
             logger.error(f"{site} 签到失败，请检查站点连通性")
             return False, '签到失败，请检查站点连通性'
 
-        if "login.php" in html_text:
+        # 已登录页面的脚本权限数据可能包含 maxlogin.php，不能用 login.php 子串判断登录状态。
+        if not SiteUtils.is_logged_in(html_text):
             logger.error(f"{site} 签到失败，Cookie已失效")
             return False, '签到失败，Cookie已失效'
-        
+
         # 判断是否已签到
-        sign_status = self.sign_in_result(html_res=html_text,
-                                          regexs=self._sign_regex)
+        sign_status = self._has_signed_state(html_text)
         if sign_status:
             logger.info(f"{site} 今日已签到")
             return True, '今日已签到'
@@ -83,43 +106,59 @@ class U2(_ISiteSigninHandler):
         # 没有签到则解析html
         html = etree.HTML(html_text)
 
-        if not html:
+        if html is None:
             return False, '签到失败'
 
         # 获取签到参数
-        req = html.xpath("//form//td/input[@name='req']/@value")[0]
-        hash_str = html.xpath("//form//td/input[@name='hash']/@value")[0]
-        form = html.xpath("//form//td/input[@name='form']/@value")[0]
+        req = html.xpath("//form//input[@name='req']/@value")
+        hash_str = html.xpath("//form//input[@name='hash']/@value")
+        form = html.xpath("//form//input[@name='form']/@value")
+        csrf_token = html.xpath("//form//input[@name='_csrf']/@value")
         submit_name = html.xpath("//form//td/input[@type='submit']/@name")
         submit_value = html.xpath("//form//td/input[@type='submit']/@value")
-        if not re or not hash_str or not form or not submit_name or not submit_value:
-            logger.error("{site} 签到失败，未获取到相关签到参数")
+        if (
+            not req
+            or not hash_str
+            or not form
+            or not csrf_token
+            or not submit_name
+            or not submit_value
+        ):
+            logger.error(f"{site} 签到失败，未获取到相关签到参数")
             return False, '签到失败'
 
         # 随机一个答案
         answer_num = random.randint(0, 3)
         data = {
-            'req': req,
-            'hash': hash_str,
-            'form': form,
+            'req': req[0],
+            'hash': hash_str[0],
+            'form': form[0],
+            '_csrf': csrf_token[0],
             'message': '一切随缘~',
             submit_name[answer_num]: submit_value[answer_num]
         }
         # 签到
         sign_res = RequestUtils(cookies=site_cookie,
                                 ua=ua,
-                                proxies=settings.PROXY if proxy else None
+                                proxies=settings.PROXY if proxy else None,
+                                headers={
+                                    "User-Agent": ua,
+                                    "Referer": "https://u2.dmhy.org/showup.php",
+                                    "Origin": "https://u2.dmhy.org",
+                                }
                                 ).post_res(url="https://u2.dmhy.org/showup.php?action=show",
                                            data=data)
         if not sign_res or sign_res.status_code != 200:
             logger.error(f"{site} 签到失败，签到接口请求失败")
             return False, '签到失败，签到接口请求失败'
 
-        # 判断是否签到成功
-        # sign_res.text = "<script type="text/javascript">window.location.href = 'showup.php';</script>"
-        if self._success_text in sign_res.text:
-            logger.info(f"{site} 签到成功")
-            return True, '签到成功'
-        else:
-            logger.error(f"{site} 签到失败，未知原因")
-            return False, '签到失败，未知原因'
+        # 相对或绝对跳转只表示提交结束，回读站点确认签到状态已经改变。
+        if self._is_success_response(sign_res.text):
+            checked_page = self.get_page_source(url="https://u2.dmhy.org/showup.php",
+                                                cookie=site_cookie, ua=ua, proxy=proxy,
+                                                render=render, timeout=timeout)
+            if self._has_signed_state(checked_page):
+                logger.info(f"{site} 签到成功")
+                return True, '签到成功'
+        logger.error(f"{site} 签到失败，未确认签到结果")
+        return False, '签到失败，未确认签到结果'

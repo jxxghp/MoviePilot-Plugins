@@ -3,7 +3,9 @@ from typing import Tuple
 from ruamel.yaml import CommentedMap
 
 from app.log import logger
+from app.plugins.autosignin.result import has_signin_evidence
 from app.plugins.autosignin.sites import _ISiteSigninHandler
+from app.utils.site import SiteUtils
 from app.utils.string import StringUtils
 
 
@@ -14,7 +16,7 @@ class BTSchool(_ISiteSigninHandler):
     # 匹配的站点Url，每一个实现类都需要设置为自己的站点Url
     site_url = "pt.btschool.club"
 
-    # 已签到
+    # 未签到入口；入口消失不代表已签到。
     _sign_text = '每日签到'
 
     @classmethod
@@ -52,12 +54,12 @@ class BTSchool(_ISiteSigninHandler):
             logger.error(f"{site} 签到失败，请检查站点连通性")
             return False, '签到失败，请检查站点连通性'
 
-        if "login.php" in html_text:
+        if not SiteUtils.is_logged_in(html_text):
             logger.error(f"{site} 签到失败，Cookie已失效")
             return False, '签到失败，Cookie已失效'
 
         # 已签到
-        if self._sign_text not in html_text:
+        if has_signin_evidence(html_text):
             logger.info(f"{site} 今日已签到")
             return True, '今日已签到'
 
@@ -73,6 +75,7 @@ class BTSchool(_ISiteSigninHandler):
             return False, '签到失败，签到接口请求失败'
 
         # 签到成功
-        if self._sign_text not in html_text:
+        if SiteUtils.is_logged_in(html_text) and has_signin_evidence(html_text):
             logger.info(f"{site} 签到成功")
             return True, '签到成功'
+        return False, '签到失败，未确认签到结果'

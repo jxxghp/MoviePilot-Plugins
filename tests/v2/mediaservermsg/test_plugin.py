@@ -3,7 +3,11 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from mediaservermsg import MediaServerMsg
+from app.plugins.mediaservermsg import MediaServerMsg
+from tests._timer_lifecycle import (
+    assert_running_timer_is_retained,
+    assert_waiting_timer_is_cancelled,
+)
 
 
 def _event(*, channel="plex", metadata=None, item_type="SHOW", item_name="我爱洗澡 (None)"):
@@ -76,6 +80,8 @@ def test_non_plex_track_does_not_change_existing_classification():
 def test_send_reads_item_type_for_image_processing():
     """普通Webhook消息在图片处理阶段也应能访问媒体类型。"""
     plugin = object.__new__(MediaServerMsg)
+    plugin._initialize_lifecycle_state()
+    plugin._accepting_events = True
     plugin._enabled = True
     plugin._types = ["playback.start"]
     plugin._mediaservers = ["测试媒体库"]
@@ -102,3 +108,13 @@ def test_send_reads_item_type_for_image_processing():
     plugin.send(event)
 
     plugin.post_message.assert_called_once()
+
+
+def test_running_timer_timeout_retains_owner_until_retry():
+    """聚合回调已开始时必须报告超时并保留 Timer owner。"""
+    assert_running_timer_is_retained(MediaServerMsg)
+
+
+def test_waiting_timer_is_cancelled_and_host_hooks_are_idempotent():
+    """尚未触发的聚合 Timer 应被取消等待，close/stop_service 可顺序调用。"""
+    assert_waiting_timer_is_cancelled(MediaServerMsg)

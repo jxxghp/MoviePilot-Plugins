@@ -4,8 +4,8 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
-import speedlimiter as speedlimiter_module
-from speedlimiter import SpeedLimiter
+from app.plugins import speedlimiter as speedlimiter_module
+from app.plugins.speedlimiter import SpeedLimiter
 
 
 def _timestamp(offset_seconds: int = 0) -> str:

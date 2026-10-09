@@ -8,7 +8,7 @@
 import threading
 from unittest.mock import MagicMock, PropertyMock, patch
 
-from brushflow import BrushFlow, BrushTaskConfig
+from app.plugins.brushflow import BrushFlow, BrushTaskConfig
 
 
 class FakeSite:
@@ -48,13 +48,13 @@ class TestBrushTag:
 
     def test_default_tag_uses_site_name(self):
         task = _make_task()
-        with patch("brushflow.SiteOper") as mock_site_oper:
+        with patch("app.plugins.brushflow.SiteOper") as mock_site_oper:
             mock_site_oper.return_value.get.return_value = FakeSite("聆音")
             assert task.brush_tag == "刷流-聆音"
 
     def test_default_tag_falls_back_to_task_id_without_site(self):
         task = _make_task(site_id=0)
-        with patch("brushflow.SiteOper") as mock_site_oper:
+        with patch("app.plugins.brushflow.SiteOper") as mock_site_oper:
             mock_site_oper.return_value.get.return_value = None
             assert task.brush_tag == "刷流-aabbccdd"
 
@@ -74,8 +74,8 @@ class TestDownloadTags:
         patch_service = patch.object(
             type(plugin), "service_info", new_callable=PropertyMock, return_value=mock_service
         )
-        patch_helper = patch("brushflow.DownloaderHelper", return_value=mock_dh)
-        patch_request = patch("brushflow.RequestUtils", return_value=MagicMock(ok=False))
+        patch_helper = patch("app.plugins.brushflow.DownloaderHelper", return_value=mock_dh)
+        patch_request = patch("app.plugins.brushflow.RequestUtils", return_value=MagicMock(ok=False))
         return patch_service, patch_helper, patch_request
 
     def test_qb_download_applies_only_readable_tag(self):
@@ -92,7 +92,7 @@ class TestDownloadTags:
         downloader.add_torrent.return_value = True
         downloader.get_torrent_id_by_tag.return_value = "hash123"
         patch_service, patch_helper, patch_request = self._mock_qb_environment(plugin, downloader)
-        with patch("brushflow.SiteOper") as mock_site_oper, \
+        with patch("app.plugins.brushflow.SiteOper") as mock_site_oper, \
              patch_service, patch_helper, patch_request:
             mock_site_oper.return_value.get.return_value = FakeSite("聆音")
             result = plugin._BrushFlow__download(torrent)
@@ -125,10 +125,10 @@ class TestDownloadTags:
         mock_service.instance = downloader
         mock_dh = MagicMock()
         mock_dh.is_downloader.side_effect = lambda name, service=None: name == "transmission"
-        with patch("brushflow.SiteOper") as mock_site_oper, \
+        with patch("app.plugins.brushflow.SiteOper") as mock_site_oper, \
              patch.object(type(plugin), "service_info", new_callable=PropertyMock, return_value=mock_service), \
-             patch("brushflow.DownloaderHelper", return_value=mock_dh), \
-             patch("brushflow.RequestUtils", return_value=MagicMock(ok=False)):
+             patch("app.plugins.brushflow.DownloaderHelper", return_value=mock_dh), \
+             patch("app.plugins.brushflow.RequestUtils", return_value=MagicMock(ok=False)):
             mock_site_oper.return_value.get.return_value = FakeSite("聆音")
             result = plugin._BrushFlow__download(torrent)
 
@@ -155,8 +155,8 @@ class TestGlobalDownloadingCount:
         mock_dh = MagicMock()
         mock_dh.get_service.return_value = mock_service
         mock_dh.is_downloader.return_value = True
-        with patch("brushflow.SiteOper") as mock_site_oper, \
+        with patch("app.plugins.brushflow.SiteOper") as mock_site_oper, \
              patch.object(type(plugin), "service_info", new_callable=PropertyMock, return_value=mock_service), \
-             patch("brushflow.DownloaderHelper", return_value=mock_dh):
+             patch("app.plugins.brushflow.DownloaderHelper", return_value=mock_dh):
             mock_site_oper.return_value.get.return_value = FakeSite("聆音")
             assert plugin._BrushFlow__get_global_downloading_count() == 2

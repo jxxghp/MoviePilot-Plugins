@@ -13,3 +13,7 @@
         "kwargs": {} // 定时器参数，参考APScheduler
     }]
     ```
+
+## 一次性任务
+
+“立即运行一次”或“事件后延迟执行”不需要注册成公共服务，也不要自建 `BackgroundScheduler`。调用 `app.sdk.scheduler.add_plugin_once_job(插件ID, 任务ID, self.xxx, 名称, delay_seconds=3, func_kwargs={})` 交给宿主调度器执行。同 ID 重复追加时替换尚未执行的旧任务，用 `remove_plugin_once_job(插件ID, 任务ID)` 取消。完整说明见 [插件开发指南 9.3](../Plugin_Development.md#93-定时服务)。

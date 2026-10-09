@@ -1,14 +1,16 @@
 import subprocess
 from pathlib import Path
 
-import blurayremux
+from app.plugins import blurayremux
 from app.core.config import settings
 from app.core.context import MediaInfo
 from app.core.metainfo import MetaInfoPath
+from app.application.configuration import SystemConfigService, configure_system_config
+from app.db.oper.systemconfig import SystemConfigOper
 from app.modules.filemanager.storages.local import LocalStorage
 from app.schemas import FileItem
 from app.schemas.types import MediaType
-from blurayremux import BlurayRemux
+from app.plugins.blurayremux import BlurayRemux
 
 
 def _write_mpls(path: Path, stream_names: list[str]):
@@ -61,6 +63,12 @@ def _media_info(media_type: MediaType = MediaType.MOVIE) -> MediaInfo:
     return mediainfo
 
 
+def _meta(path: str):
+    """使用隔离数据库装配识别配置后构造整理元数据。"""
+    configure_system_config(SystemConfigService(repository=SystemConfigOper()))
+    return MetaInfoPath(Path(path))
+
+
 def _plugin(enabled: bool = True) -> BlurayRemux:
     plugin = BlurayRemux()
     plugin.init_plugin({"enabled": enabled, "timeout": 60})
@@ -72,7 +80,7 @@ def test_disabled_plugin_returns_none(tmp_path):
 
     result = _plugin(enabled=False).transfer(
         fileitem=source_item,
-        meta=MetaInfoPath(Path("Sample Movie (2024)")),
+        meta=_meta("Sample Movie (2024)"),
         mediainfo=_media_info(),
         target_path=tmp_path / "media",
         transfer_type="copy",
@@ -94,7 +102,7 @@ def test_non_bluray_directory_returns_none(tmp_path):
 
     result = _plugin().transfer(
         fileitem=source_item,
-        meta=MetaInfoPath(Path("Sample Movie (2024)")),
+        meta=_meta("Sample Movie (2024)"),
         mediainfo=_media_info(),
         target_path=tmp_path / "media",
         transfer_type="copy",
@@ -122,7 +130,7 @@ def test_movie_bluray_remux_uses_playlist_concat(tmp_path, monkeypatch):
 
     result = _plugin().transfer(
         fileitem=source_item,
-        meta=MetaInfoPath(Path("Sample Movie (2024)")),
+        meta=_meta("Sample Movie (2024)"),
         mediainfo=_media_info(),
         target_path=tmp_path / "media",
         transfer_type="copy",
@@ -142,7 +150,7 @@ def test_tv_bluray_returns_none(tmp_path, monkeypatch):
 
     result = _plugin().transfer(
         fileitem=source_item,
-        meta=MetaInfoPath(Path("Sample Show S01")),
+        meta=_meta("Sample Show S01"),
         mediainfo=_media_info(MediaType.TV),
         target_path=tmp_path / "media",
         transfer_type="copy",
@@ -166,7 +174,7 @@ def test_unmatched_playlist_returns_failure_without_ffmpeg(tmp_path, monkeypatch
 
     result = _plugin().transfer(
         fileitem=source_item,
-        meta=MetaInfoPath(Path("Sample Movie (2024)")),
+        meta=_meta("Sample Movie (2024)"),
         mediainfo=_media_info(),
         target_path=tmp_path / "media",
         transfer_type="copy",
@@ -188,7 +196,7 @@ def test_rejects_target_inside_source(tmp_path, monkeypatch):
 
     result = _plugin().transfer(
         fileitem=source_item,
-        meta=MetaInfoPath(Path("Sample Movie (2024)")),
+        meta=_meta("Sample Movie (2024)"),
         mediainfo=_media_info(),
         target_path=source_root,
         transfer_type="copy",
@@ -215,7 +223,7 @@ def test_move_delete_failure_keeps_new_target(tmp_path, monkeypatch):
 
     result = _plugin().transfer(
         fileitem=source_item,
-        meta=MetaInfoPath(Path("Sample Movie (2024)")),
+        meta=_meta("Sample Movie (2024)"),
         mediainfo=_media_info(),
         target_path=tmp_path / "media",
         transfer_type="move",

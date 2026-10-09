@@ -5,10 +5,9 @@ from collections import OrderedDict
 from json import JSONDecodeError
 from typing import Dict, List, Optional, Union, AsyncGenerator, Any
 
-import httpx
+import httpx2
 import requests
 from pydantic import ValidationError
-from zhconv_rs import zhconv as zhconv_convert
 
 from app import schemas
 from app.sdk.cache import cached
@@ -17,7 +16,7 @@ from app.sdk.media import MediaInfo, MetaBase, resolve_media_identity
 from app.sdk.logging import logger
 from app.schemas.types import MediaSource, MediaType
 from app.sdk.network import AsyncRequestUtils, RequestUtils
-from app.sdk.utilities import StringUtils, retry
+from app.sdk.utilities import StringUtils, convert, retry
 
 from .imdbapi import ImdbApiClient
 from .officialapi import SearchParams, OfficialApiClient, PersistedQueryNotFound
@@ -36,7 +35,7 @@ class ImdbHelper:
             proxy_url = proxies.get("https") or proxies.get("http")
         else:
             proxy_url = None
-        self._async_client = httpx.AsyncClient(timeout=30, proxy=proxy_url)
+        self._async_client = httpx2.AsyncClient(timeout=30, proxy=proxy_url)
         self.imdbapi_client = ImdbApiClient(
             session=self._session,
             async_client=self._async_client,
@@ -868,7 +867,7 @@ class ImdbHelper:
                     meta.type = mtype
             info: Optional[ImdbMediaInfo] = None
             # 简体名称
-            zh_name = zhconv_convert(meta.cn_name, 'zh-hans') if meta.cn_name else None
+            zh_name = convert(meta.cn_name, 'zh-hans') if meta.cn_name else None
             media_names = list(dict.fromkeys([k for k in [meta.cn_name, zh_name, meta.en_name] if k]))
             names: list[str] = [name for name in media_names if isinstance(name, str)]
             for name in names:
@@ -940,7 +939,7 @@ class ImdbHelper:
                     meta.type = mtype
             info: Optional[ImdbMediaInfo] = None
             # 简体名称
-            zh_name = zhconv_convert(meta.cn_name, 'zh-hans') if meta.cn_name else None
+            zh_name = convert(meta.cn_name, 'zh-hans') if meta.cn_name else None
             media_names = list(dict.fromkeys([k for k in [meta.cn_name, zh_name, meta.en_name] if k]))
             names: list[str] = [name for name in media_names if isinstance(name, str)]
             for name in names:

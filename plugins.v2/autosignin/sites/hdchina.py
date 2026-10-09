@@ -85,7 +85,7 @@ class HDChina(_ISiteSigninHandler):
         # 没有签到则解析html
         html = etree.HTML(html_res.text)
 
-        if not html:
+        if html is None:
             return False, '签到失败'
 
         # x_csrf
@@ -110,7 +110,7 @@ class HDChina(_ISiteSigninHandler):
 
         sign_dict = json.loads(sign_res.text)
         logger.debug(f"签到返回结果 {sign_dict}")
-        if sign_dict['state']:
+        if sign_dict.get('state') == 'success':
             # {'state': 'success', 'signindays': 10, 'integral': 20}
             logger.info(f"{site} 签到成功")
             return True, '签到成功'

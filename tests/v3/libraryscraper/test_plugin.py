@@ -1,10 +1,10 @@
 from pathlib import Path
 
-import libraryscraper
+from app.plugins import libraryscraper
 import pytest
 from app.core.config import settings
 from app.schemas import MediaSource, MediaType
-from libraryscraper import LibraryScraper
+from app.plugins.libraryscraper import LibraryScraper
 
 
 def test_scrape_item_preserves_unified_media_identity(monkeypatch) -> None:
@@ -73,6 +73,18 @@ def test_nfo_identity_rejects_only_zero_id(tmp_path: Path) -> None:
     assert identity == (None, None)
 
 
+def test_nfo_identity_skips_invalid_tmdb_placeholder(tmp_path: Path) -> None:
+    """历史集级 NFO 的 None 占位值不得进入 V3 识别链。"""
+    nfo_path = tmp_path / "episode.nfo"
+    nfo_path.write_text(
+        "<episodedetails><uniqueid type='tmdb'>None</uniqueid>"
+        "<tmdbid>not-a-number</tmdbid></episodedetails>",
+        encoding="utf-8",
+    )
+
+    assert LibraryScraper._LibraryScraper__get_media_identity_from_nfo(nfo_path) == (None, None)
+
+
 def test_scrape_path_uses_pair_and_scraping_chain(tmp_path: Path, monkeypatch) -> None:
     """显式媒体身份必须直达识别链，元数据写入必须交给 ScrapingChain。"""
     media_file = tmp_path / "Movie.mkv"
@@ -133,7 +145,7 @@ def test_scrape_path_uses_pair_and_scraping_chain(tmp_path: Path, monkeypatch) -
     (
         (MediaSource.TMDB, "0"),
         (MediaSource.TMDB, "   "),
-        ("unknown", "123"),
+        ("Plugin Source:Invalid", "123"),
         (MediaSource.TMDB, None),
         (None, "123"),
     ),
@@ -142,10 +154,17 @@ def test_scrape_path_rejects_invalid_explicit_identity(
         tmp_path: Path,
         media_source,
         media_id,
+        monkeypatch,
 ) -> None:
     """零值、空白、未知来源和半对参数不得作为统一媒体身份传给识别链。"""
     media_file = tmp_path / "Movie.mkv"
     media_file.write_text("", encoding="utf-8")
+
+    class FakeMeta:
+        type = MediaType.MOVIE
+        name = "Movie"
+
+    monkeypatch.setattr(libraryscraper, "MetaInfoPath", lambda _path: FakeMeta())
 
     class FakeMediaChain:
         def __init__(self) -> None:

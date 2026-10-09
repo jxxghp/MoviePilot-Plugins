@@ -2,18 +2,18 @@ const currentImports = {};
       const exportSet = new Set(['Module', '__esModule', 'default', '_export_sfc']);
       let moduleMap = {
 "./Page":()=>{
-      dynamicLoadingCss(["__federation_expose_Page-Djr4IKxl.css"], false, './Page');
-      return __federation_import('./__federation_expose_Page-czE-HqjR.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
+      dynamicLoadingCss(["__federation_expose_Page-B2GYnogB.css"], false, './Page');
+      return __federation_import('./__federation_expose_Page-DLbp6DQa.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
 "./Config":()=>{
-      dynamicLoadingCss(["__federation_expose_Config-B5o6PL9i.css"], false, './Config');
-      return __federation_import('./__federation_expose_Config-B80HbgKg.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},};
+      dynamicLoadingCss(["__federation_expose_Config-COiqvnNh.css"], false, './Config');
+      return __federation_import('./__federation_expose_Config-B5KdhnCq.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},};
       const seen = {};
       const dynamicLoadingCss = (cssFilePaths, dontAppendStylesToHead, exposeItemName) => {
         const metaUrl = import.meta.url;
         if (typeof metaUrl === 'undefined') {
           console.warn('The remote style takes effect only when the build.target option in the vite.config.ts file is higher than that of "es2020".');
           return;
-        }
+}
 
         const curUrl = metaUrl.substring(0, metaUrl.lastIndexOf('remoteEntry.js'));
         const base = '/';
@@ -45,7 +45,7 @@ const currentImports = {};
          } else {
            href = cssPath;
          }
-         
+
           if (dontAppendStylesToHead) {
             const key = 'css__CourseOrganizer__' + exposeItemName;
             window[key] = window[key] || [];

@@ -10,10 +10,11 @@ from app.utils.string import StringUtils
 
 class MTorrent(_ISiteSigninHandler):
     """
-    m-team签到
+    馒头仅通过更新访问时间保号，签到和登录共用同一接口。
     """
     # 匹配的站点Url，每一个实现类都需要设置为自己的站点Url
     site_url = "m-team"
+    signin_is_login = True
 
     @classmethod
     def match(cls, url: str) -> bool:
@@ -45,9 +46,15 @@ class MTorrent(_ISiteSigninHandler):
                            proxies=settings.PROXY if site_info.get("proxy") else None,
                            referer=f"{url}index"
                            ).post_res(url=f"https://api.{domain}/api/member/updateLastBrowse")
-        if res:
-            return True, "模拟登录成功"
-        elif res is not None:
+        if res is not None and res.status_code == 200:
+            try:
+                payload = res.json()
+            except ValueError:
+                return False, "模拟登录失败，接口返回数据异常"
+            if isinstance(payload, dict) and str(payload.get("code")) == "0":
+                return True, "模拟登录成功"
+            return False, "模拟登录失败，接口未确认访问时间更新"
+        if res is not None:
             return False, f"模拟登录失败，状态码：{res.status_code}"
         else:
             return False, "模拟登录失败，无法打开网站"
