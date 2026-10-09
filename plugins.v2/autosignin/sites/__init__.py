@@ -22,6 +22,8 @@ class _ISiteSigninHandler(metaclass=ABCMeta):
     """
     # 匹配的站点Url，每一个实现类都需要设置为自己的站点Url
     site_url = ""
+    # 签到入口若已经执行登录保号，失败后不能再调用相同接口作为登录回退。
+    signin_is_login: bool = False
 
     @abstractmethod
     def match(self, url: str) -> bool:

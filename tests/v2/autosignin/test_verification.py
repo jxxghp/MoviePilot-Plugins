@@ -245,6 +245,61 @@ def test_login_only_adapter_is_not_signin_success():
     assert result.completed
 
 
+@pytest.mark.parametrize("login_message, expected_message", [
+    ("访问失败，接口未确认结果", "访问失败，接口未确认结果"),
+    ("模拟登录失败，Cookie已失效", "访问失败，接口未确认结果；模拟登录失败，Cookie已失效"),
+])
+def test_login_fallback_preserves_distinct_errors_without_repeating_identical_errors(
+        monkeypatch, login_message, expected_message):
+    """普通站点仍执行登录回退，相同错误只保留一次，不同原因均保留。"""
+    plugin = object.__new__(AutoSignIn)
+    login = Mock(return_value=(False, login_message))
+    handler = Mock(spec=["signin", "login"], return_value=SimpleNamespace(
+        signin=Mock(return_value=(False, "访问失败，接口未确认结果")), login=login))
+    monkeypatch.setattr(plugin, "_AutoSignIn__build_class", Mock(return_value=handler))
+    stats = SimpleNamespace(success=Mock(), fail=Mock())
+    monkeypatch.setattr("app.plugins.autosignin.SiteOper", Mock(return_value=stats))
+
+    result = plugin.signin_site(site_info())
+
+    assert result == SiteResult("测试站", expected_message, False, False)
+    login.assert_called_once()
+    stats.success.assert_not_called()
+    stats.fail.assert_called_once()
+
+
+@pytest.mark.parametrize("action", ["signin_site", "login_site"])
+@pytest.mark.parametrize("reply, completed, message", [
+    (response(payload={"code": 0}), True, "模拟登录成功"),
+    (response(payload={"code": 403}), False, "模拟登录失败，接口未确认访问时间更新"),
+    (response(status=401), False, "模拟登录失败，状态码：401"),
+    (None, False, "模拟登录失败，无法打开网站"),
+])
+def test_mteam_visit_calls_shared_endpoint_once(monkeypatch, action, reply, completed, message):
+    """馒头的签到与登录共用访问接口，每轮只请求一次并保留真实失败或登录状态。"""
+    plugin = object.__new__(AutoSignIn)
+    plugin._site_schema = [MTorrent]
+    stats = SimpleNamespace(success=Mock(), fail=Mock())
+    monkeypatch.setattr("app.plugins.autosignin.SiteOper", Mock(return_value=stats))
+    post = Mock(return_value=reply)
+    monkeypatch.setattr("app.plugins.autosignin.sites.mteam.RequestUtils", Mock(return_value=SimpleNamespace(
+        post_res=post)))
+
+    result = getattr(plugin, action)(site_info(name="馒头", url="https://kp.m-team.cc/", token="test-token"))
+
+    post.assert_called_once_with(url="https://api.m-team.cc/api/member/updateLastBrowse")
+    assert result.completed is completed
+    assert result.logged_in is completed
+    assert result.success is (completed and action == "login_site")
+    assert result.message == (message + "（未执行签到）" if completed and action == "signin_site" else message)
+    if completed:
+        stats.success.assert_called_once()
+        stats.fail.assert_not_called()
+    else:
+        stats.success.assert_not_called()
+        stats.fail.assert_called_once()
+
+
 def test_btschool_unconfirmed_attendance_preserves_login_visit(monkeypatch):
     """学校适配器没有独立登录接口时，回退首页仍可确认登录保号。"""
     plugin = object.__new__(AutoSignIn)

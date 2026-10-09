@@ -10,10 +10,11 @@ from app.utils.string import StringUtils
 
 class MTorrent(_ISiteSigninHandler):
     """
-    m-team签到
+    馒头仅通过更新访问时间保号，签到和登录共用同一接口。
     """
     # 匹配的站点Url，每一个实现类都需要设置为自己的站点Url
     site_url = "m-team"
+    signin_is_login = True
 
     @classmethod
     def match(cls, url: str) -> bool:

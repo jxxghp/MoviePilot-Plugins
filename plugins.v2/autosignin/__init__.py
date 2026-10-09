@@ -37,7 +37,7 @@ class AutoSignIn(_PluginBase):
     # 插件图标
     plugin_icon = "signin.png"
     # 插件版本
-    plugin_version = "2.9.10"
+    plugin_version = "2.9.11"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -1748,13 +1748,14 @@ class AutoSignIn(_PluginBase):
             result = self._site_result(site_info.get("name"), state, message, "签到")
         else:
             result = self.__signin_base(site_info)
-        if not result.completed:
+        if not result.completed and not getattr(site_module, "signin_is_login", False):
             # 签到入口可能不存在或未包含用户导航，另行访问首页/登录接口确认保号访问。
             login_result = self._login_result(site_info, site_module)
             if login_result.success:
                 logger.info(f"{result.site_name} 已确认登录，原签到结果：{result.message}")
                 result = SiteResult(result.site_name, "登录成功，签到未确认", False, True)
-            else:
+            elif result.message != login_result.message:
+                # 两个不同入口可能返回相同错误，只合并不同原因，避免通知重复。
                 result = result._replace(message=f"{result.message}；{login_result.message}")
         # 统计
         seconds = (datetime.now() - start_time).seconds
