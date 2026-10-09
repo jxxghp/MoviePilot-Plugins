@@ -485,7 +485,13 @@ def test_download_image_returns_none_for_empty_url() -> None:
 def test_download_image_returns_none_on_failure() -> None:
     """图片下载失败时应返回 None，由调用方回退为远程引用。"""
     plugin = _make_plugin()
-    assert plugin._download_image("https://invalid.example.invalid/nonexistent.jpg") is None
+
+    def _raise_urlopen(request, timeout=None):
+        """模拟网络异常，避免测试期间发起真实出站请求。"""
+        raise OSError("network unreachable")
+
+    with patch("urllib.request.urlopen", _raise_urlopen):
+        assert plugin._download_image("https://example.invalid/poster.jpg") is None
 
 
 def test_download_image_sets_douban_referer() -> None:
