@@ -1,4 +1,6 @@
 import hashlib
+import threading
+import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -61,6 +63,7 @@ class ChatGPT(_PluginBase):
     _CACHE_DATA_KEY = "recognize_cache"
     # Token 用量统计数据 key
     _USAGE_STATS_KEY = "usage_stats"
+    _MODEL_ERROR_NOTIFY_INTERVAL = 300
 
     # 插件名称
     plugin_name = "ChatGPT"
@@ -69,7 +72,7 @@ class ChatGPT(_PluginBase):
     # 插件图标
     plugin_icon = "Chatgpt_A.png"
     # 插件版本
-    plugin_version = "3.1"
+    plugin_version = "3.1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -113,6 +116,8 @@ class ChatGPT(_PluginBase):
         # 音乐识别开关缺省视为开启，仅在明确关闭时禁用
         self._music_recognize = bool(config.get("music_recognize", True))
         self.openai = None
+        self._model_error_notifications: Dict[str, float] = {}
+        self._model_error_notify_lock = threading.Lock()
 
         # 初始化时从数据库加载缓存到内存
         self._load_cache_from_db()
@@ -978,12 +983,19 @@ class ChatGPT(_PluginBase):
             return True, str(response.get("errorMsg"))
         return False, ""
 
-    def _notify_error(self, message: str) -> None:
+    def _notify_error(self, message: str, error_code: Optional[str] = None) -> None:
         """
-        按配置发送插件错误通知。
+        按配置发送错误通知，同类模型空响应或拒答五分钟内只通知一次，日志始终保留。
         """
         logger.warning(message)
         if self._notify:
+            if error_code in {"empty_response", "model_refusal"}:
+                with self._model_error_notify_lock:
+                    now = time.monotonic()
+                    last = self._model_error_notifications.get(error_code)
+                    if last is not None and now - last < self._MODEL_ERROR_NOTIFY_INTERVAL:
+                        return
+                    self._model_error_notifications[error_code] = now
             self.post_message(mtype=NotificationType.Plugin, title=self.plugin_name, text=message)
 
     def _record_agent_tokens_usage(
@@ -1072,7 +1084,7 @@ class ChatGPT(_PluginBase):
         self._record_agent_tokens_usage(model_config, usage, success=not is_error, error=error_msg)
 
         if is_error:
-            self._notify_error(f"ChatGPT 识别增强调用失败：{error_msg}")
+            self._notify_error(f"ChatGPT 识别增强调用失败：{error_msg}", error_code=response.get("errorCode"))
             return None
         if not isinstance(response, dict) or not response.get("name"):
             self._notify_error(f"ChatGPT 识别增强未返回有效名称：{title}")
