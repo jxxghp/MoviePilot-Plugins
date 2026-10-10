@@ -6,6 +6,9 @@
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
+from langchain_core.messages import AIMessage
+from langchain_core.outputs import ChatGeneration, LLMResult
+
 from app.core.event import eventmanager
 from app.core.plugin import PluginManager
 from app.schemas.types import ChainEventType
@@ -129,16 +132,19 @@ def test_openai_prompt_parameter_overrides_default():
     created_llms = []
 
     def _fake_llm():
+        """返回具备候选列表的模型替身，验证两类提示词仍分别传入。"""
         llm = MagicMock()
-        llm.invoke.return_value = MagicMock(content='{"name": "晴天"}', usage_metadata={})
+        llm.generate.return_value = LLMResult(
+            generations=[[ChatGeneration(message=AIMessage(content='{"name": "晴天"}'))]],
+        )
         created_llms.append(llm)
         return llm
 
     with patch.object(client, "_get_llm", side_effect=_fake_llm):
         client.get_media_name("title", prompt="MUSIC-PROMPT")
-        first_messages = created_llms[-1].invoke.call_args[0][0]
+        first_messages = created_llms[-1].generate.call_args[0][0][0]
         assert first_messages[0].content == "MUSIC-PROMPT"
 
         client.get_media_name("title")
-        second_messages = created_llms[-1].invoke.call_args[0][0]
+        second_messages = created_llms[-1].generate.call_args[0][0][0]
         assert second_messages[0].content == "DEFAULT-PROMPT"
