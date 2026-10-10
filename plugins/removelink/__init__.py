@@ -33,6 +33,35 @@ def _is_download_tmp_file(file_path: Path) -> bool:
     return _has_suffix_in(file_path, settings.DOWNLOAD_TMPEXT + [".mp"])
 
 
+def _is_media_file(file_path: Path) -> bool:
+    """
+    判断文件是否为媒体文件本体（视频），而不是刮削文件。
+    """
+    return _has_suffix_in(file_path, settings.RMT_MEDIAEXT)
+
+
+def _find_tmp_alias(file_path: Path, identity: Tuple[int, int]) -> Optional[Path]:
+    """
+    查找被下载器改名为临时文件、但仍指向同一文件实体的路径。
+
+    Transmission 开启 rename-partial-files、qBittorrent 开启“未完成文件添加扩展名”后，
+    校验或续传时会把未完成的 X.mkv 改名为 X.mkv.part / X.mkv.!qB，文件实体（设备号+inode）
+    并未删除。此时不能按“源文件被删除”去清理它的硬链接、刮削文件和转移记录。
+    :param file_path: 收到删除事件的原路径
+    :param identity: 原文件的 (st_dev, st_ino)
+    :return: 仍指向同一实体的临时文件路径，没有则返回 None
+    """
+    for suffix in settings.DOWNLOAD_TMPEXT + [".mp"]:
+        candidate = file_path.with_name(file_path.name + suffix)
+        try:
+            stat_info = candidate.stat()
+        except OSError:
+            continue
+        if (stat_info.st_dev, stat_info.st_ino) == tuple(identity):
+            return candidate
+    return None
+
+
 class WatchfilesEvent:
     """
     watchfiles 目录监控事件。
@@ -325,7 +354,7 @@ class RemoveLink(_PluginBase):
     # 插件图标
     plugin_icon = "Ombi_A.png"
     # 插件版本
-    plugin_version = "2.3.2"
+    plugin_version = "2.3.3"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -690,9 +719,15 @@ class RemoveLink(_PluginBase):
                 # 清理与path相关的刮削文件
                 name_prefix = path.stem
                 for file in path.parent.iterdir():
-                    if file.name.startswith(name_prefix):
-                        file.unlink()
-                        logger.info(f"删除刮削文件：{file}")
+                    if not file.name.startswith(name_prefix):
+                        continue
+                    # X.mkv.part / X.mkv.!qB 是下载器正在校验或续传的数据本体，
+                    # 同名的其它视频文件也不是刮削文件，都不能按前缀误删
+                    if _is_download_tmp_file(file) or _is_media_file(file):
+                        logger.info(f"跳过非刮削文件：{file}")
+                        continue
+                    file.unlink()
+                    logger.info(f"删除刮削文件：{file}")
         except Exception as e:
             logger.error(f"清理刮削文件发生错误：{str(e)}.")
         # 清理空目录
@@ -762,6 +797,17 @@ class RemoveLink(_PluginBase):
         """
         # 删除的文件对应的监控信息
         with state_lock:
+            # 下载器校验/续传把 X.mkv 改名为 X.mkv.part 时，文件实体仍在，不是删除；
+            # watchfiles 只会给出 deleted 事件，临时文件又不进入监控，这里按磁盘实体判断
+            known_inode = self.state_set.get(str(file_path))
+            if known_inode:
+                tmp_alias = _find_tmp_alias(file_path, known_inode)
+                if tmp_alias:
+                    logger.info(
+                        f"文件 {file_path} 已被下载器改名为临时文件 {tmp_alias.name}，实体仍存在，跳过删除联动"
+                    )
+                    self.state_set.pop(str(file_path), None)
+                    return
             # 清理刮削文件
             self.delete_scrap_infos(file_path)
             if self._delete_torrents:
