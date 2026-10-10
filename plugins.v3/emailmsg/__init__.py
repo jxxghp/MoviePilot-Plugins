@@ -55,9 +55,9 @@ class EmailMsg(_PluginBase):
 
     # 通知模板选项：按特点命名
     TEMPLATES = {
-        "dark_card": "深色渐变卡片",
-        "poster_hero": "海报大字报",
-        "poster_full": "海报铺满背景",
+        "dark_card": "流光夜幕",
+        "poster_hero": "光影头图",
+        "poster_full": "沉浸全屏",
     }
 
     def init_plugin(self, config: dict = None) -> None:
@@ -630,7 +630,7 @@ class EmailMsg(_PluginBase):
     def _build_html_dark_card(self, safe_title: str, fields: List[tuple],
                               image: Optional[str], link: Optional[str],
                               safe_type: str) -> str:
-        """深色渐变卡片模板：横屏海报 + 字段名值靠左列表。"""
+        """流光夜幕模板：深色背景 + 渐变光晕，横屏海报 + 字段名值靠左列表。"""
         import html as html_lib
         # 海报区域
         poster_html = ""
@@ -703,7 +703,7 @@ class EmailMsg(_PluginBase):
     def _build_html_poster_hero(self, safe_title: str, fields: List[tuple],
                                 image: Optional[str], link: Optional[str],
                                 safe_type: str) -> str:
-        """海报大字报模板：横屏海报全宽顶图 + 标题叠加 + 字段由上至下排列。"""
+        """光影头图模板：横屏海报全宽顶图 + 标题叠加 + 字段由上至下排列。"""
         import html as html_lib
         # 海报顶图
         poster_html = ""
@@ -779,7 +779,7 @@ class EmailMsg(_PluginBase):
     def _build_html_poster_full(self, safe_title: str, fields: List[tuple],
                                 image: Optional[str], link: Optional[str],
                                 safe_type: str) -> str:
-        """海报铺满背景模板：横屏海报铺满背景 + 文本浮层 + 字段胶囊标签。"""
+        """沉浸全屏模板：横屏海报铺满背景 + 文本浮层 + 字段胶囊标签。"""
         import html as html_lib
         # 字段胶囊标签（fields 已转义，不再重复转义）
         tags_html = ""
