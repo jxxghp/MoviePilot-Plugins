@@ -1,45 +1,42 @@
 {
-    "MediaDirWatcher": {
-      "name": "目录新增监控刮削",
-      "description": "轮询监控指定目录，发现新增电影/剧集/动画片后发送 MP 通知并可选刮削 NFO。支持目录分类标注(路径分类优先于识别结果)、首次扫描自动建基线(存量媒体不刷屏)、目录树 mtime 指纹预检(无变化零 I/O,保护机械盘)。",
-      "labels": "刮削,通知,监控",
-      "version": "1.0.4",
-      "icon": "mediadirwatcher.png",
-      "author": "LCQ",
-      "level": 2,
-      "release": true,
-      "system_version": ">=3.0.0",
-      "history": {
-        "v1.0.4": "重构:识别链对齐MP原生recognize_by_path/recognize_by_meta(完整路径解析+系统识别顺序+插件辅助识别兜底+自动补图),数据源改为请求级参数不再切换全局RECOGNIZE_SOURCE",
-        "v1.0.3": "修复:季目录判断改为完整匹配,避免DTS5.1等编码被误判为季目录导致电影识别失败无海报",
-        "v1.0.2": "修复:被稳定期跳过的未处理新文件不再固化目录指纹,避免新文件被永久遗漏;指纹存储键升级v2",
-        "v1.0.1": "通知消息补充 mtype=Plugin 修复部分通知渠道收不到；新增目录分类类型标注(18类,优先于识别结果)；首次扫描自动建立基线,存量媒体不发送通知；新增目录树 mtime 指纹预检,目录无变化时跳过全量扫描",
-        "v1.0.0": "首个版本：轮询监控指定目录，新增电影/剧集自动识别(TMDB/豆瓣)并发送通知，可选写入NFO刮削"
-      }
-    },
-  "ShortCutModified": {
-    "name": "修改版快捷指令",
-    "description": "IOS快捷指令，快速选片添加订阅。",
-    "labels": "站点,仪表板",
-    "version": "3.0.2",
-    "icon": "https://raw.githubusercontent.com/Sinterdial/MoviePilot-Plugins/main/icons/shortcut.png",
-    "author": "Sinterdial, honue",
+  "AnimeUpscale": {
+    "name": "动漫视频超分",
+    "description": "在 MoviePilot 内直接使用 GPU 完成动漫视频 2 倍超分与 HEVC Main10 编码。",
+    "labels": "动漫,视频处理,GPU",
+    "version": "2.1.2",
+    "icon": "ffmpeg.png",
+    "author": "RWDai",
     "level": 1,
     "release": true,
     "system_version": ">=3.0.0",
+    "v3t": false,
     "history": {
-      "v3.0.2": "该版本快捷指令有更新，请重新下载: https://www.icloud.com/shortcuts/f7805a73c25c427baed53663b0d777f7\n适配v3标准，使用media_source+media_id，优化了使用逻辑",
-      "v3.0.1": "迁移至v3，使用SDK加载模块",
-      "v2.6.8": "优化指引信息，更新快捷指令链接",
-      "v2.6.7": "修复bug，增加搜索源信息，优化显示，更新快捷指令链接",
-      "v2.6.6": "优化代码逻辑和交互显示信息，支持电影订阅",
-      "v2.6.5": "优化代码逻辑和交互显示信息",
-      "v2.6.4": "解决返回信息报错问题",
-      "v2.6.3": "判断订阅是否存在时考虑季数，修复bug",
-      "v2.6.2": "修复bug",
-      "v2.6.1": "修复bug",
-      "v2.6": "在原版基础上增加选择要订阅哪几季的功能"
+      "v2.1.2": "升级至支持 Python 3.14 的 PyTorch 2.13 与 CUDA 12.6；V3t 暂受上游原生依赖制品限制。",
+      "v2.1.1": "依赖清单迁移至 pyproject.toml，升级 PyTorch 2.5.1 以兼容 V3 的 NumPy 2 运行环境，并使用具名 CUDA 12.1 索引声明来源。",
+      "v2.1.0": "适配 V3 SDK 导入规范：插件内部导入全面迁移至 app.sdk 体系，去除对旧版兼容层的依赖。",
+      "v2.0.0": "V3 独立大版本：适配统一插件 API 响应，并内嵌 GPU 超分、队列与 FFmpeg 流水线。",
+      "v1.1.1": "修复符号链接越界、非默认 GPU 的 NVENC 编码和 mov_text 字幕封装",
+      "v1.1.0": "将任务队列、GPU 推理和 FFmpeg 流水线直接集成到 MoviePilot 插件",
+      "v1.0.0": "首个版本：支持服务状态、模型下载与校验、任务提交和管理"
     }
+  },
+  "AutoClean": {
+    "name": "定时清理媒体库",
+    "description": "定时清理用户下载的种子、源文件、媒体库文件。",
+    "labels": "媒体库",
+    "version": "3.1.0",
+    "icon": "clean.png",
+    "author": "thsrite",
+    "level": 2,
+    "release": true,
+    "history": {
+      "v3.1.0": "适配 V3 SDK 导入规范：插件内部导入全面迁移至 app.sdk 体系，去除对旧版兼容层的依赖。",
+      "v3.0.0": "V3 独立大版本：按媒体来源和媒体 ID 归组下载历史。",
+      "v2.2": "fix",
+      "v2.1": "优化执行周期输入，需要MoviePilot v2.2.1+",
+      "v2.0": "兼容MoviePilot V2 版本"
+    },
+    "system_version": ">=3.0.0"
   },
   "AutoSports": {
     "name": "Sportscult 比赛自动下载及简单刮削",
@@ -75,6 +72,20 @@
       "v0.1.0": "初始版本，仅供调试"
     }
   },
+  "AutoSubtitle": {
+    "name": "自动字幕下载",
+    "description": "文件整理完成后自动搜索并下载缺失的字幕",
+    "labels": "字幕",
+    "version": "2.0.0",
+    "icon": "subtitle.png",
+    "author": "yubanmeiqin9048",
+    "level": 2,
+    "system_version": ">=3.0.0",
+    "history": {
+      "v2.0.0": "适配 MoviePilot V3，安装时不再强制构建可选调轴依赖"
+    },
+    "v3t": false
+  },
   "AutoSubv2": {
     "name": "AI字幕自动生成(v2)",
     "description": "使用 whisper 自动生成视频文件字幕，并使用大模型翻译字幕成中文。",
@@ -99,24 +110,6 @@
       "v1.1": "优化字幕翻译逻辑，优化日志输出。",
       "v1.0": "首个稳定版本。"
     }
-  },
-  "AutoClean": {
-    "name": "定时清理媒体库",
-    "description": "定时清理用户下载的种子、源文件、媒体库文件。",
-    "labels": "媒体库",
-    "version": "3.1.0",
-    "icon": "clean.png",
-    "author": "thsrite",
-    "level": 2,
-    "release": true,
-    "history": {
-      "v3.1.0": "适配 V3 SDK 导入规范：插件内部导入全面迁移至 app.sdk 体系，去除对旧版兼容层的依赖。",
-      "v3.0.0": "V3 独立大版本：按媒体来源和媒体 ID 归组下载历史。",
-      "v2.2": "fix",
-      "v2.1": "优化执行周期输入，需要MoviePilot v2.2.1+",
-      "v2.0": "兼容MoviePilot V2 版本"
-    },
-    "system_version": ">=3.0.0"
   },
   "BangumiColl": {
     "name": "Bangumi收藏订阅",
@@ -178,6 +171,29 @@
       "v4.1": "支持通过CRON表达式配置开启时间，固定10分钟为执行周期",
       "v4.0": "站点独立配置项支持配置NexusPHP 站点自动跳过下载提示页",
       "v3.9": "MoviePilot V2 版本站点刷流插件"
+    }
+  },
+  "CertManager": {
+    "name": "证书管理",
+    "description": "SSL 证书部署、申请与自动续期。",
+    "labels": "工具,系统",
+    "version": "1.4.1",
+    "icon": "certmanager.png",
+    "author": "LLL001a",
+    "level": 1,
+    "release": false,
+    "system_version": ">=3.0.0",
+    "history": {
+      "v1.4.1": "修复插件图标路径（原指向不存在的 ssl.png）；精简插件简介",
+      "v1.4.0": "凭据对照表改为动态查询：直接解析服务商脚本得到实际需要的凭据字段，覆盖 acme.sh 全部 198 个服务商，脚本未下载时自动下载",
+      "v1.3.1": "修复：配置页新增「申请证书」与「手动部署证书」入口，此前申请接口缺少界面按钮；详情页改为纯展示（详情页不支持输入绑定），并修正插件描述",
+      "v1.3.0": "新增一键安装/升级 acme.sh 功能：从官方仓库自动下载主脚本并创建目录结构，已安装时升级并保留原有配置，下载内容无效时自动回滚",
+      "v1.2.3": "证书生效与到期时间改为北京时间格式（2026-09-30 21:44:17），替代原有的英文月份与 GMT 时区显示",
+      "v1.2.2": "服务商下拉框显示中文名称（阿里云、腾讯云等）并保存脚本名；配置页新增可展开的凭据对照表，无需跳出界面查阅",
+      "v1.2.1": "安全加固：日志、错误详情与检测日志统一脱敏常见凭据字段，避免凭据进入日志文件或界面提示；修复服务商配置可能存为对象导致脚本路径错误的问题；下载与检测按钮并排显示",
+      "v1.2.0": "新增配置检测功能：逐项校验域名格式、acme.sh、DNS 插件脚本、凭据填写，并向 DNS 服务商真实写入并删除测试 TXT 记录以验证凭据可用性；失败时给出可操作的排查建议",
+      "v1.1.0": "DNS 服务商改为可输入下拉框，支持 acme.sh 全部 190+ 服务商；新增一键下载 DNS 插件脚本；凭据拆分为两个独立输入框并给出示例",
+      "v1.0.0": "初始版本：支持手动部署证书（粘贴 PEM 文本并自动校验）、自动申请证书（acme.sh DNS-01 验证）、自动续期（定时检查并重载 nginx）"
     }
   },
   "ChatGPT": {
@@ -306,6 +322,38 @@
     },
     "system_version": ">=3.0.0"
   },
+  "EmailMsg": {
+    "name": "邮箱通知",
+    "description": "支持通过 SMTP 发送邮件通知，收件人根据通知发送范围设置从用户管理邮箱中获取。",
+    "labels": "消息通知",
+    "version": "1.3.3",
+    "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/email_A.png",
+    "author": "LLL001a",
+    "level": 1,
+    "system_version": ">=3.0.0",
+    "history": {
+      "v1.3.3": "媒体类通知（沉浸全屏/光影头图模板）从标题识别媒体，用竖屏海报替换剧照作为背景图，识别结果按标题缓存；模板更名为流光夜幕/光影头图/沉浸全屏。",
+      "v1.3.2": "海报图片改为下载后内嵌（CID），修复豆瓣等图片防盗链导致邮件图片不显示。",
+      "v1.3.1": "修复非媒体类通知文本被错误分段，按行保留原始格式。",
+      "v1.3.0": "非媒体类通知（无海报）自动降级为通用文本模板，避免套用媒体模板。",
+      "v1.2.0": "新增通知模板选项（深色渐变卡片/海报大字报/海报铺满背景），所有通知类型完整展示正文内容。",
+      "v1.1.0": "美化邮件 HTML 样式，通知携带资源海报与跳转链接。",
+      "v1.0.0": "首次发布。"
+    }
+  },
+  "EmosUpload": {
+    "name": "EMOS上传",
+    "description": "MoviePilot 下载完成后自动上传到 EMOS（Emby 资源站上传分发系统），轮询下载器检测下载完成即上传源文件，支持服务器端识别、版本对比、分片并发上传。",
+    "labels": "上传,EMOS,Emby,资源站",
+    "version": "3.0.0",
+    "icon": "Emos_A.svg",
+    "author": "xlmc",
+    "level": 1,
+    "system_version": ">=3.0.0",
+    "history": {
+      "v3.0.0": "V3 专用实现：导入迁移到 app.sdk（config/events/logging/plugin/services/utilities）；通知渠道枚举改用 NotificationChannel。功能与 v2.1.0 一致。"
+    }
+  },
   "EpisodeGroupMeta": {
     "name": "TMDB剧集组刮削",
     "description": "从TMDB剧集组刮削季集的实际顺序。",
@@ -329,33 +377,76 @@
     },
     "system_version": ">=3.0.0"
   },
-  "MoviePilotUpdateNotify": {
-    "name": "MoviePilot更新推送",
-    "description": "MoviePilot 推送 V3 release 更新通知、自动重启。",
-    "labels": "消息通知,自动更新",
-    "version": "3.0.0",
-    "icon": "Moviepilot_A.png",
-    "author": "thsrite",
+  "FullScreenPosterWall": {
+    "name": "全屏海报墙",
+    "description": "这是一个全屏海报墙插件，让所有终端可以播放精美的电影海报。抓取 MoviePilot 推荐媒体（数据源跟随系统动态增减：TMDB/豆瓣/Bangumi/AniList/第三方源，每源可分电影/电视剧）的海报图片，以照片/拼贴/纵深穿梭/滑动面板/浮动/怀旧冲印/光舞等多种动效全屏展示，支持局域网海报墙页面。",
+    "labels": "媒体展示",
+    "version": "2.0.0",
+    "icon": "https://raw.githubusercontent.com/ltdstudio/posterwall/main/icons/fullscreenposterwall.png",
+    "author": "ltdstudio",
     "level": 1,
     "release": true,
+    "system_version": ">=3.0.0",
     "history": {
-      "v3.0.0": "V3 独立版本：迁移至 plugins.v3，按 V3 发布线检查后端与前端更新，并使用稳定 SDK 入口。"
-    },
-    "system_version": ">=3.0.0"
+      "v2.0.0": "V3 专用版本：迁移至稳定 SDK（app.sdk.*），适配 V3 插件体系；功能与 V2 端 1.15.11 对齐",
+      "v1.15.11": "插件页/配置页右上角新增关闭按钮；效果卡片收窄；文案精简",
+      "v1.15.10": "数据源改为下拉多选（配置页不再过长）；插件市场「项目主页」指向插件仓库",
+      "v1.15.9": "浮动动效倾角微调（有界摆动，峰值约 5°）",
+      "v1.15.8": "浮动效果卡片倾角改为有界摆动，避免过度倾斜",
+      "v1.15.7": "竖屏设备优先使用竖版海报图；lan-wall 新增全屏浮动按钮；修复仪表板格子图片填充",
+      "v1.15.6": "新增图片/Logo 拉取状态显示（插件页与 lan-wall 双端）",
+      "v1.15.5": "TMDB/Fanart 图片统一走服务器代理缓存（多设备共享 7 天磁盘缓存，加载更快）",
+      "v1.15.4": "补充 AniList 数据源；修复代理图片路径被前端误拼 TMDB 域名导致图片红叉的问题",
+      "v1.15.3": "修复豆瓣图源防盗链导致图片加载失败；单类型源勾选框精简",
+      "v1.15.2": "取消进入全屏前的倒数遮罩；单类型源禁止反向勾选",
+      "v1.15.1": "修复配置页数据源列表加载失败（响应解包判定错误）",
+      "v1.15.0": "推荐数据源动态化：跟随系统推荐链自动增减，每源可分别勾选电影/电视剧",
+      "v1.14.5": "修复主页仪表板格子塌缩（只见标题、内容不占位）",
+      "v1.14.4": "插件图标改为完整 URL 地址，修复图标不显示",
+      "v1.14.3": "修复 Logo 丢失：logo 模式下原生带字图加载失败回退到普通图时，按实际加载结果恢复 Logo 叠层；更换插件图标",
+      "v1.14.2": "新增海报数量设置（30/60/120/180/240，按源自动分页拉取）；图片预加载失败时在同条目内按候选链回退（Fanart CDN 不可达自动降级 TMDB），死主机记忆避免重复白等超时；纵深穿梭/流动拼贴/局域网海报墙同步优化",
+      "v1.13.1": "修复审查问题：Logo 补抓每缓存周期仅一次（防穿透限流）、浮动动效素材循环复用且预览不再空转、环形画廊按真实间隔配置轮换、纵深穿梭缺图时进入空态不再卡死",
+      "v1.13.0": "新增 3D 环形画廊动效（极光光斑/微尘光点氛围背景、螺旋飞出切换），拼贴动效更名「流动拼贴」，纵深穿梭动效优化，局域网海报墙页面同步升级",
+      "v1.11.0": "新增不断变化的拼贴/纵深穿梭/滑动面板等动效，海报图支持 Fanart 原生带片名横图与官方 Logo 叠加，新增局域网海报墙页面",
+      "v1.0.2": "修复 dashboard 格式/API 解包/timer 响应，新增 lan-wall 与 public-data 无认证接口",
+      "v1.0.0": "初始版本，支持照片/浮动/怀旧冲印/光舞等屏幕保护动效"
+    }
   },
-  "TvFirstWatch": {
-    "name": "首播试看",
-    "description": "定时抓取 RSS，只下载电视剧前 N 集，自动跳过合集和过大文件。",
-    "labels": "订阅,RSS",
-    "version": "2.0.0",
-    "icon": "rss.png",
-    "author": "Raymond38324",
-    "level": 2,
-    "release": true,
+  "HDBlueSignin": {
+    "name": "蓝影论坛签到",
+    "description": "使用专用密钥自动签到蓝影论坛，支持随机错峰、结果通知与签到记录。",
+    "labels": "蓝影,论坛,签到",
+    "version": "2.0.2",
+    "icon": "https://raw.githubusercontent.com/wzxcom/MoviePilot-Plugins/main/icons/hdblue-logo-004699311fe1.png",
+    "author": "wzxcom",
+    "level": 1,
+    "release": false,
+    "system_version": ">=3.0.0,<4",
     "history": {
-      "v2.0.0": "V3 独立大版本：迁移至 plugins.v3，使用稳定媒体上下文与下载链，并将第三方依赖声明迁移至 pyproject.toml。"
+      "v2.0.2": "修复连接测试丢失待重试任务与停用后残留线程；补充真实 V3 宿主、分身隔离及调度生命周期回归。",
+      "v2.0.1": "替换蓝影论坛 PNG Logo；调整配置表单栅格、字段间距及提示布局，修复标签与提示文字重叠。",
+      "v2.0.0": "V3 独立版本：稳定 SDK 接入、专用签到密钥、北京时间定时与随机错峰、有限重试和连接测试。"
+    }
+  },
+  "HRBlocker": {
+    "name": "H&R Blocker",
+    "description": "屏蔽所有带H&R的种子，搜索、订阅等任何场景都不会选中H&R种子。",
+    "labels": "站点,下载",
+    "version": "2.0.0",
+    "icon": "hrblocker.png",
+    "author": "ltdstudio",
+    "level": 1,
+    "system_version": ">=3.0.0",
+    "history": {
+      "v2.0.0": "V3 专用版本：迁移至稳定 SDK（app.sdk.*），适配 V3 插件体系；功能与 V2 端 1.3.0 对齐",
+      "v1.3.0": "屏蔽记录按类型分类（显示拦截/订阅拦截/资源选择/下载拦截），弹窗顶部分类筛选条；搜索显示过滤也写入记录（同标题去重防刷屏）",
+      "v1.2.0": "搜索结果列表直接过滤H&R种子（显示层也不出现）；记录显示 X/100；屏蔽记录弹窗新增「清除记录」功能",
+      "v1.1.3": "设置按钮加大并移至插件页右下角",
+      "v1.1.2": "插件页补标题栏与设置齿轮按钮，/status 接口返回版本号",
+      "v1.1.1": "补 Config 联邦组件修复设置弹窗；插件页改为屏蔽记录弹窗展示",
+      "v1.1.0": "首个版本：逐种子 H&R 标记屏蔽，可联动 H&R助手屏蔽全站 H&R 站点，手动下载兜底拦截，拦截通知与屏蔽记录"
     },
-    "system_version": ">=3.0.0"
+    "release": true
   },
   "HistoryToV2": {
     "name": "V1历史记录迁移至V3",
@@ -426,6 +517,25 @@
       "v1.0": "探索支持IMDb数据源"
     }
   },
+  "IqiyiDiscover": {
+    "name": "爱奇艺探索",
+    "description": "让探索支持爱奇艺的数据浏览。",
+    "labels": "探索",
+    "version": "2.1.5",
+    "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/iqiyi_A.png",
+    "author": "LLL001a",
+    "level": 1,
+    "system_version": ">=3.0.0",
+    "history": {
+      "v2.1.5": "修复电视剧分类下剧集重复显示、重复项海报显示为剧照的问题",
+      "v2.1.4": "新增Cookie解析（支持表格格式）、定时刷新配置项与快捷周期选项",
+      "v2.1.3": "新增每8小时定时刷新Cookie机制，更新使用说明",
+      "v2.1.2": "优化首次加载速度，Cookie持久化与后台预获取",
+      "v2.1.1": "修复Cookie获取失败和默认分类404问题，优化首次加载速度",
+      "v2.1.0": "新增媒体识别能力，支持点击海报识别媒体",
+      "v2.0.0": "V3 独立大版本：适配 V3 SDK 导入规范，使用 MediaSource 枚举和统一响应格式"
+    }
+  },
   "LibraryScraper": {
     "name": "媒体库刮削",
     "description": "定时对媒体库进行刮削，补齐缺失元数据和图片。",
@@ -446,150 +556,6 @@
       "v2.0": "兼容MoviePilot V2 版本",
       "v1.5": "修复未获取fanart图片的问题",
       "v1.4.1": "修复nfo文件读取失败时任务中断问题"
-    },
-    "system_version": ">=3.0.0"
-  },
-  "MaoyanRank": {
-    "name": "猫眼榜单订阅",
-    "description": "监控猫眼数据，自动添加订阅。",
-    "version": "4.1.4",
-    "icon": "https://raw.githubusercontent.com/baozaodetudou/MoviePilot-Plugins/main/icons/maoyan.jpg",
-    "color": "#fefefe",
-    "author": "逗猫",
-    "level": 1,
-    "release": true,
-    "system_version": ">=3.0.0",
-    "history": {
-      "v4.1.4": "修复网络电影榜单详情字段解析，按条目顶层 movieName 与 releaseInfo 读取，避免有效条目全部被跳过",
-      "v4.1.3": "修复网络电影榜单旧接口 403，使用官网浏览器会话及当前数据结构，并在当日无数据时重试最新可用日期",
-      "v4.1.2": "修复猫眼热度榜旧接口 403，使用官网当前接口及浏览器会话请求，按北京时间传递榜单日期并保留平台筛选与异常隔离",
-      "v4.1.1": "修复上映信息为空时的年份解析警告，隔离 Cookie 获取、单源请求和榜单坏条目异常，避免影响后续榜单与订阅",
-      "v4.1.0": "适配 V3 SDK 导入规范：插件内部导入全面迁移至 app.sdk 体系，去除对旧版兼容层的依赖。",
-      "v4.0.0": "V3 独立大版本：统一媒体身份，拒绝零值或未知来源，并在合法回填后迁移插件历史中的旧媒体 ID 字段。",
-      "v3.2": "修复剧集订阅季号识别，标题含季号时优先使用标题季号，否则按TMDB最新季订阅",
-      "v3.1": "优化详情页UI，增加分页卡片与空值兜底，避免历史记录显示None",
-      "v3.0": "适配MoviePilot浏览器助手，修复Playwright浏览器可执行文件路径失配问题",
-      "v2.7": "增加优酷平台获取",
-      "v1.7": "更改榜单的排列组合支持多个平台同时订阅的功能",
-      "v1.6": "适配新的url获取",
-      "v1.5": "增加了条数配置选项支持1,2,3,5,7,10选择",
-      "v1.4": "增加支持了网络电影的订阅功能",
-      "v1.3": "取消猫眼榜单删除的平台",
-      "v1.2": "修改获取榜单的方法增加成功率",
-      "v1.1": "优化执行周期录入",
-      "v1.0": "修复使用缓存进行订阅搜索集数不全的问题",
-      "v0.7": "界面点击名称跳转TMDB",
-      "v0.6": "更改图标",
-      "v0.5": "更改爬取方式，提高成功率",
-      "v0.4": "电视剧订阅添加去重",
-      "v0.3": "增加平台分类",
-      "v0.2": "电视剧电影以及综艺的分类",
-      "v0.1": "初始化版本猫眼订阅功能"
-    }
-  },
-  "MediaServerMsg": {
-    "name": "媒体库服务器通知",
-    "description": "发送Emby/Jellyfin/Plex服务器的播放、入库等通知消息。",
-    "labels": "消息通知,媒体库",
-    "version": "2.1.3",
-    "icon": "mediaplay.png",
-    "author": "jxxghp",
-    "level": 1,
-    "release": true,
-    "history": {
-      "v2.1.3": "修复剧集入库聚合消息只显示一集的问题",
-      "v2.1.2": "媒体分类展示改用宿主统一分类 SDK，不再读取 legacy category.yaml。",
-      "v2.1.1": "停止时封闭Webhook并取消等待聚合任务；Timer回调超时会保留所有权供宿主重试",
-      "v2.1.0": "适配 V3 SDK 导入规范：插件内部导入全面迁移至 app.sdk 体系，去除对旧版兼容层的依赖。",
-      "v2.0.0": "V3 独立大版本：webhook 与媒体服务器条目识别改用媒体来源和媒体 ID，并拒绝零值或无效 pair。",
-      "v1.8.4": "修复媒体服务器通知Webhook处理时 item_type 未定义的问题",
-      "v1.8.3": "修复Plex音乐播放通知误识别为剧集的问题，并显示歌手名称",
-      "v1.8.2.3": "兼容Jellyfin ItemAdded入库Webhook事件",
-      "v1.8.2.2": "修复emby多条相同新入库消息推送多次的问题",
-      "v1.8.2.1": "修复多集时有概率图片获取失败的问题；修复emby测试通知类型接收失败的问题",
-      "v1.8.1": "修复单集剧情信息有概率获取失败的问题",
-      "v1.8": "当整理路径中没有tmdbid时，会尝试从媒体服务器中获取",
-      "v1.7.1": "未获取到tmdb信息则按原有逻辑发送；电影显示海报",
-      "v1.7": "对TV剧集入库事件进行聚合，避免消息轰炸。更新后如果打不开插件，请重置插件",
-      "v1.6": "查询剧集图片兼容没有季集信息的情况",
-      "v1.5": "支持独立控制媒体服务器通知",
-      "v1.4": "MoviePilot V2 版本媒体库服务器通知插件"
-    },
-    "system_version": ">=3.0.0"
-  },
-  "NeoDBSync": {
-    "name": "NeoDB 想看",
-    "description": "同步 NeoDB 想看数据，自动添加订阅。",
-    "labels": "订阅",
-    "version": "2.1.0",
-    "icon": "NeoDB.jpeg",
-    "author": "hcplantern",
-    "level": 2,
-    "release": true,
-    "history": {
-      "v2.1.0": "适配 V3 SDK 导入规范：插件内部导入全面迁移至 app.sdk 体系，去除对旧版兼容层的依赖。",
-      "v2.0.0": "V3 独立大版本：统一媒体身份，拒绝零值或未知来源，并在合法回填后迁移插件历史中的旧媒体 ID 字段。",
-      "v1.1": "直接添加订阅，不提前进行搜索下载"
-    },
-    "system_version": ">=3.0.0"
-  },
-  "PersonMeta": {
-    "name": "演职人员刮削",
-    "description": "刮削演职人员图片以及中文名称。",
-    "labels": "媒体库,刮削",
-    "version": "3.1.1",
-    "icon": "actor.png",
-    "author": "jxxghp",
-    "level": 1,
-    "release": true,
-    "system_version": ">=3.0.0",
-    "history": {
-      "v3.1.1": "中文转换改用 MoviePilot 文本 SDK，兼容 Python 3.14t。",
-      "v3.1.0": "适配 V3 SDK 导入规范：插件内部导入全面迁移至 app.sdk 体系，去除对旧版兼容层的依赖。",
-      "v3.0.0": "V3 独立大版本：人物元数据识别改用媒体来源和媒体 ID。",
-      "v2.2.5": "增加单轮人物缓存，避免剧集重复刮削同一人物",
-      "v2.2.4": "改为监听元数据刮削事件并增加实时防重，修复媒体服务器过滤和空人物保存问题",
-      "v2.2.3": "简繁转换依赖改用 zhconv-rs，需要 MoviePilot >2.12.4",
-      "v2.2.2": "修复异常日志问题",
-      "v2.2.1": "优化错误数据兼容处理",
-      "v2.2": "修改使用自定义图片域名时无法下载图片的问题",
-      "v2.1": "优化执行周期输入，需要MoviePilot v2.2.1+",
-      "v2.0": "兼容MoviePilot V2 版本",
-      "v1.4": "人物图片调整为优先从TMDB获取，避免douban图片CDN加载过慢的问题",
-      "v1.3": "修复v1.8.5版本后刮削报错问题"
-    }
-  },
-  "RssSubscribe": {
-    "name": "自定义订阅",
-    "description": "定时刷新RSS报文，识别内容后添加订阅或直接下载。",
-    "labels": "订阅",
-    "version": "3.1.0",
-    "icon": "rss.png",
-    "author": "jxxghp",
-    "level": 2,
-    "release": true,
-    "history": {
-      "v3.1.0": "适配 V3 SDK 导入规范：插件内部导入全面迁移至 app.sdk 体系，去除对旧版兼容层的依赖。",
-      "v3.0.0": "V3 独立大版本：统一媒体身份，拒绝零值或未知来源，并在合法回填后迁移插件历史中的旧媒体 ID 字段。",
-      "v2.1": "优化执行周期输入，需要MoviePilot v2.2.1+",
-      "v2.0": "兼容MoviePilot V2 版本"
-    },
-    "system_version": ">=3.0.0"
-  },
-  "TvdbDiscover": {
-    "name": "TheTVDB探索",
-    "description": "让探索支持TheTVDB的数据浏览。",
-    "labels": "探索",
-    "version": "2.1.1",
-    "icon": "TheTVDB_A.png",
-    "author": "jxxghp",
-    "level": 1,
-    "release": true,
-    "history": {
-      "v2.1.1": "插件探索 API 显式返回统一响应，避免依赖宿主隐式包装。",
-      "v2.1.0": "适配 V3 SDK 导入规范：插件内部导入全面迁移至 app.sdk 体系，去除对旧版兼容层的依赖。",
-      "v2.0.0": "V3 独立大版本：TVDB 探索源改用固定来源枚举和媒体 ID。",
-      "v1.1": "需要MoviePilot v2.2.7-1+ 版本，否则无法显示图片"
     },
     "system_version": ">=3.0.0"
   },
@@ -696,25 +662,60 @@
       "0.1.0": "首版：读取 LunaTV-config，串行搜索苹果 CMS 源，支持订阅队列、本地 m3u8 下载和 STRM。"
     }
   },
-  "AnimeUpscale": {
-    "name": "动漫视频超分",
-    "description": "在 MoviePilot 内直接使用 GPU 完成动漫视频 2 倍超分与 HEVC Main10 编码。",
-    "labels": "动漫,视频处理,GPU",
-    "version": "2.1.2",
-    "icon": "ffmpeg.png",
-    "author": "RWDai",
+  "MaoyanRank": {
+    "name": "猫眼榜单订阅",
+    "description": "监控猫眼数据，自动添加订阅。",
+    "version": "4.1.4",
+    "icon": "https://raw.githubusercontent.com/baozaodetudou/MoviePilot-Plugins/main/icons/maoyan.jpg",
+    "color": "#fefefe",
+    "author": "逗猫",
     "level": 1,
     "release": true,
     "system_version": ">=3.0.0",
-    "v3t": false,
     "history": {
-      "v2.1.2": "升级至支持 Python 3.14 的 PyTorch 2.13 与 CUDA 12.6；V3t 暂受上游原生依赖制品限制。",
-      "v2.1.1": "依赖清单迁移至 pyproject.toml，升级 PyTorch 2.5.1 以兼容 V3 的 NumPy 2 运行环境，并使用具名 CUDA 12.1 索引声明来源。",
-      "v2.1.0": "适配 V3 SDK 导入规范：插件内部导入全面迁移至 app.sdk 体系，去除对旧版兼容层的依赖。",
-      "v2.0.0": "V3 独立大版本：适配统一插件 API 响应，并内嵌 GPU 超分、队列与 FFmpeg 流水线。",
-      "v1.1.1": "修复符号链接越界、非默认 GPU 的 NVENC 编码和 mov_text 字幕封装",
-      "v1.1.0": "将任务队列、GPU 推理和 FFmpeg 流水线直接集成到 MoviePilot 插件",
-      "v1.0.0": "首个版本：支持服务状态、模型下载与校验、任务提交和管理"
+      "v4.1.4": "修复网络电影榜单详情字段解析，按条目顶层 movieName 与 releaseInfo 读取，避免有效条目全部被跳过",
+      "v4.1.3": "修复网络电影榜单旧接口 403，使用官网浏览器会话及当前数据结构，并在当日无数据时重试最新可用日期",
+      "v4.1.2": "修复猫眼热度榜旧接口 403，使用官网当前接口及浏览器会话请求，按北京时间传递榜单日期并保留平台筛选与异常隔离",
+      "v4.1.1": "修复上映信息为空时的年份解析警告，隔离 Cookie 获取、单源请求和榜单坏条目异常，避免影响后续榜单与订阅",
+      "v4.1.0": "适配 V3 SDK 导入规范：插件内部导入全面迁移至 app.sdk 体系，去除对旧版兼容层的依赖。",
+      "v4.0.0": "V3 独立大版本：统一媒体身份，拒绝零值或未知来源，并在合法回填后迁移插件历史中的旧媒体 ID 字段。",
+      "v3.2": "修复剧集订阅季号识别，标题含季号时优先使用标题季号，否则按TMDB最新季订阅",
+      "v3.1": "优化详情页UI，增加分页卡片与空值兜底，避免历史记录显示None",
+      "v3.0": "适配MoviePilot浏览器助手，修复Playwright浏览器可执行文件路径失配问题",
+      "v2.7": "增加优酷平台获取",
+      "v1.7": "更改榜单的排列组合支持多个平台同时订阅的功能",
+      "v1.6": "适配新的url获取",
+      "v1.5": "增加了条数配置选项支持1,2,3,5,7,10选择",
+      "v1.4": "增加支持了网络电影的订阅功能",
+      "v1.3": "取消猫眼榜单删除的平台",
+      "v1.2": "修改获取榜单的方法增加成功率",
+      "v1.1": "优化执行周期录入",
+      "v1.0": "修复使用缓存进行订阅搜索集数不全的问题",
+      "v0.7": "界面点击名称跳转TMDB",
+      "v0.6": "更改图标",
+      "v0.5": "更改爬取方式，提高成功率",
+      "v0.4": "电视剧订阅添加去重",
+      "v0.3": "增加平台分类",
+      "v0.2": "电视剧电影以及综艺的分类",
+      "v0.1": "初始化版本猫眼订阅功能"
+    }
+  },
+  "MediaDirWatcher": {
+    "name": "目录新增监控刮削",
+    "description": "轮询监控指定目录，发现新增电影/剧集/动画片后发送 MP 通知并可选刮削 NFO。支持目录分类标注(路径分类优先于识别结果)、首次扫描自动建基线(存量媒体不刷屏)、目录树 mtime 指纹预检(无变化零 I/O,保护机械盘)。",
+    "labels": "刮削,通知,监控",
+    "version": "1.0.4",
+    "icon": "mediadirwatcher.png",
+    "author": "LCQ",
+    "level": 2,
+    "release": true,
+    "system_version": ">=3.0.0",
+    "history": {
+      "v1.0.4": "重构:识别链对齐MP原生recognize_by_path/recognize_by_meta(完整路径解析+系统识别顺序+插件辅助识别兜底+自动补图),数据源改为请求级参数不再切换全局RECOGNIZE_SOURCE",
+      "v1.0.3": "修复:季目录判断改为完整匹配,避免DTS5.1等编码被误判为季目录导致电影识别失败无海报",
+      "v1.0.2": "修复:被稳定期跳过的未处理新文件不再固化目录指纹,避免新文件被永久遗漏;指纹存储键升级v2",
+      "v1.0.1": "通知消息补充 mtype=Plugin 修复部分通知渠道收不到；新增目录分类类型标注(18类,优先于识别结果)；首次扫描自动建立基线,存量媒体不发送通知；新增目录树 mtime 指纹预检,目录无变化时跳过全量扫描",
+      "v1.0.0": "首个版本：轮询监控指定目录，新增电影/剧集自动识别(TMDB/豆瓣)并发送通知，可选写入NFO刮削"
     }
   },
   "MediaInfoRenameEnhancer": {
@@ -730,141 +731,180 @@
       "v1.0.0": "V3 独立版本：在重命名模板渲染前读取 MediaInfo 并注入技术字段。"
     }
   },
-  "IqiyiDiscover": {
-    "name": "爱奇艺探索",
-    "description": "让探索支持爱奇艺的数据浏览。",
-    "labels": "探索",
-    "version": "2.1.5",
-    "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/iqiyi_A.png",
-    "author": "LLL001a",
+  "MediaServerMsg": {
+    "name": "媒体库服务器通知",
+    "description": "发送Emby/Jellyfin/Plex服务器的播放、入库等通知消息。",
+    "labels": "消息通知,媒体库",
+    "version": "2.1.3",
+    "icon": "mediaplay.png",
+    "author": "jxxghp",
     "level": 1,
-    "system_version": ">=3.0.0",
+    "release": true,
     "history": {
-      "v2.1.5": "修复电视剧分类下剧集重复显示、重复项海报显示为剧照的问题",
-      "v2.1.4": "新增Cookie解析（支持表格格式）、定时刷新配置项与快捷周期选项",
-      "v2.1.3": "新增每8小时定时刷新Cookie机制，更新使用说明",
-      "v2.1.2": "优化首次加载速度，Cookie持久化与后台预获取",
-      "v2.1.1": "修复Cookie获取失败和默认分类404问题，优化首次加载速度",
-      "v2.1.0": "新增媒体识别能力，支持点击海报识别媒体",
-      "v2.0.0": "V3 独立大版本：适配 V3 SDK 导入规范，使用 MediaSource 枚举和统一响应格式"
-    }
-  },
-  "EmailMsg": {
-    "name": "邮箱通知",
-    "description": "支持通过 SMTP 发送邮件通知，收件人根据通知发送范围设置从用户管理邮箱中获取。",
-    "labels": "消息通知",
-    "version": "1.3.3",
-    "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/email_A.png",
-    "author": "LLL001a",
-    "level": 1,
-    "system_version": ">=3.0.0",
-    "history": {
-      "v1.3.3": "媒体类通知（沉浸全屏/光影头图模板）从标题识别媒体，用竖屏海报替换剧照作为背景图，识别结果按标题缓存；模板更名为流光夜幕/光影头图/沉浸全屏。",
-      "v1.3.2": "海报图片改为下载后内嵌（CID），修复豆瓣等图片防盗链导致邮件图片不显示。",
-      "v1.3.1": "修复非媒体类通知文本被错误分段，按行保留原始格式。",
-      "v1.3.0": "非媒体类通知（无海报）自动降级为通用文本模板，避免套用媒体模板。",
-      "v1.2.0": "新增通知模板选项（深色渐变卡片/海报大字报/海报铺满背景），所有通知类型完整展示正文内容。",
-      "v1.1.0": "美化邮件 HTML 样式，通知携带资源海报与跳转链接。",
-      "v1.0.0": "首次发布。"
-    }
-  },
-  "WPushMsg": {
-    "name": "WPUSH消息推送",
-    "description": "支持使用 WPUSH 发送消息通知（多渠道：微信/App/短信/邮件/钉钉/飞书等）。",
-    "labels": "消息通知",
-    "version": "1.0.0",
-    "icon": "WPush_A.png",
-    "author": "Alone88",
-    "level": 1,
-    "system_version": ">=3.0.0",
-    "history": {
-      "v1.0.0": "首次发布：WPUSH V3 消息通知插件，成功判定以接口 JSON code===0 为准。"
-    }
-  },
-  "HDBlueSignin": {
-    "name": "蓝影论坛签到",
-    "description": "使用专用密钥自动签到蓝影论坛，支持随机错峰、结果通知与签到记录。",
-    "labels": "蓝影,论坛,签到",
-    "version": "2.0.2",
-    "icon": "https://raw.githubusercontent.com/wzxcom/MoviePilot-Plugins/main/icons/hdblue-logo-004699311fe1.png",
-    "author": "wzxcom",
-    "level": 1,
-    "release": false,
-    "system_version": ">=3.0.0,<4",
-    "history": {
-      "v2.0.2": "修复连接测试丢失待重试任务与停用后残留线程；补充真实 V3 宿主、分身隔离及调度生命周期回归。",
-      "v2.0.1": "替换蓝影论坛 PNG Logo；调整配置表单栅格、字段间距及提示布局，修复标签与提示文字重叠。",
-      "v2.0.0": "V3 独立版本：稳定 SDK 接入、专用签到密钥、北京时间定时与随机错峰、有限重试和连接测试。"
-    }
-  },
-  "HRBlocker": {
-    "name": "H&R Blocker",
-    "description": "屏蔽所有带H&R的种子，搜索、订阅等任何场景都不会选中H&R种子。",
-    "labels": "站点,下载",
-    "version": "2.0.0",
-    "icon": "hrblocker.png",
-    "author": "ltdstudio",
-    "level": 1,
-    "system_version": ">=3.0.0",
-    "history": {
-      "v2.0.0": "V3 专用版本：迁移至稳定 SDK（app.sdk.*），适配 V3 插件体系；功能与 V2 端 1.3.0 对齐",
-      "v1.3.0": "屏蔽记录按类型分类（显示拦截/订阅拦截/资源选择/下载拦截），弹窗顶部分类筛选条；搜索显示过滤也写入记录（同标题去重防刷屏）",
-      "v1.2.0": "搜索结果列表直接过滤H&R种子（显示层也不出现）；记录显示 X/100；屏蔽记录弹窗新增「清除记录」功能",
-      "v1.1.3": "设置按钮加大并移至插件页右下角",
-      "v1.1.2": "插件页补标题栏与设置齿轮按钮，/status 接口返回版本号",
-      "v1.1.1": "补 Config 联邦组件修复设置弹窗；插件页改为屏蔽记录弹窗展示",
-      "v1.1.0": "首个版本：逐种子 H&R 标记屏蔽，可联动 H&R助手屏蔽全站 H&R 站点，手动下载兜底拦截，拦截通知与屏蔽记录"
+      "v2.1.3": "修复剧集入库聚合消息只显示一集的问题",
+      "v2.1.2": "媒体分类展示改用宿主统一分类 SDK，不再读取 legacy category.yaml。",
+      "v2.1.1": "停止时封闭Webhook并取消等待聚合任务；Timer回调超时会保留所有权供宿主重试",
+      "v2.1.0": "适配 V3 SDK 导入规范：插件内部导入全面迁移至 app.sdk 体系，去除对旧版兼容层的依赖。",
+      "v2.0.0": "V3 独立大版本：webhook 与媒体服务器条目识别改用媒体来源和媒体 ID，并拒绝零值或无效 pair。",
+      "v1.8.4": "修复媒体服务器通知Webhook处理时 item_type 未定义的问题",
+      "v1.8.3": "修复Plex音乐播放通知误识别为剧集的问题，并显示歌手名称",
+      "v1.8.2.3": "兼容Jellyfin ItemAdded入库Webhook事件",
+      "v1.8.2.2": "修复emby多条相同新入库消息推送多次的问题",
+      "v1.8.2.1": "修复多集时有概率图片获取失败的问题；修复emby测试通知类型接收失败的问题",
+      "v1.8.1": "修复单集剧情信息有概率获取失败的问题",
+      "v1.8": "当整理路径中没有tmdbid时，会尝试从媒体服务器中获取",
+      "v1.7.1": "未获取到tmdb信息则按原有逻辑发送；电影显示海报",
+      "v1.7": "对TV剧集入库事件进行聚合，避免消息轰炸。更新后如果打不开插件，请重置插件",
+      "v1.6": "查询剧集图片兼容没有季集信息的情况",
+      "v1.5": "支持独立控制媒体服务器通知",
+      "v1.4": "MoviePilot V2 版本媒体库服务器通知插件"
     },
-    "release": true
+    "system_version": ">=3.0.0"
   },
-  "FullScreenPosterWall": {
-    "name": "全屏海报墙",
-    "description": "这是一个全屏海报墙插件，让所有终端可以播放精美的电影海报。抓取 MoviePilot 推荐媒体（数据源跟随系统动态增减：TMDB/豆瓣/Bangumi/AniList/第三方源，每源可分电影/电视剧）的海报图片，以照片/拼贴/纵深穿梭/滑动面板/浮动/怀旧冲印/光舞等多种动效全屏展示，支持局域网海报墙页面。",
-    "labels": "媒体展示",
-    "version": "2.0.0",
-    "icon": "https://raw.githubusercontent.com/ltdstudio/posterwall/main/icons/fullscreenposterwall.png",
-    "author": "ltdstudio",
+  "MoviePilotUpdateNotify": {
+    "name": "MoviePilot更新推送",
+    "description": "MoviePilot 推送 V3 release 更新通知、自动重启。",
+    "labels": "消息通知,自动更新",
+    "version": "3.0.0",
+    "icon": "Moviepilot_A.png",
+    "author": "thsrite",
+    "level": 1,
+    "release": true,
+    "history": {
+      "v3.0.0": "V3 独立版本：迁移至 plugins.v3，按 V3 发布线检查后端与前端更新，并使用稳定 SDK 入口。"
+    },
+    "system_version": ">=3.0.0"
+  },
+  "NapCatMsg": {
+    "name": "QQ消息通知（NapCat）",
+    "description": "通过NapCat（OneBot11）接口完整接管QQ渠道：发送MoviePilot全部消息通知，支持用户绑定QQ通知目标定向推送，并接收QQ消息作为远程命令控制MoviePilot。",
+    "labels": "消息通知,QQ,远程命令",
+    "version": "1.2.0",
+    "icon": "https://avatars.githubusercontent.com/NapNeko?v=4",
+    "author": "gy520187",
+    "level": 1,
+    "system_version": ">=3.0.0",
+    "history": {
+      "v1.2.0": "完整接管QQ渠道：插件声明post_message模块方法，接管channel=QQ定向消息（双向交互回复）与用户通知设置绑定的QQ目标（qq_userid/qq_group等，与官方QQ机器人模块目标键一致）定向推送；NoticeMessage事件路径收敛为仅处理无渠道广播，双路径互斥分区消除重复发送",
+      "v1.1.5": "候选列表转发：通过插件模块声明接收QQ渠道的媒体/种子候选列表消息（该类消息经消息队列直投模块、不广播NoticeMessage事件），文本化后私聊回复给发起交互的用户，补全搜索/下载交互闭环",
+      "v1.1.4": "架构调整：移除斜杠命令翻译层，插件仅负责消息转发，命令的识别与执行统一由MoviePilot消息链完成",
+      "v1.1.3": "斜杠命令兼容：将V2风格的/search、/subscribe、/download、/resubscribe自动映射为V3的搜索、订阅、下载、洗版交互动词",
+      "v1.1.2": "修复上报鉴权：NapCat将上报Token用作HMAC-SHA1签名密钥（x-signature头），插件补充OneBot11标准签名校验，两侧填同一Token即可通过",
+      "v1.1.1": "上报鉴权增强：兼容无Bearer前缀的裸Token请求头，鉴权失败日志输出请求携带的鉴权形式便于排障",
+      "v1.1.0": "新增双向交互：接收QQ消息执行远程命令，支持NapCat HTTP上报、上报令牌鉴权、可交互用户名单与私聊定向回复",
+      "v1.0.0": "首个版本：支持通过NapCat HTTP接口发送私聊、群聊通知，支持消息类型过滤、@全体成员与图片消息"
+    }
+  },
+  "NeoDBSync": {
+    "name": "NeoDB 想看",
+    "description": "同步 NeoDB 想看数据，自动添加订阅。",
+    "labels": "订阅",
+    "version": "2.1.0",
+    "icon": "NeoDB.jpeg",
+    "author": "hcplantern",
+    "level": 2,
+    "release": true,
+    "history": {
+      "v2.1.0": "适配 V3 SDK 导入规范：插件内部导入全面迁移至 app.sdk 体系，去除对旧版兼容层的依赖。",
+      "v2.0.0": "V3 独立大版本：统一媒体身份，拒绝零值或未知来源，并在合法回填后迁移插件历史中的旧媒体 ID 字段。",
+      "v1.1": "直接添加订阅，不提前进行搜索下载"
+    },
+    "system_version": ">=3.0.0"
+  },
+  "PersonMeta": {
+    "name": "演职人员刮削",
+    "description": "刮削演职人员图片以及中文名称。",
+    "labels": "媒体库,刮削",
+    "version": "3.1.1",
+    "icon": "actor.png",
+    "author": "jxxghp",
     "level": 1,
     "release": true,
     "system_version": ">=3.0.0",
     "history": {
-      "v2.0.0": "V3 专用版本：迁移至稳定 SDK（app.sdk.*），适配 V3 插件体系；功能与 V2 端 1.15.11 对齐",
-      "v1.15.11": "插件页/配置页右上角新增关闭按钮；效果卡片收窄；文案精简",
-      "v1.15.10": "数据源改为下拉多选（配置页不再过长）；插件市场「项目主页」指向插件仓库",
-      "v1.15.9": "浮动动效倾角微调（有界摆动，峰值约 5°）",
-      "v1.15.8": "浮动效果卡片倾角改为有界摆动，避免过度倾斜",
-      "v1.15.7": "竖屏设备优先使用竖版海报图；lan-wall 新增全屏浮动按钮；修复仪表板格子图片填充",
-      "v1.15.6": "新增图片/Logo 拉取状态显示（插件页与 lan-wall 双端）",
-      "v1.15.5": "TMDB/Fanart 图片统一走服务器代理缓存（多设备共享 7 天磁盘缓存，加载更快）",
-      "v1.15.4": "补充 AniList 数据源；修复代理图片路径被前端误拼 TMDB 域名导致图片红叉的问题",
-      "v1.15.3": "修复豆瓣图源防盗链导致图片加载失败；单类型源勾选框精简",
-      "v1.15.2": "取消进入全屏前的倒数遮罩；单类型源禁止反向勾选",
-      "v1.15.1": "修复配置页数据源列表加载失败（响应解包判定错误）",
-      "v1.15.0": "推荐数据源动态化：跟随系统推荐链自动增减，每源可分别勾选电影/电视剧",
-      "v1.14.5": "修复主页仪表板格子塌缩（只见标题、内容不占位）",
-      "v1.14.4": "插件图标改为完整 URL 地址，修复图标不显示",
-      "v1.14.3": "修复 Logo 丢失：logo 模式下原生带字图加载失败回退到普通图时，按实际加载结果恢复 Logo 叠层；更换插件图标",
-      "v1.14.2": "新增海报数量设置（30/60/120/180/240，按源自动分页拉取）；图片预加载失败时在同条目内按候选链回退（Fanart CDN 不可达自动降级 TMDB），死主机记忆避免重复白等超时；纵深穿梭/流动拼贴/局域网海报墙同步优化",
-      "v1.13.1": "修复审查问题：Logo 补抓每缓存周期仅一次（防穿透限流）、浮动动效素材循环复用且预览不再空转、环形画廊按真实间隔配置轮换、纵深穿梭缺图时进入空态不再卡死",
-      "v1.13.0": "新增 3D 环形画廊动效（极光光斑/微尘光点氛围背景、螺旋飞出切换），拼贴动效更名「流动拼贴」，纵深穿梭动效优化，局域网海报墙页面同步升级",
-      "v1.11.0": "新增不断变化的拼贴/纵深穿梭/滑动面板等动效，海报图支持 Fanart 原生带片名横图与官方 Logo 叠加，新增局域网海报墙页面",
-      "v1.0.2": "修复 dashboard 格式/API 解包/timer 响应，新增 lan-wall 与 public-data 无认证接口",
-      "v1.0.0": "初始版本，支持照片/浮动/怀旧冲印/光舞等屏幕保护动效"
+      "v3.1.1": "中文转换改用 MoviePilot 文本 SDK，兼容 Python 3.14t。",
+      "v3.1.0": "适配 V3 SDK 导入规范：插件内部导入全面迁移至 app.sdk 体系，去除对旧版兼容层的依赖。",
+      "v3.0.0": "V3 独立大版本：人物元数据识别改用媒体来源和媒体 ID。",
+      "v2.2.5": "增加单轮人物缓存，避免剧集重复刮削同一人物",
+      "v2.2.4": "改为监听元数据刮削事件并增加实时防重，修复媒体服务器过滤和空人物保存问题",
+      "v2.2.3": "简繁转换依赖改用 zhconv-rs，需要 MoviePilot >2.12.4",
+      "v2.2.2": "修复异常日志问题",
+      "v2.2.1": "优化错误数据兼容处理",
+      "v2.2": "修改使用自定义图片域名时无法下载图片的问题",
+      "v2.1": "优化执行周期输入，需要MoviePilot v2.2.1+",
+      "v2.0": "兼容MoviePilot V2 版本",
+      "v1.4": "人物图片调整为优先从TMDB获取，避免douban图片CDN加载过慢的问题",
+      "v1.3": "修复v1.8.5版本后刮削报错问题"
     }
   },
-  "AutoSubtitle": {
-    "name": "自动字幕下载",
-    "description": "文件整理完成后自动搜索并下载缺失的字幕",
-    "labels": "字幕",
+  "QbUploadLimiter": {
+    "name": "QB上传限速",
+    "description": "仅处理 MoviePilot 已整理入库成功的种子：分享率达到全局或站点单独阈值后自动限制上传速度（qBittorrent 与全局上传限速取较小值）；可选 AI 智能限速——调用系统设置的大模型按种子分享率、上传活跃度与站点账号分享率逐种子智能决策限速；支持多下载器、站点筛选、定时检测，停用/卸载自动恢复不限速。",
+    "labels": "下载管理,Qbittorrent,Transmission,限速,分享率,站点,AI",
     "version": "2.0.0",
-    "icon": "subtitle.png",
-    "author": "yubanmeiqin9048",
-    "level": 2,
+    "icon": "Qbittorrent_A.png",
+    "author": "xlmc",
+    "level": 1,
+    "release": true,
     "system_version": ">=3.0.0",
     "history": {
-      "v2.0.0": "适配 MoviePilot V3，安装时不再强制构建可选调轴依赖"
+      "v2.0.0": "V3 专用实现：导入迁移到 app.sdk（config/logging/plugin/services/network）与 app.agent.llm.helper；站点账号分享率改用 app.db.oper.site.SiteOper、整理入库记录改用 app.db.oper.transferhistory.TransferHistoryOper、下载历史改用 app.db.oper.downloadhistory，不再使用 SessionFactory 与宿主 Model；通知渠道枚举改用 NotificationChannel。功能与 v1.3.19 一致。"
+    }
+  },
+  "RssSubscribe": {
+    "name": "自定义订阅",
+    "description": "定时刷新RSS报文，识别内容后添加订阅或直接下载。",
+    "labels": "订阅",
+    "version": "3.1.0",
+    "icon": "rss.png",
+    "author": "jxxghp",
+    "level": 2,
+    "release": true,
+    "history": {
+      "v3.1.0": "适配 V3 SDK 导入规范：插件内部导入全面迁移至 app.sdk 体系，去除对旧版兼容层的依赖。",
+      "v3.0.0": "V3 独立大版本：统一媒体身份，拒绝零值或未知来源，并在合法回填后迁移插件历史中的旧媒体 ID 字段。",
+      "v2.1": "优化执行周期输入，需要MoviePilot v2.2.1+",
+      "v2.0": "兼容MoviePilot V2 版本"
     },
-    "v3t": false
+    "system_version": ">=3.0.0"
+  },
+  "ScrapeFileClean": {
+    "name": "源文件联动清理",
+    "description": "为手动清理下载目录设计：手动删除源文件后，自动联动清理媒体库中对应的硬链接文件、刮削文件（元数据、图片、字幕）与转移记录，支持延迟删除防止误删",
+    "labels": "文件整理,媒体库",
+    "version": "2.0.0",
+    "icon": "clean.png",
+    "author": "xlmc",
+    "level": 1,
+    "release": true,
+    "system_version": ">=3.0.0",
+    "history": {
+      "v2.0.0": "V3 专用实现：导入迁移到 app.sdk（events/logging/plugin）；转移记录改用 app.db.oper.transferhistory.TransferHistoryOper；通知消息类型改用 MessageType。功能与 1.0.7 一致。"
+    }
+  },
+  "ShortCutModified": {
+    "name": "修改版快捷指令",
+    "description": "IOS快捷指令，快速选片添加订阅。",
+    "labels": "站点,仪表板",
+    "version": "3.0.2",
+    "icon": "https://raw.githubusercontent.com/Sinterdial/MoviePilot-Plugins/main/icons/shortcut.png",
+    "author": "Sinterdial, honue",
+    "level": 1,
+    "release": true,
+    "system_version": ">=3.0.0",
+    "history": {
+      "v3.0.2": "该版本快捷指令有更新，请重新下载: https://www.icloud.com/shortcuts/f7805a73c25c427baed53663b0d777f7\n适配v3标准，使用media_source+media_id，优化了使用逻辑",
+      "v3.0.1": "迁移至v3，使用SDK加载模块",
+      "v2.6.8": "优化指引信息，更新快捷指令链接",
+      "v2.6.7": "修复bug，增加搜索源信息，优化显示，更新快捷指令链接",
+      "v2.6.6": "优化代码逻辑和交互显示信息，支持电影订阅",
+      "v2.6.5": "优化代码逻辑和交互显示信息",
+      "v2.6.4": "解决返回信息报错问题",
+      "v2.6.3": "判断订阅是否存在时考虑季数，修复bug",
+      "v2.6.2": "修复bug",
+      "v2.6.1": "修复bug",
+      "v2.6": "在原版基础上增加选择要订阅哪几季的功能"
+    }
   },
   "SubtitleAssistant": {
     "name": "字幕助手",
@@ -882,68 +922,48 @@
     },
     "v3t": false
   },
-  "CertManager": {
-    "name": "证书管理",
-    "description": "SSL 证书部署、申请与自动续期。",
-    "labels": "工具,系统",
-    "version": "1.4.1",
-    "icon": "certmanager.png",
-    "author": "LLL001a",
-    "level": 1,
-    "release": false,
-    "system_version": ">=3.0.0",
-    "history": {
-      "v1.4.1": "修复插件图标路径（原指向不存在的 ssl.png）；精简插件简介",
-      "v1.4.0": "凭据对照表改为动态查询：直接解析服务商脚本得到实际需要的凭据字段，覆盖 acme.sh 全部 198 个服务商，脚本未下载时自动下载",
-      "v1.3.1": "修复：配置页新增「申请证书」与「手动部署证书」入口，此前申请接口缺少界面按钮；详情页改为纯展示（详情页不支持输入绑定），并修正插件描述",
-      "v1.3.0": "新增一键安装/升级 acme.sh 功能：从官方仓库自动下载主脚本并创建目录结构，已安装时升级并保留原有配置，下载内容无效时自动回滚",
-      "v1.2.3": "证书生效与到期时间改为北京时间格式（2026-09-30 21:44:17），替代原有的英文月份与 GMT 时区显示",
-      "v1.2.2": "服务商下拉框显示中文名称（阿里云、腾讯云等）并保存脚本名；配置页新增可展开的凭据对照表，无需跳出界面查阅",
-      "v1.2.1": "安全加固：日志、错误详情与检测日志统一脱敏常见凭据字段，避免凭据进入日志文件或界面提示；修复服务商配置可能存为对象导致脚本路径错误的问题；下载与检测按钮并排显示",
-      "v1.2.0": "新增配置检测功能：逐项校验域名格式、acme.sh、DNS 插件脚本、凭据填写，并向 DNS 服务商真实写入并删除测试 TXT 记录以验证凭据可用性；失败时给出可操作的排查建议",
-      "v1.1.0": "DNS 服务商改为可输入下拉框，支持 acme.sh 全部 190+ 服务商；新增一键下载 DNS 插件脚本；凭据拆分为两个独立输入框并给出示例",
-      "v1.0.0": "初始版本：支持手动部署证书（粘贴 PEM 文本并自动校验）、自动申请证书（acme.sh DNS-01 验证）、自动续期（定时检查并重载 nginx）"
-    }
-  },
-  "QbUploadLimiter": {
-    "name": "QB上传限速",
-    "description": "仅处理 MoviePilot 已整理入库成功的种子：分享率达到全局或站点单独阈值后自动限制上传速度（qBittorrent 与全局上传限速取较小值）；可选 AI 智能限速——调用系统设置的大模型按种子分享率、上传活跃度与站点账号分享率逐种子智能决策限速；支持多下载器、站点筛选、定时检测，停用/卸载自动恢复不限速。",
-    "labels": "下载管理,Qbittorrent,Transmission,限速,分享率,站点,AI",
+  "TvFirstWatch": {
+    "name": "首播试看",
+    "description": "定时抓取 RSS，只下载电视剧前 N 集，自动跳过合集和过大文件。",
+    "labels": "订阅,RSS",
     "version": "2.0.0",
-    "icon": "Qbittorrent_A.png",
-    "author": "xlmc",
+    "icon": "rss.png",
+    "author": "Raymond38324",
+    "level": 2,
+    "release": true,
+    "history": {
+      "v2.0.0": "V3 独立大版本：迁移至 plugins.v3，使用稳定媒体上下文与下载链，并将第三方依赖声明迁移至 pyproject.toml。"
+    },
+    "system_version": ">=3.0.0"
+  },
+  "TvdbDiscover": {
+    "name": "TheTVDB探索",
+    "description": "让探索支持TheTVDB的数据浏览。",
+    "labels": "探索",
+    "version": "2.1.1",
+    "icon": "TheTVDB_A.png",
+    "author": "jxxghp",
     "level": 1,
     "release": true,
-    "system_version": ">=3.0.0",
     "history": {
-      "v2.0.0": "V3 专用实现：导入迁移到 app.sdk（config/logging/plugin/services/network）与 app.agent.llm.helper；站点账号分享率改用 app.db.oper.site.SiteOper、整理入库记录改用 app.db.oper.transferhistory.TransferHistoryOper、下载历史改用 app.db.oper.downloadhistory，不再使用 SessionFactory 与宿主 Model；通知渠道枚举改用 NotificationChannel。功能与 v1.3.19 一致。"
-    }
+      "v2.1.1": "插件探索 API 显式返回统一响应，避免依赖宿主隐式包装。",
+      "v2.1.0": "适配 V3 SDK 导入规范：插件内部导入全面迁移至 app.sdk 体系，去除对旧版兼容层的依赖。",
+      "v2.0.0": "V3 独立大版本：TVDB 探索源改用固定来源枚举和媒体 ID。",
+      "v1.1": "需要MoviePilot v2.2.7-1+ 版本，否则无法显示图片"
+    },
+    "system_version": ">=3.0.0"
   },
-  "EmosUpload": {
-    "name": "EMOS上传",
-    "description": "MoviePilot 下载完成后自动上传到 EMOS（Emby 资源站上传分发系统），轮询下载器检测下载完成即上传源文件，支持服务器端识别、版本对比、分片并发上传。",
-    "labels": "上传,EMOS,Emby,资源站",
-    "version": "3.0.0",
-    "icon": "Emos_A.svg",
-    "author": "xlmc",
+  "WPushMsg": {
+    "name": "WPUSH消息推送",
+    "description": "支持使用 WPUSH 发送消息通知（多渠道：微信/App/短信/邮件/钉钉/飞书等）。",
+    "labels": "消息通知",
+    "version": "1.0.0",
+    "icon": "WPush_A.png",
+    "author": "Alone88",
     "level": 1,
     "system_version": ">=3.0.0",
     "history": {
-      "v3.0.0": "V3 专用实现：导入迁移到 app.sdk（config/events/logging/plugin/services/utilities）；通知渠道枚举改用 NotificationChannel。功能与 v2.1.0 一致。"
-    }
-  },
-  "ScrapeFileClean": {
-    "name": "源文件联动清理",
-    "description": "为手动清理下载目录设计：手动删除源文件后，自动联动清理媒体库中对应的硬链接文件、刮削文件（元数据、图片、字幕）与转移记录，支持延迟删除防止误删",
-    "labels": "文件整理,媒体库",
-    "version": "2.0.0",
-    "icon": "clean.png",
-    "author": "xlmc",
-    "level": 1,
-    "release": true,
-    "system_version": ">=3.0.0",
-    "history": {
-      "v2.0.0": "V3 专用实现：导入迁移到 app.sdk（events/logging/plugin）；转移记录改用 app.db.oper.transferhistory.TransferHistoryOper；通知消息类型改用 MessageType。功能与 1.0.7 一致。"
+      "v1.0.0": "首次发布：WPUSH V3 消息通知插件，成功判定以接口 JSON code===0 为准。"
     }
   }
 }
