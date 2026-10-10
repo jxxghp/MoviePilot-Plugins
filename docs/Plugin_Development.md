@@ -222,6 +222,7 @@ class MyPlugin(_PluginBase):
 | `get_dashboard()` / `get_dashboard_meta()` | 注册一个或多个仪表板 |
 | `get_render_mode()` | 选择 `vuetify` 或 `vue` 渲染模式 |
 | `get_sidebar_nav()` | 为 Vue 插件声明侧栏全页入口 |
+| `get_agent_pets()` | 为 Vue 插件声明智能助手形象 |
 | `get_actions()` | 注册工作流动作 |
 | `get_agent_tools()` | 注册 Agent 工具 |
 | `get_auth_providers()` | 注册外部认证入口 |
@@ -557,6 +558,7 @@ Vue 模式下，前端构建产物放入插件目录，由后端暴露静态资�
 `get_sidebar_nav()`。完整暴露名、路由、权限和多入口约束见：
 
 - [侧栏入口 FAQ](./faq/17-register-plugin-sidebar-nav.md)
+- [智能助手形象 FAQ](./faq/22-register-agent-pet.md)，替换页面右下角助手的角色时实现 `get_agent_pets()`
 - [MoviePilot-Frontend V3 模块联邦指南](https://github.com/jxxghp/MoviePilot-Frontend/blob/v3/docs/module-federation-guide.md)
 
 虚拟分身复用源插件的同一份 `remoteEntry.js`。宿主会向配置页、数据页、仪表盘、

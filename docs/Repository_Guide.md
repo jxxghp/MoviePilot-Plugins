@@ -273,6 +273,7 @@ yarn dev
 - `get_dashboard()` / `get_dashboard_meta()` 是否正常显示
 - `get_render_mode() == "vue"` 的远程组件是否能成功加载
 - `get_sidebar_nav()` 是否正确出现在前端侧栏
+- `get_agent_pets()` 声明的形象是否出现在智能助手的“更换形象”里并能正常加载
 
 ## 8. 发布流程
 
