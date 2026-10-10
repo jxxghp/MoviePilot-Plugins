@@ -38,8 +38,8 @@ def get_agent_pets(self) -> List[Dict[str, Any]]:
             "name": "看板娘",
             "description": "会在页面底部散步的 Q 版角色",
             "mode": "stage",
-            "preview": "assets/girl-preview.png",
-            "avatar": "assets/girl-avatar.png",
+            "preview": "girl-preview.png",
+            "avatar": "girl-avatar.png",
         }
     ]
 ```
@@ -54,7 +54,7 @@ def get_agent_pets(self) -> List[Dict[str, Any]]:
 | `mode` | 否 | `renderer`（默认，主程序负责入口行为，插件只画角色）或 `stage`（插件拥有角色和整个视口图层） |
 | `component` | 否 | 联邦暴露名，默认 `AgentPet`，即 `./AgentPet` |
 | `api_version` | 否 | 契约版本，默认 `1`，主程序不认识的版本会被忽略 |
-| `preview` | 否 | 预览图，相对构建产物目录的路径，或 `http(s)://`、`data:` URL |
+| `preview` | 否 | 预览图，相对 `remoteEntry.js` 所在目录（即 `get_render_mode()` 返回的目录）的路径，或 `http(s)://`、`data:` URL |
 | `avatar` | 否 | 方形头像，路径规则同 `preview`，用于助手面板头部、空状态和消息头像 |
 | `bubbles` | 否 | 仅 `stage`，`host`（插件上报位置，主程序画气泡，默认）或 `self`（插件自己画气泡） |
 | `random_actions` | 否 | 仅 `renderer`，限定主程序随机播放的动作，空列表表示不播随机动作 |
@@ -62,7 +62,8 @@ def get_agent_pets(self) -> List[Dict[str, Any]]:
 注意事项如下。
 
 - 任一字段非法的项会整项丢弃并在日志中记录警告，同一插件内重复的 `key` 只保留第一项。
-- `preview` 和 `avatar` 的相对路径不能包含 `..`、`\` 或 `:`，图片要随构建产物一起发布。
+- 图片文件放在 `remoteEntry.js` 同级目录，随构建产物一起发布。上例中 `get_render_mode()` 返回 `dist/assets`，图片应位于 `dist/assets/girl-preview.png`，声明写 `girl-preview.png`。写成 `assets/girl-preview.png` 会被解析到 `dist/assets/assets/girl-preview.png` 而加载不到。
+- `preview` 和 `avatar` 的相对路径不能包含 `..`、`\` 或 `:`。
 - 选中形象后，面板头像依次使用 `avatar`、`preview`，都不可用时退回内置图标。
 - 依赖这项能力的插件，建议按 [限定主系统版本](./18-limit-moviepilot-version.md) 声明 `system_version`。
 
