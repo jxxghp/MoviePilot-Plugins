@@ -31,7 +31,7 @@ class EmailMsg(_PluginBase):
     # 插件图标
     plugin_icon = "Email_A.png"
     # 插件版本
-    plugin_version = "1.3.2"
+    plugin_version = "1.3.3"
     # 插件作者
     plugin_author = "LLL001a"
     # 作者主页
@@ -852,6 +852,51 @@ class EmailMsg(_PluginBase):
             '</div></div></body></html>'
         )
 
+    def _resolve_poster_image(self, title: str,
+                              fallback: Optional[str] = None) -> Optional[str]:
+        """从通知标题识别媒体，获取竖屏海报；失败时回退到原图。
+
+        通知事件数据默认携带剧照（横屏 backdrop），本方法通过标题识别媒体
+        获取竖屏海报（poster），识别结果按标题缓存，避免重复识别。
+
+        :param title: 通知标题
+        :param fallback: 识别失败时的回退图片（通常为剧照）
+        :return: 竖屏海报地址或回退图片
+        """
+        if not title:
+            return fallback
+        cache_key = f"poster_{title}"
+        try:
+            cached = self.get_data(cache_key)
+        except Exception:
+            cached = None
+        if cached:
+            # 缓存命中：__none__ 表示此前识别无海报
+            return fallback if cached == "__none__" else cached
+        try:
+            from app.chain.media import MediaChain
+            from app.sdk.media import MetaInfo
+            meta = MetaInfo(title)
+            if not meta.name:
+                return fallback
+            mediainfo = MediaChain().recognize_media(meta=meta)
+            if mediainfo:
+                poster = mediainfo.get_poster_image()
+                if poster:
+                    try:
+                        self.save_data(cache_key, poster)
+                    except Exception:
+                        pass
+                    return poster
+            # 识别成功但无海报，或识别失败：缓存空结果
+            try:
+                self.save_data(cache_key, "__none__")
+            except Exception:
+                pass
+        except Exception as err:
+            logger.warn(f"邮箱通知：识别竖屏海报失败，回退原图：{str(err)}")
+        return fallback
+
     def _download_image(self, url: str) -> Optional[tuple]:
         """下载海报图片，返回 (图片字节, MIME 类型)。
 
@@ -1004,6 +1049,10 @@ class EmailMsg(_PluginBase):
         if not recipients:
             logger.warn("邮箱消息通知：未获取到收件人邮箱，跳过发送")
             return
+
+        # 媒体类通知（有图片）且模板需要海报时，尝试识别竖屏海报替换剧照
+        if image and self._template in ("poster_full", "poster_hero"):
+            image = self._resolve_poster_image(title, fallback=image)
 
         # 发送邮件
         self._send_mail(
