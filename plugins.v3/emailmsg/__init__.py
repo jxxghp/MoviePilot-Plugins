@@ -31,7 +31,7 @@ class EmailMsg(_PluginBase):
     # 插件图标
     plugin_icon = "Email_A.png"
     # 插件版本
-    plugin_version = "1.3.2"
+    plugin_version = "1.3.3"
     # 插件作者
     plugin_author = "LLL001a"
     # 作者主页
@@ -55,9 +55,9 @@ class EmailMsg(_PluginBase):
 
     # 通知模板选项：按特点命名
     TEMPLATES = {
-        "dark_card": "深色渐变卡片",
-        "poster_hero": "海报大字报",
-        "poster_full": "海报铺满背景",
+        "dark_card": "流光夜幕",
+        "poster_hero": "光影头图",
+        "poster_full": "沉浸全屏",
     }
 
     def init_plugin(self, config: dict = None) -> None:
@@ -630,7 +630,7 @@ class EmailMsg(_PluginBase):
     def _build_html_dark_card(self, safe_title: str, fields: List[tuple],
                               image: Optional[str], link: Optional[str],
                               safe_type: str) -> str:
-        """深色渐变卡片模板：横屏海报 + 字段名值靠左列表。"""
+        """流光夜幕模板：深色背景 + 渐变光晕，横屏海报 + 字段名值靠左列表。"""
         import html as html_lib
         # 海报区域
         poster_html = ""
@@ -703,7 +703,7 @@ class EmailMsg(_PluginBase):
     def _build_html_poster_hero(self, safe_title: str, fields: List[tuple],
                                 image: Optional[str], link: Optional[str],
                                 safe_type: str) -> str:
-        """海报大字报模板：横屏海报全宽顶图 + 标题叠加 + 字段由上至下排列。"""
+        """光影头图模板：横屏海报全宽顶图 + 标题叠加 + 字段由上至下排列。"""
         import html as html_lib
         # 海报顶图
         poster_html = ""
@@ -779,7 +779,7 @@ class EmailMsg(_PluginBase):
     def _build_html_poster_full(self, safe_title: str, fields: List[tuple],
                                 image: Optional[str], link: Optional[str],
                                 safe_type: str) -> str:
-        """海报铺满背景模板：横屏海报铺满背景 + 文本浮层 + 字段胶囊标签。"""
+        """沉浸全屏模板：横屏海报铺满背景 + 文本浮层 + 字段胶囊标签。"""
         import html as html_lib
         # 字段胶囊标签（fields 已转义，不再重复转义）
         tags_html = ""
@@ -851,6 +851,51 @@ class EmailMsg(_PluginBase):
             '</div>'
             '</div></div></body></html>'
         )
+
+    def _resolve_poster_image(self, title: str,
+                              fallback: Optional[str] = None) -> Optional[str]:
+        """从通知标题识别媒体，获取竖屏海报；失败时回退到原图。
+
+        通知事件数据默认携带剧照（横屏 backdrop），本方法通过标题识别媒体
+        获取竖屏海报（poster），识别结果按标题缓存，避免重复识别。
+
+        :param title: 通知标题
+        :param fallback: 识别失败时的回退图片（通常为剧照）
+        :return: 竖屏海报地址或回退图片
+        """
+        if not title:
+            return fallback
+        cache_key = f"poster_{title}"
+        try:
+            cached = self.get_data(cache_key)
+        except Exception:
+            cached = None
+        if cached:
+            # 缓存命中：__none__ 表示此前识别无海报
+            return fallback if cached == "__none__" else cached
+        try:
+            from app.chain.media import MediaChain
+            from app.sdk.media import MetaInfo
+            meta = MetaInfo(title)
+            if not meta.name:
+                return fallback
+            mediainfo = MediaChain().recognize_media(meta=meta)
+            if mediainfo:
+                poster = mediainfo.get_poster_image()
+                if poster:
+                    try:
+                        self.save_data(cache_key, poster)
+                    except Exception:
+                        pass
+                    return poster
+            # 识别成功但无海报，或识别失败：缓存空结果
+            try:
+                self.save_data(cache_key, "__none__")
+            except Exception:
+                pass
+        except Exception as err:
+            logger.warn(f"邮箱通知：识别竖屏海报失败，回退原图：{str(err)}")
+        return fallback
 
     def _download_image(self, url: str) -> Optional[tuple]:
         """下载海报图片，返回 (图片字节, MIME 类型)。
@@ -1004,6 +1049,10 @@ class EmailMsg(_PluginBase):
         if not recipients:
             logger.warn("邮箱消息通知：未获取到收件人邮箱，跳过发送")
             return
+
+        # 媒体类通知（有图片）且模板需要海报时，尝试识别竖屏海报替换剧照
+        if image and self._template in ("poster_full", "poster_hero"):
+            image = self._resolve_poster_image(title, fallback=image)
 
         # 发送邮件
         self._send_mail(

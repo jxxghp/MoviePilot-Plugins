@@ -14,7 +14,7 @@ def test_plugin_metadata() -> None:
     """插件元数据应与市场索引保持一致。"""
     plugin = _make_plugin()
     assert plugin.plugin_name == "邮箱通知"
-    assert plugin.plugin_version == "1.3.2"
+    assert plugin.plugin_version == "1.3.3"
     assert plugin.plugin_config_prefix == "emailmsg_"
 
 
@@ -533,3 +533,68 @@ def test_download_image_sets_douban_referer() -> None:
     headers = captured["headers"]
     referer = headers.get("Referer") or headers.get("referer")
     assert referer == "https://movie.douban.com/"
+
+
+def test_resolve_poster_image_returns_poster() -> None:
+    """识别成功时应返回竖屏海报并缓存。"""
+    plugin = _make_plugin()
+    plugin.get_data = MagicMock(return_value=None)
+    plugin.save_data = MagicMock()
+
+    mediainfo = MagicMock()
+    mediainfo.get_poster_image.return_value = "https://tmdb.example.com/poster.jpg"
+    mock_meta = MagicMock()
+    mock_meta.name = "咒怨"
+    with patch("app.sdk.media.MetaInfo", return_value=mock_meta), \
+            patch("app.chain.media.MediaChain") as mock_chain:
+        mock_chain.return_value.recognize_media.return_value = mediainfo
+        result = plugin._resolve_poster_image(
+            "咒怨 美版 (2004)", fallback="https://tmdb.example.com/backdrop.jpg"
+        )
+
+    assert result == "https://tmdb.example.com/poster.jpg"
+    plugin.save_data.assert_called_once()
+
+
+def test_resolve_poster_image_falls_back_on_failure() -> None:
+    """识别失败时应回退到原图。"""
+    plugin = _make_plugin()
+    plugin.get_data = MagicMock(return_value=None)
+    plugin.save_data = MagicMock()
+
+    mock_meta = MagicMock()
+    mock_meta.name = "未知媒体"
+    with patch("app.sdk.media.MetaInfo", return_value=mock_meta), \
+            patch("app.chain.media.MediaChain") as mock_chain:
+        mock_chain.return_value.recognize_media.return_value = None
+        result = plugin._resolve_poster_image(
+            "未知媒体", fallback="https://tmdb.example.com/backdrop.jpg"
+        )
+
+    assert result == "https://tmdb.example.com/backdrop.jpg"
+
+
+def test_resolve_poster_image_uses_cache() -> None:
+    """缓存命中时应直接返回缓存的海报。"""
+    plugin = _make_plugin()
+    plugin.get_data = MagicMock(return_value="https://cached.example.com/poster.jpg")
+    plugin.save_data = MagicMock()
+
+    result = plugin._resolve_poster_image(
+        "咒怨 美版 (2004)", fallback="https://tmdb.example.com/backdrop.jpg"
+    )
+
+    assert result == "https://cached.example.com/poster.jpg"
+
+
+def test_resolve_poster_image_cached_none_falls_back() -> None:
+    """缓存标记为无海报时应回退到原图。"""
+    plugin = _make_plugin()
+    plugin.get_data = MagicMock(return_value="__none__")
+    plugin.save_data = MagicMock()
+
+    result = plugin._resolve_poster_image(
+        "未知媒体", fallback="https://tmdb.example.com/backdrop.jpg"
+    )
+
+    assert result == "https://tmdb.example.com/backdrop.jpg"
