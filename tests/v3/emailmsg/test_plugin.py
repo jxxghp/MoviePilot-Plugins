@@ -543,7 +543,10 @@ def test_resolve_poster_image_returns_poster() -> None:
 
     mediainfo = MagicMock()
     mediainfo.get_poster_image.return_value = "https://tmdb.example.com/poster.jpg"
-    with patch("app.chain.media.MediaChain") as mock_chain:
+    mock_meta = MagicMock()
+    mock_meta.name = "咒怨"
+    with patch("app.sdk.media.MetaInfo", return_value=mock_meta), \
+            patch("app.chain.media.MediaChain") as mock_chain:
         mock_chain.return_value.recognize_media.return_value = mediainfo
         result = plugin._resolve_poster_image(
             "咒怨 美版 (2004)", fallback="https://tmdb.example.com/backdrop.jpg"
@@ -559,7 +562,10 @@ def test_resolve_poster_image_falls_back_on_failure() -> None:
     plugin.get_data = MagicMock(return_value=None)
     plugin.save_data = MagicMock()
 
-    with patch("app.chain.media.MediaChain") as mock_chain:
+    mock_meta = MagicMock()
+    mock_meta.name = "未知媒体"
+    with patch("app.sdk.media.MetaInfo", return_value=mock_meta), \
+            patch("app.chain.media.MediaChain") as mock_chain:
         mock_chain.return_value.recognize_media.return_value = None
         result = plugin._resolve_poster_image(
             "未知媒体", fallback="https://tmdb.example.com/backdrop.jpg"
