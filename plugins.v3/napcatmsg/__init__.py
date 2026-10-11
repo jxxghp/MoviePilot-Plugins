@@ -3,6 +3,7 @@ import hmac
 import json
 import re
 import threading
+import time
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
 
@@ -24,7 +25,7 @@ class NapCatMsg(_PluginBase):
     # 插件图标
     plugin_icon = "https://avatars.githubusercontent.com/NapNeko?v=4"
     # 插件版本，需与 package.v3.json 中保持一致
-    plugin_version = "1.3.0"
+    plugin_version = "1.4.0"
     # 插件作者
     plugin_author = "gy520187"
     # 作者主页
@@ -48,6 +49,13 @@ class NapCatMsg(_PluginBase):
     _interaction = False
     _report_token = None
     _admin_users = None
+    _bot_qq = None
+    _session_expire = 300
+
+    # 群聊交互会话状态：{（QQ号, 群号） -> 最近激活时间戳}，
+    # 群聊中首次命令需@机器人激活，过期时间内后续消息无需再次@
+    _group_session_map: Dict[Tuple[int, int], float] = {}
+    _group_session_lock = threading.Lock()
 
     # 用户通知设置中的QQ目标键，与官方QQ机器人模块保持一致，
     # 私聊键与群聊键分开解析，命中即视为QQ渠道定向消息
@@ -67,6 +75,13 @@ class NapCatMsg(_PluginBase):
             self._interaction = config.get("interaction")
             self._report_token = config.get("report_token")
             self._admin_users = config.get("admin_users")
+            self._bot_qq = config.get("bot_qq")
+            try:
+                self._session_expire = int(config.get("session_expire") or 300)
+            except (TypeError, ValueError):
+                self._session_expire = 300
+            if self._session_expire < 0:
+                self._session_expire = 300
 
         if self._onlyonce:
             logger.info("立即测试一次QQ消息发送")
@@ -83,6 +98,8 @@ class NapCatMsg(_PluginBase):
                 "interaction": self._interaction,
                 "report_token": self._report_token,
                 "admin_users": self._admin_users,
+                "bot_qq": self._bot_qq,
+                "session_expire": self._session_expire,
             })
             self._send("QQ消息通知测试", "NapCat消息通知插件已启用，收到本条消息即代表MoviePilot与NapCat对接成功。")
 
@@ -503,33 +520,74 @@ class NapCatMsg(_PluginBase):
                                     'md': 6
                                 },
                                 'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'admin_users',
-                                            'label': '可交互QQ号（留空允许全部）',
-                                            'placeholder': '允许发送命令的QQ号，多个用英文逗号分隔',
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    }
-                ]
-            }
-        ], {
-            "enabled": False,
-            "onlyonce": False,
-            "host": "http://napcat:3000",
-            "token": "",
-            "send_users": "",
-            "send_groups": "",
-            "at_all": False,
-            "msgtypes": [],
-            "interaction": False,
-            "report_token": "",
-            "admin_users": "",
-        }
+{
+                                         'component': 'VTextField',
+                                         'props': {
+                                             'model': 'admin_users',
+                                             'label': '可交互QQ号（留空允许全部）',
+                                             'placeholder': '允许发送命令的QQ号，多个用英文逗号分隔',
+                                         }
+                                     }
+                                 ]
+                             }
+                         ]
+                     },
+                     {
+                         'component': 'VRow',
+                         'content': [
+                             {
+                                 'component': 'VCol',
+                                 'props': {
+                                     'cols': 12,
+                                     'md': 6
+                                 },
+                                 'content': [
+                                     {
+                                         'component': 'VTextField',
+                                         'props': {
+                                             'model': 'bot_qq',
+                                             'label': '机器人QQ号（群聊@激活）',
+                                             'placeholder': 'NapCat登录的机器人QQ号，配置后群聊命令需@机器人',
+                                         }
+                                     }
+                                 ]
+                             },
+                             {
+                                 'component': 'VCol',
+                                 'props': {
+                                     'cols': 12,
+                                     'md': 6
+                                 },
+                                 'content': [
+                                     {
+                                         'component': 'VTextField',
+                                         'props': {
+                                             'model': 'session_expire',
+                                             'label': '群聊会话过期秒数',
+                                             'placeholder': '默认300，@激活后有效时长，超时需重新@',
+                                         }
+                                     }
+                                 ]
+                             }
+                         ]
+                     }
+                 ]
+             }
+         ], {
+             "enabled": False,
+             "onlyonce": False,
+             "host": "http://napcat:3000",
+             "token": "",
+             "send_users": "",
+             "send_groups": "",
+             "at_all": False,
+             "msgtypes": [],
+             "interaction": False,
+             "report_token": "",
+             "admin_users": "",
+             "bot_qq": "",
+             "session_expire": 300,
+         }
 
     def get_page(self) -> Optional[List[dict]]:
         pass
@@ -638,6 +696,79 @@ class NapCatMsg(_PluginBase):
         except (TypeError, ValueError):
             return False
 
+    @staticmethod
+    def _extract_at_qqs(body: dict) -> set:
+        """
+        从OneBot11消息事件中提取被@的QQ号集合（含@全体成员时的'all'）
+        """
+        at_qqs = set()
+        segments = body.get("message")
+        if isinstance(segments, list):
+            for seg in segments:
+                if isinstance(seg, dict) and seg.get("type") == "at":
+                    qq = (seg.get("data") or {}).get("qq")
+                    if qq:
+                        at_qqs.add(str(qq))
+        # 回退：raw_message中的CQ码
+        raw = body.get("raw_message")
+        if isinstance(raw, str):
+            for item in re.finditer(r"\[CQ:at,qq=([^,\]]+)\]", raw):
+                if item.group(1):
+                    at_qqs.add(item.group(1))
+        return at_qqs
+
+    def _is_bot_mentioned(self, at_qqs: set) -> bool:
+        """
+        判断@集合中是否包含机器人QQ或@全体成员
+        """
+        bot_qq = str(self._bot_qq or "").strip()
+        if not bot_qq:
+            return True
+        return "all" in at_qqs or bot_qq in at_qqs
+
+    def _check_group_access(self, user_id: Any, group_id: Any, at_qqs: set) -> bool:
+        """
+        群聊命令门禁：配置机器人QQ后，首次命令需@机器人激活会话，
+        会话过期时间内后续消息无需再次@；未配置机器人QQ时不启用门禁
+        """
+        bot_qq = str(self._bot_qq or "").strip()
+        if not bot_qq:
+            return True
+        try:
+            uid = int(user_id)
+            gid = int(group_id)
+        except (TypeError, ValueError):
+            return False
+        if self._is_bot_mentioned(at_qqs):
+            self._activate_group_session(uid, gid)
+            return True
+        if self._is_group_session_active(uid, gid):
+            return True
+        logger.info(f"QQ群[{gid}]用户[{uid}]未@机器人且会话已过期，忽略命令")
+        return False
+
+    def _activate_group_session(self, user_id: int, group_id: int) -> None:
+        """
+        激活或刷新群聊会话时间戳
+        """
+        with self._group_session_lock:
+            self._group_session_map[(user_id, group_id)] = time.time()
+
+    def _is_group_session_active(self, user_id: int, group_id: int) -> bool:
+        """
+        判断群聊会话是否在有效期内，并惰性清理过期会话
+        """
+        now = time.time()
+        with self._group_session_lock:
+            key = (user_id, group_id)
+            last = self._group_session_map.get(key)
+            if last is None:
+                return False
+            if now - last > self._session_expire:
+                del self._group_session_map[key]
+                return False
+            return True
+
     async def report(self, request: Request) -> Dict[str, Any]:
         """
         接收NapCat OneBot11 HTTP上报消息，转发给MoviePilot消息链处理
@@ -676,6 +807,10 @@ class NapCatMsg(_PluginBase):
         group_id = None
         if message_type == "group":
             group_id = body.get("group_id")
+            # 群聊@激活门禁：配置机器人QQ后，首次命令需@机器人激活会话，
+            # 会话过期时间内后续消息无需再次@；未配置机器人QQ时保持直通
+            if not self._check_group_access(user_id, group_id, self._extract_at_qqs(body)):
+                return {"status": "ok"}
             logger.info(f"收到QQ群[{group_id}]用户[{user_id}]命令：{text[:50]}")
         else:
             logger.info(f"收到QQ私聊用户[{user_id}]命令：{text[:50]}")

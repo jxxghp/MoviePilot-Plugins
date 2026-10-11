@@ -446,6 +446,63 @@ def main():
         "群聊来源失败回复应@发起者"
     print("[PASS] 群聊命令处理与异常兜底正确")
 
+    # 13.1 群聊@激活与会话过期门禁
+    handled_messages.clear()
+    module.NapCatMsg._group_session_map.clear()
+    plugin4g = module.NapCatMsg()
+    plugin4g.init_plugin({"enabled": True, "onlyonce": False, "host": "http://napcat:3000",
+                       "interaction": True, "report_token": "", "bot_qq": "10086",
+                       "session_expire": 300})
+    # 未@机器人且无会话：忽略
+    res = asyncio.run(plugin4g.report(Request(body={
+        "post_type": "message", "message_type": "group", "user_id": 10001,
+        "raw_message": "/search 头文字D", "group_id": 88888888, "sender": {"nickname": "阿明"},
+    })))
+    assert res == {"status": "ok"} and len(handled_messages) == 0, \
+        "未@机器人且无会话时群聊命令应被忽略"
+    # @机器人：激活并处理
+    res = asyncio.run(plugin4g.report(Request(body={
+        "post_type": "message", "message_type": "group", "user_id": 10001,
+        "message": [{"type": "at", "data": {"qq": "10086"}},
+                     {"type": "text", "data": {"text": "/search 头文字D"}}],
+        "raw_message": "[CQ:at,qq=10086] /search 头文字D",
+        "group_id": 88888888, "sender": {"nickname": "阿明"},
+    })))
+    assert res == {"status": "ok"} and wait_for(1), "@机器人后应处理群聊命令"
+    assert len(module.NapCatMsg._group_session_map) == 1, "激活后应记录会话时间戳"
+    # 会话有效期内未@：继续处理
+    res = asyncio.run(plugin4g.report(Request(body={
+        "post_type": "message", "message_type": "group", "user_id": 10001,
+        "raw_message": "1", "group_id": 88888888, "sender": {"nickname": "阿明"},
+    })))
+    assert res == {"status": "ok"} and wait_for(2), "会话有效期内未@也应继续处理"
+    # 手动将会话置为过期：未@消息应被忽略
+    module.NapCatMsg._group_session_map[(10001, 88888888)] = time.time() - 1000
+    res = asyncio.run(plugin4g.report(Request(body={
+        "post_type": "message", "message_type": "group", "user_id": 10001,
+        "raw_message": "2", "group_id": 88888888, "sender": {"nickname": "阿明"},
+    })))
+    assert res == {"status": "ok"} and len(handled_messages) == 2, \
+        "会话过期后未@机器人应被忽略"
+    assert (10001, 88888888) not in module.NapCatMsg._group_session_map, \
+        "过期会话应被惰性清理"
+    # @全体成员视为@机器人：重新激活并处理
+    res = asyncio.run(plugin4g.report(Request(body={
+        "post_type": "message", "message_type": "group", "user_id": 10001,
+        "message": [{"type": "at", "data": {"qq": "all"}},
+                     {"type": "text", "data": {"text": "/search 龙珠"}}],
+        "raw_message": "[CQ:at,qq=all] /search 龙珠",
+        "group_id": 88888888, "sender": {"nickname": "阿明"},
+    })))
+    assert res == {"status": "ok"} and wait_for(3), "@全体成员应视为@机器人并激活会话"
+    # 私聊不受@门禁影响
+    res = asyncio.run(plugin4g.report(Request(body={
+        "post_type": "message", "message_type": "private", "user_id": 10001,
+        "raw_message": "/search 灌篮高手", "sender": {"nickname": "阿明"},
+    })))
+    assert res == {"status": "ok"} and wait_for(4), "私聊命令不应受群聊@门禁影响"
+    print("[PASS] 群聊@激活与会话过期门禁正确")
+
     # 14. post_message 模块路径：channel=QQ 定向私聊（枚举与字符串两种形式）
     captured_requests.clear()
 
