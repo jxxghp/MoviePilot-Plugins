@@ -169,9 +169,13 @@ export function taskStateMeta(state) {
   return states[state] || states.running
 }
 
-/** 根据已下载量和总大小计算种子完成百分比。 */
+/** 优先使用下载器文件完成度，旧记录兼容下载量；未完成时不舍入成做种。 */
 export function torrentProgress(item) {
   const size = Number(item?.size || 0)
-  if (!size) return 0
-  return Math.min(Math.round((Number(item.downloaded || 0) * 100) / size), 100)
+  const progress = item?.progress != null
+    ? Number(item.progress)
+    : size > 0 ? Number(item?.downloaded || 0) / size : 0
+  if (!Number.isFinite(progress)) return 0
+  if (progress >= 1) return 100
+  return Math.max(0, Math.min(Math.round(progress * 100), 99))
 }
