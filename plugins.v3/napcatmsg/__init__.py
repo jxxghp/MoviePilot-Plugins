@@ -3,6 +3,7 @@ import hmac
 import json
 import re
 import threading
+import time
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
 
@@ -24,7 +25,7 @@ class NapCatMsg(_PluginBase):
     # 插件图标
     plugin_icon = "https://avatars.githubusercontent.com/NapNeko?v=4"
     # 插件版本，需与 package.v3.json 中保持一致
-    plugin_version = "1.2.0"
+    plugin_version = "1.4.0"
     # 插件作者
     plugin_author = "gy520187"
     # 作者主页
@@ -48,6 +49,13 @@ class NapCatMsg(_PluginBase):
     _interaction = False
     _report_token = None
     _admin_users = None
+    _bot_qq = None
+    _session_expire = 300
+
+    # 群聊交互会话状态：{（QQ号, 群号） -> 最近激活时间戳}，
+    # 群聊中首次命令需@机器人激活，过期时间内后续消息无需再次@
+    _group_session_map: Dict[Tuple[int, int], float] = {}
+    _group_session_lock = threading.Lock()
 
     # 用户通知设置中的QQ目标键，与官方QQ机器人模块保持一致，
     # 私聊键与群聊键分开解析，命中即视为QQ渠道定向消息
@@ -67,6 +75,13 @@ class NapCatMsg(_PluginBase):
             self._interaction = config.get("interaction")
             self._report_token = config.get("report_token")
             self._admin_users = config.get("admin_users")
+            self._bot_qq = config.get("bot_qq")
+            try:
+                self._session_expire = int(config.get("session_expire") or 300)
+            except (TypeError, ValueError):
+                self._session_expire = 300
+            if self._session_expire < 0:
+                self._session_expire = 300
 
         if self._onlyonce:
             logger.info("立即测试一次QQ消息发送")
@@ -83,6 +98,8 @@ class NapCatMsg(_PluginBase):
                 "interaction": self._interaction,
                 "report_token": self._report_token,
                 "admin_users": self._admin_users,
+                "bot_qq": self._bot_qq,
+                "session_expire": self._session_expire,
             })
             self._send("QQ消息通知测试", "NapCat消息通知插件已启用，收到本条消息即代表MoviePilot与NapCat对接成功。")
 
@@ -112,7 +129,7 @@ class NapCatMsg(_PluginBase):
     def _module_post_message(self, message, **kwargs) -> None:
         """
         模块方法：接管宿主定向投递的QQ渠道消息
-        - channel=QQ：按message.userid定向私聊（双向交互回复）
+        - channel=QQ：按message.userid定向回复，群聊来源且未强制私聊时回复到原群
         - channel为空且targets含QQ目标键：按用户通知设置绑定的目标定向发送
         - 其余消息交由NoticeMessage事件广播路径处理，此处跳过
         """
@@ -131,7 +148,9 @@ class NapCatMsg(_PluginBase):
                 getattr(message, "title", None) or "",
                 getattr(message, "text", None) or "",
                 userid,
-                getattr(message, "image", None))
+                getattr(message, "image", None),
+                group_id=getattr(message, "original_chat_id", None),
+                private_delivery=getattr(message, "private_delivery", False))
             return
         targets = getattr(message, "targets", None) or {}
         parsed = self._parse_notification_targets(targets)
@@ -183,27 +202,31 @@ class NapCatMsg(_PluginBase):
 
     def _module_post_medias_message(self, message, medias) -> None:
         """
-        模块方法：QQ渠道媒体候选列表转发到QQ私聊
-        :param message: 消息体（含标题、目标用户）
+        模块方法：QQ渠道媒体候选列表转发，群聊来源回复到原群
+        :param message: 消息体（含标题、目标用户与原会话上下文）
         :param medias: 当前页媒体列表
         """
         if not self._is_qq_interaction_message(message):
             return
         lines = self._format_medias_text(medias)
         self._send_reply(message.title or "媒体候选", "\n".join(lines),
-                         getattr(message, "userid", None))
+                         getattr(message, "userid", None),
+                         group_id=getattr(message, "original_chat_id", None),
+                         private_delivery=getattr(message, "private_delivery", False))
 
     def _module_post_torrents_message(self, message, torrents) -> None:
         """
-        模块方法：QQ渠道种子候选列表转发到QQ私聊
-        :param message: 消息体（含标题、目标用户）
+        模块方法：QQ渠道种子候选列表转发，群聊来源回复到原群
+        :param message: 消息体（含标题、目标用户与原会话上下文）
         :param torrents: 当前页候选资源列表（Context）
         """
         if not self._is_qq_interaction_message(message):
             return
         lines = self._format_torrents_text(torrents)
         self._send_reply(message.title or "资源候选", "\n".join(lines),
-                         getattr(message, "userid", None))
+                         getattr(message, "userid", None),
+                         group_id=getattr(message, "original_chat_id", None),
+                         private_delivery=getattr(message, "private_delivery", False))
 
     @staticmethod
     def _is_qq_interaction_message(message) -> bool:
@@ -497,33 +520,74 @@ class NapCatMsg(_PluginBase):
                                     'md': 6
                                 },
                                 'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'admin_users',
-                                            'label': '可交互QQ号（留空允许全部）',
-                                            'placeholder': '允许发送命令的QQ号，多个用英文逗号分隔',
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    }
-                ]
-            }
-        ], {
-            "enabled": False,
-            "onlyonce": False,
-            "host": "http://napcat:3000",
-            "token": "",
-            "send_users": "",
-            "send_groups": "",
-            "at_all": False,
-            "msgtypes": [],
-            "interaction": False,
-            "report_token": "",
-            "admin_users": "",
-        }
+{
+                                         'component': 'VTextField',
+                                         'props': {
+                                             'model': 'admin_users',
+                                             'label': '可交互QQ号（留空允许全部）',
+                                             'placeholder': '允许发送命令的QQ号，多个用英文逗号分隔',
+                                         }
+                                     }
+                                 ]
+                             }
+                         ]
+                     },
+                     {
+                         'component': 'VRow',
+                         'content': [
+                             {
+                                 'component': 'VCol',
+                                 'props': {
+                                     'cols': 12,
+                                     'md': 6
+                                 },
+                                 'content': [
+                                     {
+                                         'component': 'VTextField',
+                                         'props': {
+                                             'model': 'bot_qq',
+                                             'label': '机器人QQ号（群聊@激活）',
+                                             'placeholder': 'NapCat登录的机器人QQ号，配置后群聊命令需@机器人',
+                                         }
+                                     }
+                                 ]
+                             },
+                             {
+                                 'component': 'VCol',
+                                 'props': {
+                                     'cols': 12,
+                                     'md': 6
+                                 },
+                                 'content': [
+                                     {
+                                         'component': 'VTextField',
+                                         'props': {
+                                             'model': 'session_expire',
+                                             'label': '群聊会话过期秒数',
+                                             'placeholder': '默认300，@激活后有效时长，超时需重新@',
+                                         }
+                                     }
+                                 ]
+                             }
+                         ]
+                     }
+                 ]
+             }
+         ], {
+             "enabled": False,
+             "onlyonce": False,
+             "host": "http://napcat:3000",
+             "token": "",
+             "send_users": "",
+             "send_groups": "",
+             "at_all": False,
+             "msgtypes": [],
+             "interaction": False,
+             "report_token": "",
+             "admin_users": "",
+             "bot_qq": "",
+             "session_expire": 300,
+         }
 
     def get_page(self) -> Optional[List[dict]]:
         pass
@@ -632,6 +696,79 @@ class NapCatMsg(_PluginBase):
         except (TypeError, ValueError):
             return False
 
+    @staticmethod
+    def _extract_at_qqs(body: dict) -> set:
+        """
+        从OneBot11消息事件中提取被@的QQ号集合（含@全体成员时的'all'）
+        """
+        at_qqs = set()
+        segments = body.get("message")
+        if isinstance(segments, list):
+            for seg in segments:
+                if isinstance(seg, dict) and seg.get("type") == "at":
+                    qq = (seg.get("data") or {}).get("qq")
+                    if qq:
+                        at_qqs.add(str(qq))
+        # 回退：raw_message中的CQ码
+        raw = body.get("raw_message")
+        if isinstance(raw, str):
+            for item in re.finditer(r"\[CQ:at,qq=([^,\]]+)\]", raw):
+                if item.group(1):
+                    at_qqs.add(item.group(1))
+        return at_qqs
+
+    def _is_bot_mentioned(self, at_qqs: set) -> bool:
+        """
+        判断@集合中是否包含机器人QQ或@全体成员
+        """
+        bot_qq = str(self._bot_qq or "").strip()
+        if not bot_qq:
+            return True
+        return "all" in at_qqs or bot_qq in at_qqs
+
+    def _check_group_access(self, user_id: Any, group_id: Any, at_qqs: set) -> bool:
+        """
+        群聊命令门禁：配置机器人QQ后，首次命令需@机器人激活会话，
+        会话过期时间内后续消息无需再次@；未配置机器人QQ时不启用门禁
+        """
+        bot_qq = str(self._bot_qq or "").strip()
+        if not bot_qq:
+            return True
+        try:
+            uid = int(user_id)
+            gid = int(group_id)
+        except (TypeError, ValueError):
+            return False
+        if self._is_bot_mentioned(at_qqs):
+            self._activate_group_session(uid, gid)
+            return True
+        if self._is_group_session_active(uid, gid):
+            return True
+        logger.info(f"QQ群[{gid}]用户[{uid}]未@机器人且会话已过期，忽略命令")
+        return False
+
+    def _activate_group_session(self, user_id: int, group_id: int) -> None:
+        """
+        激活或刷新群聊会话时间戳
+        """
+        with self._group_session_lock:
+            self._group_session_map[(user_id, group_id)] = time.time()
+
+    def _is_group_session_active(self, user_id: int, group_id: int) -> bool:
+        """
+        判断群聊会话是否在有效期内，并惰性清理过期会话
+        """
+        now = time.time()
+        with self._group_session_lock:
+            key = (user_id, group_id)
+            last = self._group_session_map.get(key)
+            if last is None:
+                return False
+            if now - last > self._session_expire:
+                del self._group_session_map[key]
+                return False
+            return True
+
     async def report(self, request: Request) -> Dict[str, Any]:
         """
         接收NapCat OneBot11 HTTP上报消息，转发给MoviePilot消息链处理
@@ -665,9 +802,15 @@ class NapCatMsg(_PluginBase):
             return {"status": "ok"}
 
         sender = (body.get("sender") or {}).get("nickname") or str(user_id)
-        # 群聊消息在文本前附加群标识，便于日志追踪；回复仍走私聊
+        # 群聊消息记录群ID，入站转发时作为original_chat_id传给消息链，
+        # 使宿主回复携带原会话上下文，插件据此回复到原群而非私聊
+        group_id = None
         if message_type == "group":
             group_id = body.get("group_id")
+            # 群聊@激活门禁：配置机器人QQ后，首次命令需@机器人激活会话，
+            # 会话过期时间内后续消息无需再次@；未配置机器人QQ时保持直通
+            if not self._check_group_access(user_id, group_id, self._extract_at_qqs(body)):
+                return {"status": "ok"}
             logger.info(f"收到QQ群[{group_id}]用户[{user_id}]命令：{text[:50]}")
         else:
             logger.info(f"收到QQ私聊用户[{user_id}]命令：{text[:50]}")
@@ -675,15 +818,17 @@ class NapCatMsg(_PluginBase):
         # 插件仅负责消息转发，命令的识别与执行由MoviePilot消息链完成
         thread = threading.Thread(
             target=self._handle_inbound,
-            args=(user_id, sender, text, body.get("message_id")),
+            args=(user_id, sender, text, body.get("message_id"), group_id),
             daemon=True,
         )
         thread.start()
         return {"status": "ok"}
 
-    def _handle_inbound(self, userid: Any, username: str, text: str, message_id: Any = None):
+    def _handle_inbound(self, userid: Any, username: str, text: str, message_id: Any = None,
+                          group_id: Any = None):
         """
         后台调用MoviePilot消息链处理入站命令
+        :param group_id: 群聊来源群ID，非None时作为original_chat_id传给消息链
         """
         try:
             MessageChain().handle_message(
@@ -693,10 +838,12 @@ class NapCatMsg(_PluginBase):
                 username=username,
                 text=text,
                 original_message_id=message_id,
+                original_chat_id=str(group_id) if group_id is not None else None,
             )
         except Exception as e:
             logger.error(f"处理QQ消息命令异常：{str(e)}")
-            self._send_reply("命令执行失败", f"处理命令时出现异常：{str(e)[:200]}", userid)
+            self._send_reply("命令执行失败", f"处理命令时出现异常：{str(e)[:200]}", userid,
+                            group_id=group_id)
 
     def _build_targets(self) -> List[Tuple[str, Dict[str, Any], str]]:
         """
@@ -739,13 +886,16 @@ class NapCatMsg(_PluginBase):
         return self._post_onebot(
             targets, self._build_segments(title, text, image, at_all=self._at_all), title)
 
-    def _send_reply(self, title: str, text: str, userid: Any, image: Optional[str] = None) -> Optional[Tuple[bool, str]]:
+    def _send_reply(self, title: str, text: str, userid: Any, image: Optional[str] = None,
+                    group_id: Any = None, private_delivery: bool = False) -> Optional[Tuple[bool, str]]:
         """
-        向单个QQ用户私聊发送交互回复
+        向单个QQ用户发送交互回复；群聊来源且未强制私聊时回复到原群并@发起者
         :param title: 标题
         :param text: 内容
-        :param userid: 回复目标QQ号
+        :param userid: 命令来源QQ号
         :param image: 图片URL（可选）
+        :param group_id: 原群ID（群聊来源时非None）
+        :param private_delivery: 为True时强制私聊，忽略群聊上下文
         """
         if not self._host:
             return False, "NapCat服务地址未配置"
@@ -754,6 +904,19 @@ class NapCatMsg(_PluginBase):
         except (TypeError, ValueError):
             logger.warning(f"交互回复用户ID无效：{userid}")
             return False, "无效用户ID"
+        # 群聊来源且未强制私聊：回复到原群并@发起者，避免消息落入私聊
+        if group_id is not None and not private_delivery:
+            try:
+                target_group = int(group_id)
+            except (TypeError, ValueError):
+                logger.warning(f"交互回复群ID无效：{group_id}，回退私聊")
+                target_group = None
+            if target_group:
+                segments = self._build_segments(title, text, image)
+                segments.insert(0, {"type": "at", "data": {"qq": str(target_user)}})
+                return self._post_onebot(
+                    [("send_group_msg", {"group_id": target_group}, f"群聊[{target_group}]")],
+                    segments, title)
         return self._post_onebot(
             [("send_private_msg", {"user_id": target_user}, f"私聊[{target_user}]")],
             self._build_segments(title, text, image), title)
