@@ -25,7 +25,7 @@ class NapCatMsg(_PluginBase):
     # 插件图标
     plugin_icon = "https://avatars.githubusercontent.com/NapNeko?v=4"
     # 插件版本，需与 package.v3.json 中保持一致
-    plugin_version = "1.4.1"
+    plugin_version = "1.5.0"
     # 插件作者
     plugin_author = "gy520187"
     # 作者主页
@@ -46,6 +46,7 @@ class NapCatMsg(_PluginBase):
     _send_groups = None
     _at_all = False
     _msgtypes = []
+    _group_msgtypes = []
     _interaction = False
     _report_token = None
     _admin_users = None
@@ -72,6 +73,7 @@ class NapCatMsg(_PluginBase):
             self._send_groups = config.get("send_groups")
             self._at_all = config.get("at_all")
             self._msgtypes = config.get("msgtypes") or []
+            self._group_msgtypes = config.get("group_msgtypes") or []
             self._interaction = config.get("interaction")
             self._report_token = config.get("report_token")
             self._admin_users = config.get("admin_users")
@@ -95,6 +97,7 @@ class NapCatMsg(_PluginBase):
                 "send_groups": self._send_groups,
                 "at_all": self._at_all,
                 "msgtypes": self._msgtypes,
+                "group_msgtypes": self._group_msgtypes,
                 "interaction": self._interaction,
                 "report_token": self._report_token,
                 "admin_users": self._admin_users,
@@ -464,7 +467,32 @@ class NapCatMsg(_PluginBase):
                                             'chips': True,
                                             'clearable': True,
                                             'model': 'msgtypes',
-                                            'label': '消息类型（留空为全部发送）',
+                                            'label': '私聊消息类型（留空为全部发送）',
+                                            'items': MsgTypeOptions
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 12
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSelect',
+                                        'props': {
+                                            'multiple': True,
+                                            'chips': True,
+                                            'clearable': True,
+                                            'model': 'group_msgtypes',
+                                            'label': '群聊消息类型（留空跟随私聊设置）',
                                             'items': MsgTypeOptions
                                         }
                                     }
@@ -582,6 +610,7 @@ class NapCatMsg(_PluginBase):
              "send_groups": "",
              "at_all": False,
              "msgtypes": [],
+             "group_msgtypes": [],
              "interaction": False,
              "report_token": "",
              "admin_users": "",
@@ -895,18 +924,37 @@ class NapCatMsg(_PluginBase):
             segments.append({"type": "image", "data": {"url": image}})
         return segments
 
-    def _send(self, title: str, text: str, image: Optional[str] = None) -> Optional[Tuple[bool, str]]:
+    def _send(self, title: str, text: str, image: Optional[str] = None,
+               msg_type: Optional[MessageType] = None) -> Optional[Tuple[bool, str]]:
         """
         通过NapCat的OneBot11 HTTP接口向配置的所有目标发送广播消息
         :param title: 标题
         :param text: 内容
         :param image: 图片URL（可选）
+        :param msg_type: 消息类型，用于私聊与群聊分别按配置过滤
         """
         if not self._host:
             return False, "NapCat服务地址未配置"
         targets = self._build_targets()
         if not targets:
             return False, "未配置接收消息的QQ号或群号"
+        if msg_type is not None:
+            # 私聊目标使用全局消息类型配置，群聊目标使用独立群聊消息类型配置（留空跟随全局）
+            private_msgtypes = self._msgtypes or []
+            group_msgtypes = self._group_msgtypes or self._msgtypes or []
+            matched = []
+            for action, payload, label in targets:
+                if action == "send_group_msg":
+                    if group_msgtypes and msg_type.name not in group_msgtypes:
+                        continue
+                else:
+                    if private_msgtypes and msg_type.name not in private_msgtypes:
+                        continue
+                matched.append((action, payload, label))
+            targets = matched
+            if not targets:
+                logger.info(f"消息类型 {msg_type.value} 未开启对应目标的消息发送")
+                return None
         return self._post_onebot(
             targets, self._build_segments(title, text, image, at_all=self._at_all), title)
 
@@ -1033,12 +1081,7 @@ class NapCatMsg(_PluginBase):
             logger.warning("标题和内容不能同时为空")
             return
 
-        if (msg_type and self._msgtypes
-                and msg_type.name not in self._msgtypes):
-            logger.info(f"消息类型 {msg_type.value} 未开启消息发送")
-            return
-
-        return self._send(title, text, image)
+        return self._send(title, text, image, msg_type=msg_type)
 
     def stop_service(self):
         """
