@@ -300,6 +300,54 @@ def main():
     assert len(captured_requests) == 3, "勾选的消息类型应正常发送"
     print("[PASS] 消息类型过滤正确")
 
+    # 5.1 群聊独立消息类型：私聊与群聊分别按配置过滤
+    captured_requests.clear()
+    plugin5g = module.NapCatMsg()
+    plugin5g.init_plugin({
+        "enabled": True, "onlyonce": False, "host": "http://napcat:3000",
+        "token": "my-token", "send_users": "10001", "send_groups": "88888888",
+        "at_all": False, "msgtypes": ["Download"], "group_msgtypes": ["SiteMessage"],
+    })
+    # Site类型：只发群聊
+    plugin5g.send(Event(EventType.NoticeMessage, {
+        "type": MessageType.SiteMessage, "title": "站点消息", "text": "新站开放",
+    }))
+    assert len(captured_requests) == 1 and captured_requests[0]["data"]["group_id"] == 88888888, \
+        "群聊独立类型Site应只发群聊"
+    # Download类型：只发私聊
+    captured_requests.clear()
+    plugin5g.send(Event(EventType.NoticeMessage, {
+        "type": MessageType.Download, "title": "下载开始", "text": "Example.S01E01",
+    }))
+    assert len(captured_requests) == 1 and captured_requests[0]["data"]["user_id"] == 10001, \
+        "全局类型Download应只发私聊"
+    # Subscribe类型：两组都不匹配则不发送
+    captured_requests.clear()
+    plugin5g.send(Event(EventType.NoticeMessage, {
+        "type": MessageType.Subscribe, "title": "新增订阅", "text": "Example.Movie",
+    }))
+    assert len(captured_requests) == 0, "未匹配任何目标消息类型时应不发送"
+    print("[PASS] 群聊独立消息类型过滤正确")
+
+    # 5.2 群聊消息类型留空时跟随全局配置
+    captured_requests.clear()
+    plugin5h = module.NapCatMsg()
+    plugin5h.init_plugin({
+        "enabled": True, "onlyonce": False, "host": "http://napcat:3000",
+        "token": "my-token", "send_users": "10001", "send_groups": "88888888",
+        "at_all": False, "msgtypes": ["Download"], "group_msgtypes": [],
+    })
+    plugin5h.send(Event(EventType.NoticeMessage, {
+        "type": MessageType.Download, "title": "下载开始", "text": "Example.S01E01",
+    }))
+    assert len(captured_requests) == 2, "group_msgtypes留空时应跟随全局类型发送全部目标"
+    captured_requests.clear()
+    plugin5h.send(Event(EventType.NoticeMessage, {
+        "type": MessageType.Subscribe, "title": "新增订阅", "text": "Example.Movie",
+    }))
+    assert len(captured_requests) == 0, "group_msgtypes留空且全局未勾选时应不发送"
+    print("[PASS] 群聊消息类型留空跟随全局正确")
+
     # 6. channel 过滤与空内容过滤
     captured_requests.clear()
     plugin.send(Event(EventType.NoticeMessage, {
