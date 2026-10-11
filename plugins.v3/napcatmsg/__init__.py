@@ -24,7 +24,7 @@ class NapCatMsg(_PluginBase):
     # 插件图标
     plugin_icon = "https://avatars.githubusercontent.com/NapNeko?v=4"
     # 插件版本，需与 package.v3.json 中保持一致
-    plugin_version = "1.2.0"
+    plugin_version = "1.3.0"
     # 插件作者
     plugin_author = "gy520187"
     # 作者主页
@@ -112,7 +112,7 @@ class NapCatMsg(_PluginBase):
     def _module_post_message(self, message, **kwargs) -> None:
         """
         模块方法：接管宿主定向投递的QQ渠道消息
-        - channel=QQ：按message.userid定向私聊（双向交互回复）
+        - channel=QQ：按message.userid定向回复，群聊来源且未强制私聊时回复到原群
         - channel为空且targets含QQ目标键：按用户通知设置绑定的目标定向发送
         - 其余消息交由NoticeMessage事件广播路径处理，此处跳过
         """
@@ -131,7 +131,9 @@ class NapCatMsg(_PluginBase):
                 getattr(message, "title", None) or "",
                 getattr(message, "text", None) or "",
                 userid,
-                getattr(message, "image", None))
+                getattr(message, "image", None),
+                group_id=getattr(message, "original_chat_id", None),
+                private_delivery=getattr(message, "private_delivery", False))
             return
         targets = getattr(message, "targets", None) or {}
         parsed = self._parse_notification_targets(targets)
@@ -183,27 +185,31 @@ class NapCatMsg(_PluginBase):
 
     def _module_post_medias_message(self, message, medias) -> None:
         """
-        模块方法：QQ渠道媒体候选列表转发到QQ私聊
-        :param message: 消息体（含标题、目标用户）
+        模块方法：QQ渠道媒体候选列表转发，群聊来源回复到原群
+        :param message: 消息体（含标题、目标用户与原会话上下文）
         :param medias: 当前页媒体列表
         """
         if not self._is_qq_interaction_message(message):
             return
         lines = self._format_medias_text(medias)
         self._send_reply(message.title or "媒体候选", "\n".join(lines),
-                         getattr(message, "userid", None))
+                         getattr(message, "userid", None),
+                         group_id=getattr(message, "original_chat_id", None),
+                         private_delivery=getattr(message, "private_delivery", False))
 
     def _module_post_torrents_message(self, message, torrents) -> None:
         """
-        模块方法：QQ渠道种子候选列表转发到QQ私聊
-        :param message: 消息体（含标题、目标用户）
+        模块方法：QQ渠道种子候选列表转发，群聊来源回复到原群
+        :param message: 消息体（含标题、目标用户与原会话上下文）
         :param torrents: 当前页候选资源列表（Context）
         """
         if not self._is_qq_interaction_message(message):
             return
         lines = self._format_torrents_text(torrents)
         self._send_reply(message.title or "资源候选", "\n".join(lines),
-                         getattr(message, "userid", None))
+                         getattr(message, "userid", None),
+                         group_id=getattr(message, "original_chat_id", None),
+                         private_delivery=getattr(message, "private_delivery", False))
 
     @staticmethod
     def _is_qq_interaction_message(message) -> bool:
@@ -665,7 +671,9 @@ class NapCatMsg(_PluginBase):
             return {"status": "ok"}
 
         sender = (body.get("sender") or {}).get("nickname") or str(user_id)
-        # 群聊消息在文本前附加群标识，便于日志追踪；回复仍走私聊
+        # 群聊消息记录群ID，入站转发时作为original_chat_id传给消息链，
+        # 使宿主回复携带原会话上下文，插件据此回复到原群而非私聊
+        group_id = None
         if message_type == "group":
             group_id = body.get("group_id")
             logger.info(f"收到QQ群[{group_id}]用户[{user_id}]命令：{text[:50]}")
@@ -675,15 +683,17 @@ class NapCatMsg(_PluginBase):
         # 插件仅负责消息转发，命令的识别与执行由MoviePilot消息链完成
         thread = threading.Thread(
             target=self._handle_inbound,
-            args=(user_id, sender, text, body.get("message_id")),
+            args=(user_id, sender, text, body.get("message_id"), group_id),
             daemon=True,
         )
         thread.start()
         return {"status": "ok"}
 
-    def _handle_inbound(self, userid: Any, username: str, text: str, message_id: Any = None):
+    def _handle_inbound(self, userid: Any, username: str, text: str, message_id: Any = None,
+                          group_id: Any = None):
         """
         后台调用MoviePilot消息链处理入站命令
+        :param group_id: 群聊来源群ID，非None时作为original_chat_id传给消息链
         """
         try:
             MessageChain().handle_message(
@@ -693,10 +703,12 @@ class NapCatMsg(_PluginBase):
                 username=username,
                 text=text,
                 original_message_id=message_id,
+                original_chat_id=str(group_id) if group_id is not None else None,
             )
         except Exception as e:
             logger.error(f"处理QQ消息命令异常：{str(e)}")
-            self._send_reply("命令执行失败", f"处理命令时出现异常：{str(e)[:200]}", userid)
+            self._send_reply("命令执行失败", f"处理命令时出现异常：{str(e)[:200]}", userid,
+                            group_id=group_id)
 
     def _build_targets(self) -> List[Tuple[str, Dict[str, Any], str]]:
         """
@@ -739,13 +751,16 @@ class NapCatMsg(_PluginBase):
         return self._post_onebot(
             targets, self._build_segments(title, text, image, at_all=self._at_all), title)
 
-    def _send_reply(self, title: str, text: str, userid: Any, image: Optional[str] = None) -> Optional[Tuple[bool, str]]:
+    def _send_reply(self, title: str, text: str, userid: Any, image: Optional[str] = None,
+                    group_id: Any = None, private_delivery: bool = False) -> Optional[Tuple[bool, str]]:
         """
-        向单个QQ用户私聊发送交互回复
+        向单个QQ用户发送交互回复；群聊来源且未强制私聊时回复到原群并@发起者
         :param title: 标题
         :param text: 内容
-        :param userid: 回复目标QQ号
+        :param userid: 命令来源QQ号
         :param image: 图片URL（可选）
+        :param group_id: 原群ID（群聊来源时非None）
+        :param private_delivery: 为True时强制私聊，忽略群聊上下文
         """
         if not self._host:
             return False, "NapCat服务地址未配置"
@@ -754,6 +769,19 @@ class NapCatMsg(_PluginBase):
         except (TypeError, ValueError):
             logger.warning(f"交互回复用户ID无效：{userid}")
             return False, "无效用户ID"
+        # 群聊来源且未强制私聊：回复到原群并@发起者，避免消息落入私聊
+        if group_id is not None and not private_delivery:
+            try:
+                target_group = int(group_id)
+            except (TypeError, ValueError):
+                logger.warning(f"交互回复群ID无效：{group_id}，回退私聊")
+                target_group = None
+            if target_group:
+                segments = self._build_segments(title, text, image)
+                segments.insert(0, {"type": "at", "data": {"qq": str(target_user)}})
+                return self._post_onebot(
+                    [("send_group_msg", {"group_id": target_group}, f"群聊[{target_group}]")],
+                    segments, title)
         return self._post_onebot(
             [("send_private_msg", {"user_id": target_user}, f"私聊[{target_user}]")],
             self._build_segments(title, text, image), title)

@@ -434,12 +434,16 @@ def main():
     module.MessageChain = _BoomChain
     try:
         plugin4c._handle_inbound(10001, "阿明", "/renew", 9002)
+        plugin4c._handle_inbound(10001, "阿明", "/renew", 9002, 88888888)
     finally:
         module.MessageChain = original_chain
-    assert len(captured_requests) == 1, "命令执行异常时应向用户私聊发送失败回复"
-    assert captured_requests[0]["data"]["user_id"] == 10001, "失败回复应发给命令来源用户"
+    assert len(captured_requests) == 2, "两次命令执行异常应各发一条失败回复"
+    assert captured_requests[0]["data"]["user_id"] == 10001, "私聊来源失败回复应发给命令来源用户"
     assert "命令执行失败" in captured_requests[0]["data"]["message"][-1]["data"]["text"], \
         "失败回复应包含异常提示"
+    assert captured_requests[1]["data"]["group_id"] == 88888888, "群聊来源失败回复应发到原群"
+    assert captured_requests[1]["data"]["message"][0]["type"] == "at", \
+        "群聊来源失败回复应@发起者"
     print("[PASS] 群聊命令处理与异常兜底正确")
 
     # 14. post_message 模块路径：channel=QQ 定向私聊（枚举与字符串两种形式）
@@ -447,13 +451,16 @@ def main():
 
     class _FakeMessage:
         def __init__(self, channel=None, userid=None, title=None, text=None,
-                     image=None, targets=None):
+                     image=None, targets=None, original_chat_id=None,
+                     private_delivery=False):
             self.channel = channel
             self.userid = userid
             self.title = title
             self.text = text
             self.image = image
             self.targets = targets
+            self.original_chat_id = original_chat_id
+            self.private_delivery = private_delivery
 
     module_table = plugin.get_module()
     assert isinstance(module_table, dict) and set(module_table) == {
@@ -477,6 +484,33 @@ def main():
     module_table["post_message"](None)
     assert len(captured_requests) == 0, "空消息不应发送"
     print("[PASS] post_message 模块路径：QQ渠道定向回复正确")
+
+    # 14.0 post_message 模块路径：群聊来源回复到原群并@发起者
+    captured_requests.clear()
+    module_table["post_message"](_FakeMessage(
+        channel=NotificationChannel.QQ, userid=10001, original_chat_id="88888888",
+        title="执行完成", text="已搜索到3条结果"))
+    assert len(captured_requests) == 1, "群聊来源的QQ渠道消息应只发一条"
+    assert captured_requests[0]["url"].startswith("http://napcat:3000/send_group_msg?access_token=my-token"), \
+        "群聊来源的回复应发到原群而非私聊"
+    assert captured_requests[0]["data"]["group_id"] == 88888888, "群聊目标应为88888888"
+    assert captured_requests[0]["data"]["message"][0]["type"] == "at", \
+        "群聊回复应@发起者"
+    assert captured_requests[0]["data"]["message"][0]["data"]["qq"] == "10001", \
+        "@目标应为发起者QQ"
+    captured_requests.clear()
+    module_table["post_message"](_FakeMessage(
+        channel=NotificationChannel.QQ, userid=10001, original_chat_id="88888888",
+        private_delivery=True, title="执行完成", text="强制私聊"))
+    assert len(captured_requests) == 1 and captured_requests[0]["data"]["user_id"] == 10001, \
+        "private_delivery=True时应强制私聊"
+    captured_requests.clear()
+    module_table["post_message"](_FakeMessage(
+        channel=NotificationChannel.QQ, userid=10001, original_chat_id="not-a-number",
+        title="执行完成", text="非法群ID回退私聊"))
+    assert len(captured_requests) == 1 and captured_requests[0]["data"]["user_id"] == 10001, \
+        "非法群ID应回退私聊"
+    print("[PASS] post_message 模块路径：群聊来源回复到原群正确")
 
     # 14.1 post_message 模块路径：非QQ渠道跳过（避免与其他渠道重复发送）
     captured_requests.clear()
@@ -594,6 +628,25 @@ def main():
     torrent_text = captured_requests[0]["data"]["message"][0]["data"]["text"]
     assert "1. Initial.D.S01.1080p [U2] 4.30GB 做种:12" in torrent_text, \
         f"种子候选应含序号/站点/体积/做种: {torrent_text}"
+    # 群聊来源的候选列表应回复到原群
+    captured_requests.clear()
+    module_table["post_medias_message"](
+        _FakeMessage(channel=NotificationChannel.QQ, userid=10001,
+                     original_chat_id="88888888",
+                     title="【搜索 头文字D】共找到2条相关信息，请回复对应数字选择"),
+        [_FakeMedia("头文字D", "2005", 8.5)])
+    assert len(captured_requests) == 1 and captured_requests[0]["data"]["group_id"] == 88888888, \
+        "群聊来源的媒体候选应回复到原群"
+    assert captured_requests[0]["data"]["message"][0]["type"] == "at", \
+        "群聊媒体候选回复应@发起者"
+    captured_requests.clear()
+    module_table["post_torrents_message"](
+        _FakeMessage(channel=NotificationChannel.QQ, userid=10001,
+                     original_chat_id="88888888",
+                     title="【搜索 头文字D】共找到1条相关资源，请选择下载"),
+        [_FakeContext(_FakeTorrentInfo("Initial.D.S01.1080p", site_name="U2"))])
+    assert len(captured_requests) == 1 and captured_requests[0]["data"]["group_id"] == 88888888, \
+        "群聊来源的种子候选应回复到原群"
     print("[PASS] get_module 候选列表转发QQ私聊正确")
 
     print("\n全部测试通过")
