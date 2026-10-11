@@ -909,14 +909,16 @@
     "name": "QB上传限速",
     "description": "仅处理 MoviePilot 已整理入库成功的种子：分享率达到全局或站点单独阈值后自动限制上传速度（qBittorrent 与全局上传限速取较小值）；可选 AI 智能限速——调用系统设置的大模型按种子分享率、上传活跃度与站点账号分享率逐种子智能决策限速；支持多下载器、站点筛选、定时检测，停用/卸载自动恢复不限速。",
     "labels": "下载管理,Qbittorrent,Transmission,限速,分享率,站点,AI",
-    "version": "2.0.0",
+    "version": "2.2.0",
     "icon": "Qbittorrent_A.png",
     "author": "xlmc",
     "level": 1,
     "release": true,
     "system_version": ">=3.0.0",
-    "history": {
-      "v2.0.0": "V3 专用实现：导入迁移到 app.sdk（config/logging/plugin/services/network）与 app.agent.llm.helper；站点账号分享率改用 app.db.oper.site.SiteOper、整理入库记录改用 app.db.oper.transferhistory.TransferHistoryOper、下载历史改用 app.db.oper.downloadhistory，不再使用 SessionFactory 与宿主 Model；通知渠道枚举改用 NotificationChannel。功能与 v1.3.19 一致。"
+        "history": {
+      "v2.2.0": "限速有效性判定取代监控超时：删除「下载完成后监控超时」与「限速后取消监控超时」两个配置项及整套计时机制——它们只看当前速度，分不清「限速压住了它」和「这段时间没人下」，而取消监控是永久的，导致种子在一段低需求期被误放行后满速跑且不再受限。改为按种子「未被本插件限速时的上传峰值」（24 小时半衰期衰减，限速期间不采样）判定：峰值都够不到目标限速值就不限速（限速是空操作），已限速的恢复不限速并清空归属、每轮重新判断，峰值涨上去会被重新限速；不再写入任何永久放行记录。顺带清理：表单精简为 6 行（去掉两个超时输入框与全部说明文字）、限速通知改为持久化去重（保存配置/更新插件/重启都不重复发送）、「AI 账号分享率门槛」的 0 语义在 placeholder 中明确为不设门槛。版本号回归官方仓库规则（V3 主版本 = V2 主版本 + 1），V3 由 3.0.x 收回 2.x。",
+      "v2.1.0": "AI 智能限速重做限速值区间：收敛到「该种子未限速时上传峰值砍 2~8 成」（下限=砍 8 成、上限=砍 2 成），正在跑满带宽的种子不会被压成低速，区间内砍多少由大模型结合站点账号分享率与该种子的做种状态判断；新增「本地上传带宽上限（KB/s）」配置，未配置时回退到插件观测到的上传峰值；新增合规下限 100 KB/s（站点恶意限速红线的安全倍数）；线路能力采样优先取 qBittorrent 的 transfer_info.up_info_speed，取不到时回退逐种子求和；AI 接管与限速通知改为仅在该种子首次被限速时发送一次，避免每轮评估刷通知；修复「限速后取消监控超时」按已限速时长直接放行、导致种子重新跑满带宽的问题，现在只在限速值长期高于实际上传速度（速度持续低于限速值 80%）时才取消监控。",
+      "v2.0.0": "V3 适配：迁移到 MoviePilot V3 稳定 SDK（app.sdk.config/logging/plugin/services/network）；站点账号分享率改用 app.db.oper.site.SiteOper、整理入库记录改用 app.db.oper.transferhistory.TransferHistoryOper，下载历史改用 app.db.oper.downloadhistory；通知渠道枚举改用 NotificationChannel；不再依赖 SessionFactory 与宿主 Model。功能与 v1.3.19 保持一致。"
     }
   },
   "EmosUpload": {
