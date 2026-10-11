@@ -25,7 +25,7 @@ class NapCatMsg(_PluginBase):
     # 插件图标
     plugin_icon = "https://avatars.githubusercontent.com/NapNeko?v=4"
     # 插件版本，需与 package.v3.json 中保持一致
-    plugin_version = "1.4.0"
+    plugin_version = "1.4.1"
     # 插件作者
     plugin_author = "gy520187"
     # 作者主页
@@ -149,7 +149,7 @@ class NapCatMsg(_PluginBase):
                 getattr(message, "text", None) or "",
                 userid,
                 getattr(message, "image", None),
-                group_id=getattr(message, "original_chat_id", None),
+                group_id=getattr(message, "original_chat_id", None) or self._get_active_group_for_user(userid),
                 private_delivery=getattr(message, "private_delivery", False))
             return
         targets = getattr(message, "targets", None) or {}
@@ -211,7 +211,7 @@ class NapCatMsg(_PluginBase):
         lines = self._format_medias_text(medias)
         self._send_reply(message.title or "媒体候选", "\n".join(lines),
                          getattr(message, "userid", None),
-                         group_id=getattr(message, "original_chat_id", None),
+                         group_id=getattr(message, "original_chat_id", None) or self._get_active_group_for_user(getattr(message, "userid", None)),
                          private_delivery=getattr(message, "private_delivery", False))
 
     def _module_post_torrents_message(self, message, torrents) -> None:
@@ -225,7 +225,7 @@ class NapCatMsg(_PluginBase):
         lines = self._format_torrents_text(torrents)
         self._send_reply(message.title or "资源候选", "\n".join(lines),
                          getattr(message, "userid", None),
-                         group_id=getattr(message, "original_chat_id", None),
+                         group_id=getattr(message, "original_chat_id", None) or self._get_active_group_for_user(getattr(message, "userid", None)),
                          private_delivery=getattr(message, "private_delivery", False))
 
     @staticmethod
@@ -768,6 +768,30 @@ class NapCatMsg(_PluginBase):
                 del self._group_session_map[key]
                 return False
             return True
+
+    def _get_active_group_for_user(self, user_id: Any) -> Optional[int]:
+        """
+        从群会话表查找该用户最近激活且未过期的群ID，
+        用于补全MoviePilot命令链回复丢失的群聊上下文（斜杠命令事件不携带original_chat_id）
+        """
+        try:
+            uid = int(user_id)
+        except (TypeError, ValueError):
+            return None
+        now = time.time()
+        best_group: Optional[int] = None
+        best_ts = 0.0
+        with self._group_session_lock:
+            for (session_uid, session_gid), ts in list(self._group_session_map.items()):
+                if session_uid != uid:
+                    continue
+                if now - ts > self._session_expire:
+                    del self._group_session_map[(session_uid, session_gid)]
+                    continue
+                if ts > best_ts:
+                    best_ts = ts
+                    best_group = session_gid
+        return best_group
 
     async def report(self, request: Request) -> Dict[str, Any]:
         """

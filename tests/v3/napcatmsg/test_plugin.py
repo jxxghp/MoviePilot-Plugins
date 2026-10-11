@@ -505,6 +505,7 @@ def main():
 
     # 14. post_message 模块路径：channel=QQ 定向私聊（枚举与字符串两种形式）
     captured_requests.clear()
+    module.NapCatMsg._group_session_map.clear()
 
     class _FakeMessage:
         def __init__(self, channel=None, userid=None, title=None, text=None,
@@ -568,6 +569,38 @@ def main():
     assert len(captured_requests) == 1 and captured_requests[0]["data"]["user_id"] == 10001, \
         "非法群ID应回退私聊"
     print("[PASS] post_message 模块路径：群聊来源回复到原群正确")
+
+    # 14.0b 命令回复丢失original_chat_id时，通过活跃群会话补发到原群
+    captured_requests.clear()
+    module.NapCatMsg._group_session_map.clear()
+    plugin4h = module.NapCatMsg()
+    plugin4h.init_plugin({"enabled": True, "onlyonce": False, "host": "http://napcat:3000",
+                       "interaction": True, "report_token": "", "bot_qq": "10086",
+                       "session_expire": 300})
+    captured_requests.clear()
+    # 模拟群聊命令已激活会话（MoviePilot命令链回复不携带original_chat_id）
+    plugin4h._activate_group_session(10001, 88888888)
+    module_table["post_message"](_FakeMessage(
+        channel=NotificationChannel.QQ, userid=10001, title="执行完成", text="已搜索到3条结果"))
+    assert len(captured_requests) == 1 and captured_requests[0]["data"]["group_id"] == 88888888, \
+        "命令回复丢失original_chat_id时，应通过活跃群会话补发到原群"
+    assert captured_requests[0]["data"]["message"][0]["type"] == "at", \
+        "补发群聊回复应@发起者"
+    # 会话过期后不再补发群聊，回退私聊
+    captured_requests.clear()
+    module.NapCatMsg._group_session_map[(10001, 88888888)] = time.time() - 1000
+    module_table["post_message"](_FakeMessage(
+        channel=NotificationChannel.QQ, userid=10001, title="执行完成", text="会话过期"))
+    assert len(captured_requests) == 1 and captured_requests[0]["data"]["user_id"] == 10001, \
+        "会话过期后应回退私聊"
+    # 无活跃会话时回退私聊
+    captured_requests.clear()
+    module.NapCatMsg._group_session_map.clear()
+    module_table["post_message"](_FakeMessage(
+        channel=NotificationChannel.QQ, userid=10001, title="执行完成", text="无私聊"))
+    assert len(captured_requests) == 1 and captured_requests[0]["data"]["user_id"] == 10001, \
+        "无活跃群会话时应回退私聊"
+    print("[PASS] post_message 模块路径：命令回复丢失上下文时通过活跃群会话补发")
 
     # 14.1 post_message 模块路径：非QQ渠道跳过（避免与其他渠道重复发送）
     captured_requests.clear()
