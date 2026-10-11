@@ -61,10 +61,10 @@ def test_v3_metadata_and_indexes_are_aligned():
     v2 = json.loads((ROOT / "package.v2.json").read_text(encoding="utf-8"))
     entry = v3[PLUGIN_ID]
 
-    assert module.QbUploadLimiter.plugin_version == "2.0.0"
-    assert entry["version"] == "2.0.0"
+    assert module.QbUploadLimiter.plugin_version == "2.2.0"
+    assert entry["version"] == "2.2.0"
     assert entry["system_version"] == ">=3.0.0"
-    assert entry["history"]["v2.0.0"]
+    assert entry["history"]["v2.2.0"]
     assert entry.get("release") == v2[PLUGIN_ID].get("release")
     assert v2[PLUGIN_ID]["v3"] is False
 
