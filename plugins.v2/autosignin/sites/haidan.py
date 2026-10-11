@@ -1,4 +1,5 @@
 from typing import Tuple
+from urllib.parse import urljoin
 
 from ruamel.yaml import CommentedMap
 
@@ -9,10 +10,10 @@ from app.utils.string import StringUtils
 
 class HaiDan(_ISiteSigninHandler):
     """
-    海胆签到
+    海胆之家专用打卡处理器，先执行打卡再回读首页确认结果。
     """
     # 匹配的站点Url，每一个实现类都需要设置为自己的站点Url
-    site_url = "haidan.video"
+    site_url = "haidan.cc"
 
     # 签到成功
     _succeed_regex = ['(?<=value=")已经打卡(?=")']
@@ -33,6 +34,7 @@ class HaiDan(_ISiteSigninHandler):
         :return: 签到结果信息
         """
         site = site_info.get("name")
+        site_url = site_info.get("url")
         site_cookie = site_info.get("cookie")
         ua = site_info.get("ua")
         proxy = site_info.get("proxy")
@@ -41,7 +43,7 @@ class HaiDan(_ISiteSigninHandler):
 
         # 签到
         # 签到页会重定向到index.php，由于302重定向特性，导致index.php没有携带cookie
-        self.get_page_source(url='https://www.haidan.video/signin.php',
+        self.get_page_source(url=urljoin(site_url, "signin.php"),
                              cookie=site_cookie,
                              ua=ua,
                              proxy=proxy,
@@ -49,7 +51,7 @@ class HaiDan(_ISiteSigninHandler):
                              timeout=timeout)
 
         # 重新携带cookie获取index.php查看签到结果
-        html_text = self.get_page_source(url='https://www.haidan.video/index.php',
+        html_text = self.get_page_source(url=urljoin(site_url, "index.php"),
                                          cookie=site_cookie,
                                          ua=ua,
                                          proxy=proxy,
