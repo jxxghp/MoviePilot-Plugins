@@ -26,3 +26,7 @@ HTTP 200、签到按钮消失、跳回签到页、脚本或隐藏模板中的文
 签到 API 的 `success` 仍只表示确认签到；`data.signin_success` 和 `data.login_success` 分别提供签到和登录状态。
 
 海胆之家（haidan.cc）使用专用打卡接口，按站点配置地址先访问 `signin.php`，再携带 Cookie 读取 `index.php`，仅在页面出现“已经打卡”按钮时确认签到成功。
+
+学校（btschool）签到成功只在一次性到账提示“今天签到您获得X点魔力值”中出现，插件在签到响应上读取该提示确认结果。
+
+馒头（m-team）没有独立签到接口，通过前端 `updateLastBrowse` 接口生成签名并更新访问时间保号：需要在站点配置的请求头（Authorization/Token）中填写浏览器登录态，登录态过期后需重新登录站点更新。

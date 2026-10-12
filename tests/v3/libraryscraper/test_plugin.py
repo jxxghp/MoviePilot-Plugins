@@ -118,7 +118,7 @@ def test_scrape_path_uses_pair_and_scraping_chain(tmp_path: Path, monkeypatch) -
     fake_media_chain = FakeMediaChain()
     fake_scraping_chain = FakeScrapingChain()
     monkeypatch.setattr(settings, "SCRAP_FOLLOW_TMDB", True)
-    monkeypatch.setattr(libraryscraper, "ScrapingChain", lambda: fake_scraping_chain)
+    monkeypatch.setattr(libraryscraper, "_LibraryScrapingChain", lambda: fake_scraping_chain)
     plugin = object.__new__(LibraryScraper)
     plugin.chain = fake_media_chain
     plugin._mode = ""
@@ -187,3 +187,113 @@ def test_scrape_path_rejects_invalid_explicit_identity(
     )
 
     assert set(fake_media_chain.recognize_kwargs) == {"meta"}
+
+
+@pytest.mark.parametrize("cache_name", ("Movie.trickplay", "Show - S01E01.TRICKPLAY"))
+def test_scan_skips_trickplay_before_media_recognition(tmp_path, monkeypatch, cache_name):
+    """扫描入口忽略预览缓存中的文件，仍发现正常媒体目录。"""
+    from unittest.mock import Mock
+
+    movie_dir = tmp_path / "Movie"
+    movie_dir.mkdir()
+    (movie_dir / "Movie.mkv").touch()
+    cache = movie_dir / cache_name / "320"
+    cache.mkdir(parents=True)
+    (cache / "preview.mkv").touch()
+    (cache / "0.jpg").touch()
+    monkeypatch.setattr(settings, "MOVIE_RENAME_FORMAT", "{{title}}/{{title}}{{fileExt}}")
+    plugin = object.__new__(LibraryScraper)
+    plugin._scraper_paths = str(tmp_path)
+    plugin._exclude_paths = ""
+    metadata = Mock(return_value=Mock(type=MediaType.MOVIE, media_source=None, media_id=None))
+    monkeypatch.setattr(libraryscraper, "MetaInfoPath", metadata)
+    scrape = Mock()
+    monkeypatch.setattr(plugin, "_LibraryScraper__scrape_path", scrape)
+    plugin._LibraryScraper__libraryscraper()
+
+    assert scrape.call_count == 1
+    metadata.assert_called_once_with(movie_dir / "Movie.mkv")
+    assert scrape.call_args.kwargs["path"] == movie_dir
+    assert LibraryScraper._LibraryScraper__get_scrape_item(
+        cache / "preview.mkv", tmp_path, MediaType.MOVIE,
+    ) is None
+
+
+@pytest.mark.parametrize("target", ("directory", "child"))
+def test_scrape_rejects_direct_trickplay_targets(tmp_path, target):
+    """直接配置缓存根目录或其子文件时，也不能识别或写入元数据。"""
+    from unittest.mock import Mock
+
+    cache = tmp_path / "Movie.trickplay"
+    cache.mkdir()
+    child = cache / "preview.mkv"
+    child.touch()
+    plugin = object.__new__(LibraryScraper)
+    plugin.chain = Mock()
+    plugin._LibraryScraper__scrape_path(
+        path=cache if target == "directory" else child,
+        mtype=MediaType.MOVIE,
+        target_type="dir" if target == "directory" else "file",
+    )
+    plugin.chain.recognize_media.assert_not_called()
+
+
+def test_category_fallback_skips_trickplay_children(tmp_path, monkeypatch):
+    """分类目录识别失败后的逐文件回退也必须排除缓存后代。"""
+    from unittest.mock import Mock
+
+    normal = tmp_path / "Movie.mkv"
+    normal.touch()
+    cache = tmp_path / "Movie.trickplay" / "320"
+    cache.mkdir(parents=True)
+    (cache / "preview.mkv").touch()
+    plugin = object.__new__(LibraryScraper)
+    metadata = Mock(return_value=Mock(type=MediaType.MOVIE, media_source=None, media_id=None))
+    monkeypatch.setattr(libraryscraper, "MetaInfoPath", metadata)
+    scrape = Mock()
+    monkeypatch.setattr(plugin, "_LibraryScraper__scrape_path", scrape)
+    plugin._LibraryScraper__scrape_child_files(tmp_path, MediaType.MOVIE)
+    assert scrape.call_count == 1
+    metadata.assert_called_once_with(normal)
+    assert scrape.call_args.kwargs["path"] == normal
+
+
+def test_trickplay_suffix_only_excludes_directory_components(tmp_path):
+    """精确匹配目录后缀，普通文件和名称相似的媒体目录保持可用。"""
+    similar = tmp_path / "Movie.trickplay.backup"
+    similar.mkdir()
+    media = similar / "Movie.trickplay.mkv"
+    media.touch()
+    same_suffix_file = tmp_path / "Movie.trickplay"
+    same_suffix_file.touch()
+    assert not LibraryScraper._LibraryScraper__is_trickplay_path(media)
+    assert not LibraryScraper._LibraryScraper__is_trickplay_path(same_suffix_file)
+
+
+def test_recursive_chain_skips_season_named_trickplay_directory(tmp_path, monkeypatch):
+    """递归刮削剧集根目录时，带季号的缓存也不能进入宿主写入流程。"""
+    cache = tmp_path / "Show - S01E01.trickplay"
+    cache.mkdir()
+    cache_child = cache / "320"
+    cache_child.mkdir()
+    normal = tmp_path / "Season 1"
+    normal.mkdir()
+    chain = object.__new__(libraryscraper._LibraryScrapingChain)
+    processed = []
+
+    def host_scrape(self, fileitem, **kwargs):
+        """模拟宿主递归派发，记录真正进入写入流程的目录。"""
+        processed.append(Path(fileitem.path))
+        if Path(fileitem.path) == tmp_path:
+            for path in (cache, cache_child, normal):
+                self.scrape_metadata(fileitem=libraryscraper.schemas.FileItem(
+                    storage="local", type="dir", path=str(path) + "/", name=path.name,
+                ), **kwargs)
+        assert kwargs == {"overwrite": True}
+        return True, "完成"
+
+    monkeypatch.setattr(libraryscraper.ScrapingChain, "scrape_metadata", host_scrape)
+    chain.scrape_metadata(fileitem=libraryscraper.schemas.FileItem(
+        storage="local", type="dir", path=str(tmp_path) + "/", name=tmp_path.name,
+    ), overwrite=True)
+    assert processed == [tmp_path, normal]
