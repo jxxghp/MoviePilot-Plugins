@@ -9,8 +9,8 @@ from typing import Any
 from uuid import UUID
 
 from app.chain.download import DownloadChain
+from app.chain.media import MediaChain
 from app.chain.mediaserver import MediaServerChain
-from app.chain.musicbrainz import MusicBrainzChain
 from app.chain.search import SearchChain
 from app.schemas.types import MediaSource, MediaType
 from app.sdk.logging import logger
@@ -39,6 +39,7 @@ _MAX_LIBRARY_ITEMS = 20000
 
 
 def _artist_id(value: str) -> str:
+    """校验并规范 MusicBrainz 艺术家 UUID。"""
     try:
         return str(UUID(value))
     except (TypeError, ValueError, AttributeError) as error:
@@ -48,6 +49,7 @@ def _artist_id(value: str) -> str:
 
 
 def _public_artist(info: Any) -> dict[str, Any]:
+    """输出艺术家展示信息与来源身份。"""
     data = info.to_dict() if hasattr(info, "to_dict") else dict(info or {})
     return {
         "media_source": "musicbrainz",
@@ -78,6 +80,7 @@ def _public_torrent(torrent: TorrentInfo) -> dict[str, Any]:
 
 
 def _candidate_key(context: Context, scope: str) -> str:
+    """按模式、作品和站点票据生成候选身份。"""
     torrent = context.torrent_info
     identity = (
         f"{scope}|{torrent.site}|{torrent.enclosure}|{torrent.page_url}|{torrent.title}"
@@ -98,17 +101,20 @@ class MusicLibraryService:
     """搜索候选保存在插件实例内，提交时只使用后端绑定的作品身份。"""
 
     def __init__(self, owner: Any) -> None:
+        """初始化宿主公开媒体、搜索、下载和媒体库入口。"""
         self.owner = owner
-        self.music = MusicBrainzChain()
+        self.music = MediaChain()
         self.servers = MediaServerChain()
         self.server_configs = MediaServerHelper()
         self.search = SearchChain()
         self.download = DownloadChain()
 
     async def search_artists(self, query: str, limit: int = 20) -> list[dict]:
+        """限定 MusicBrainz 艺术家搜索并加载展示详情。"""
         candidates = await self.music.async_search_music(
-            MetaMusic.parse_query(query),
+            query,
             limit=limit,
+            media_source=MediaSource.MusicBrainz,
             music_types=("artist",),
         )
         result, seen = [], set()
@@ -116,7 +122,9 @@ class MusicLibraryService:
             media_id = str(candidate.media_id or "")
             if media_id and media_id not in seen:
                 seen.add(media_id)
-                detail = await self.music.async_get_music_artist(media_id)
+                detail = await self.music.async_get_music_artist(
+                    media_source=MediaSource.MusicBrainz, media_id=media_id
+                )
                 result.append(_public_artist(detail or candidate))
         return result
 
@@ -161,8 +169,11 @@ class MusicLibraryService:
         return result, bool(configs and music_libraries and complete)
 
     async def catalog(self, artist_id: str) -> tuple[dict, list[dict], bool]:
+        """汇总官方作品目录并对照完整媒体库清单。"""
         artist_id = _artist_id(artist_id)
-        artist = await self.music.async_get_music_artist(artist_id)
+        artist = await self.music.async_get_music_artist(
+            media_source=MediaSource.MusicBrainz, media_id=artist_id
+        )
         if not artist:
             raise HTTPException(
                 status_code=502, detail="MusicBrainz 未返回该艺术家，请稍后重试"
@@ -200,9 +211,11 @@ class MusicLibraryService:
         return _public_artist(artist), rows, complete
 
     async def _all_works(self, artist_id: str, album_type: str) -> list[MusicInfo]:
+        """分页读取指定类别，扫描上限内才声明目录完整。"""
         result = []
         for page in range(1, 51):
             batch = await self.music.async_get_music_artist_albums(
+                media_source=MediaSource.MusicBrainz,
                 media_id=artist_id,
                 page=page,
                 count=100,
@@ -224,6 +237,7 @@ class MusicLibraryService:
         sites: list[int] | None,
         limit: int,
     ) -> tuple[list[dict], list[str]]:
+        """搜索艺术家合集并只探测种子元数据覆盖证据。"""
         artist, rows, _ = await self.catalog(artist_id)
         primary = artist["name"]  # 浏览器名称不能改变已选择的艺术家
         aliases = useful_artist_aliases(
@@ -259,6 +273,7 @@ class MusicLibraryService:
         semaphore = asyncio.Semaphore(2)
 
         async def probe(key: str, context: Context) -> dict | None:
+            """限流读取候选种子清单并绑定艺术家身份。"""
             torrent = context.torrent_info
             try:
                 async with semaphore:
@@ -294,11 +309,13 @@ class MusicLibraryService:
         return items[:limit], terms
 
     async def completion(self, artist_id: str, sites: list[int] | None) -> dict:
+        """仅搜索明确缺失作品并缓存精确匹配候选。"""
         artist, rows, complete = await self.catalog(artist_id)
         missing = [row for row in rows if row["library_state"] == "missing"]
         semaphore = asyncio.Semaphore(3)
 
         async def match(row: dict) -> dict:
+            """按官方作品类型搜索并绑定可提交的精确资源。"""
             media = row["media"]
             try:
                 async with semaphore:
@@ -355,6 +372,7 @@ class MusicLibraryService:
         downloader: str | None,
         save_path: str | None,
     ) -> dict:
+        """消费服务端候选并提交一个艺术家合集。"""
         self.owner.require_enabled()
         artist_id = _artist_id(artist_id)
         if save_path:
@@ -394,6 +412,7 @@ class MusicLibraryService:
         downloader: str | None,
         save_path: str | None,
     ) -> dict:
+        """校验批量候选并重新确认缺失后提交。"""
         self.owner.require_enabled()
         artist_id = _artist_id(artist_id)
         if save_path:
@@ -435,6 +454,7 @@ class MusicLibraryService:
     def _submit(
         self, context: Context, downloader: str | None, save_path: str | None
     ) -> dict:
+        """调用宿主下载入口并记录提交结果。"""
         self.owner.require_enabled()
         try:
             result = self.download.download_single(
@@ -456,6 +476,7 @@ class MusicLibraryService:
         }
 
     def torrent_tasks(self) -> list[dict]:
+        """投影音乐下载任务供只读路径预览。"""
         rows = []
         for task in self.download.list_torrents(include_all_tags=True) or []:
             title = str(

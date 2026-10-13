@@ -80,6 +80,7 @@ def is_collection_resource(
     normalized = normalize_text(text)
 
     def artist_matches(alias: str) -> bool:
+        """匹配艺术家别名并保留拉丁词边界。"""
         key = normalize_text(alias)
         if not key:
             return False
@@ -138,6 +139,7 @@ def evaluate_coverage(
             path: str, target: Work = work, target_aliases: tuple = aliases
         ) -> bool:
             # 合集最外层名称与音频曲名不能证明 Album/EP 整张包含；只看子目录。
+            """使用作品目录或单曲文件名判断名称证据。"""
             parts = PurePosixPath(path.replace("\\", "/")).parts
             parts = parts[1:] if len(parts) > 1 else parts
             names = parts[:-1] if target.album_type != "Single" else parts

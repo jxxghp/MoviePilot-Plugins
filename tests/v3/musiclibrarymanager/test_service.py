@@ -352,3 +352,43 @@ def test_collection_search_uses_verified_artist_and_probes_without_download():
     assert len(items) == 1
     instance.download.download_single.assert_not_called()
     assert len(owner._candidate_cache) == 1
+
+
+def test_artist_catalog_uses_unified_chain_with_explicit_source(monkeypatch):
+    """真实服务构造使用统一链，搜索及详情均携带 MusicBrainz 身份。"""
+    from app.plugins.musiclibrarymanager import service as module
+
+    music = Mock()
+    artist = SimpleNamespace(
+        media_id=ARTIST_ID,
+        to_dict=lambda: {
+            "media_id": ARTIST_ID,
+            "name": "Taylor Swift",
+        },
+    )
+    music.async_search_music = AsyncMock(return_value=[artist])
+    music.async_get_music_artist = AsyncMock(return_value=artist)
+    music.async_get_music_artist_albums = AsyncMock(return_value=[])
+    monkeypatch.setattr(module, "MediaChain", Mock(return_value=music))
+    instance = MusicLibraryService(plugin())
+    assert (
+        asyncio.run(instance.search_artists("Taylor Swift"))[0]["media_id"] == ARTIST_ID
+    )
+    music.async_search_music.assert_awaited_once_with(
+        "Taylor Swift",
+        limit=20,
+        media_source=MediaSource.MusicBrainz,
+        music_types=("artist",),
+    )
+    music.async_get_music_artist.assert_awaited_once_with(
+        media_source=MediaSource.MusicBrainz,
+        media_id=ARTIST_ID,
+    )
+    assert asyncio.run(instance._all_works(ARTIST_ID, "single")) == []
+    music.async_get_music_artist_albums.assert_awaited_once_with(
+        media_source=MediaSource.MusicBrainz,
+        media_id=ARTIST_ID,
+        page=1,
+        count=100,
+        album_type="single",
+    )

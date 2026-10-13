@@ -74,17 +74,21 @@ class MusicLibraryManager(_PluginBase):
         self._job_lock = threading.Lock()
 
     def get_state(self) -> bool:
+        """返回插件启用状态。"""
         return bool(getattr(self, "_enabled", False))
 
     @staticmethod
     def get_command() -> list[dict[str, Any]]:
+        """声明插件不注册消息命令。"""
         return []
 
     @staticmethod
     def get_render_mode() -> tuple[str, str]:
+        """声明 Federation 页面入口。"""
         return "vue", "dist/assets"
 
     def get_sidebar_nav(self) -> list[dict[str, Any]]:
+        """启用时注册需要管理权限的侧栏入口。"""
         if not self.get_state() or not self._show_sidebar_nav:
             return []
         return [
@@ -99,6 +103,7 @@ class MusicLibraryManager(_PluginBase):
         ]
 
     def get_form(self) -> tuple[list[dict], dict[str, Any]]:
+        """提供配置页面默认值。"""
         return [], {
             "enabled": self._enabled,
             "show_sidebar_nav": self._show_sidebar_nav,
@@ -108,10 +113,12 @@ class MusicLibraryManager(_PluginBase):
 
     @staticmethod
     def get_page() -> list[dict]:
+        """传统页面由 Federation 页面替代。"""
         return []
 
     @staticmethod
     def get_service() -> list[dict[str, Any]]:
+        """声明插件不注册后台定时任务。"""
         return []
 
     def stop_service(self) -> None:
@@ -121,6 +128,7 @@ class MusicLibraryManager(_PluginBase):
             self._candidate_cache.clear()
 
     def require_enabled(self) -> None:
+        """拒绝停用插件的工作台请求。"""
         if not self.get_state():
             raise HTTPException(
                 status_code=409, detail="插件未启用，请先启用后重新搜索"
@@ -203,6 +211,7 @@ class MusicLibraryManager(_PluginBase):
         ]
 
     def status(self) -> PluginStatus:
+        """返回启用状态、能力边界及最近提交记录。"""
         return PluginStatus(
             enabled=self.get_state(),
             capabilities={
@@ -220,11 +229,13 @@ class MusicLibraryManager(_PluginBase):
         query: str = Query(min_length=1, max_length=200),
         limit: int = Query(default=20, ge=1, le=50),
     ) -> ArtistSearchResponse:
+        """限定 MusicBrainz 艺术家搜索并加载展示详情。"""
         return ArtistSearchResponse(
             items=await MusicLibraryService(self).search_artists(query, limit)
         )
 
     async def artist_catalog(self, artist_id: str) -> ArtistCatalogResponse:
+        """返回官方作品及媒体库状态。"""
         artist, works, complete = await MusicLibraryService(self).catalog(artist_id)
         return ArtistCatalogResponse(
             artist=artist, works=works, library_status_complete=complete
@@ -237,6 +248,7 @@ class MusicLibraryManager(_PluginBase):
         sites: str | None = None,
         limit: int = Query(default=8, ge=1, le=12),
     ) -> CollectionSearchResponse:
+        """查询艺术家合集和文件清单证据。"""
         items, terms = await MusicLibraryService(self).collections(
             artist_id=artist_id,
             artist_name=artist_name,
@@ -250,6 +262,7 @@ class MusicLibraryManager(_PluginBase):
         artist_id: str,
         sites: str | None = None,
     ) -> CompletionResponse:
+        """返回明确缺失作品的资源候选。"""
         return CompletionResponse(
             **await MusicLibraryService(self).completion(
                 artist_id, self._site_ids(sites)
@@ -260,6 +273,7 @@ class MusicLibraryManager(_PluginBase):
         self,
         request: CollectionDownloadRequest,
     ) -> DownloadJob:
+        """消费服务端候选并提交一个艺术家合集。"""
         return DownloadJob.model_validate(
             MusicLibraryService(self).download_collection(
                 artist_id=request.artist_id,
@@ -274,6 +288,7 @@ class MusicLibraryManager(_PluginBase):
         self,
         request: CompletionDownloadRequest,
     ) -> DownloadJob:
+        """校验批量候选并重新确认缺失后提交。"""
         return DownloadJob.model_validate(
             MusicLibraryService(self).download_completion(
                 artist_id=request.artist_id,
@@ -285,9 +300,11 @@ class MusicLibraryManager(_PluginBase):
         )
 
     def jobs(self) -> list[DownloadJob]:
+        """返回持久化的插件任务提交记录。"""
         return [DownloadJob.model_validate(item) for item in self._jobs()]
 
     def normalization_tasks(self) -> list[TorrentTask]:
+        """返回可预览的音乐下载任务。"""
         return [
             TorrentTask.model_validate(item)
             for item in MusicLibraryService(self).torrent_tasks()
@@ -297,6 +314,7 @@ class MusicLibraryManager(_PluginBase):
         self,
         request: NormalizationPreviewRequest,
     ) -> NormalizationPlan:
+        """校验并返回只读路径规划，不执行改名或移动。"""
         return NormalizationPlan.model_validate(
             MusicLibraryService(self).normalization_plan(request)
         )
@@ -362,6 +380,7 @@ class MusicLibraryManager(_PluginBase):
     def collection_save_path(
         self, artist_name: str, explicit: str | None
     ) -> str | None:
+        """校验显式路径或生成配置中的艺术家合集路径。"""
         if explicit:
             return absolute_path(explicit).as_posix()
         if not self._source_root:
@@ -374,6 +393,7 @@ class MusicLibraryManager(_PluginBase):
     def save_job(
         self, kind: str, artist_id: str, artist_name: str, results: list[dict[str, Any]]
     ) -> dict[str, Any]:
+        """持久化有界任务记录，不保存站点凭据。"""
         submitted = sum(item.get("state") == "submitted" for item in results)
         failed = len(results) - submitted
         state = (
@@ -398,11 +418,13 @@ class MusicLibraryManager(_PluginBase):
         return job
 
     def _jobs(self) -> list[dict[str, Any]]:
+        """读取持久化任务列表并兼容无记录状态。"""
         value = self.get_data("jobs_v1") or []
         return value if isinstance(value, list) else []
 
     @staticmethod
     def _site_ids(value: str | None) -> list[int] | None:
+        """解析可选站点过滤列表。"""
         if not value:
             return None
         result = []

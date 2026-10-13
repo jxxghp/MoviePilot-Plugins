@@ -6,11 +6,15 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class ApiStatus(BaseModel):
+    """通用接口状态。"""
+
     success: bool = True
     message: str = ""
 
 
 class PluginStatus(BaseModel):
+    """插件能力与启用状态。"""
+
     enabled: bool
     source: str = "MusicBrainz"
     capabilities: dict[str, bool] = Field(default_factory=dict)
@@ -18,6 +22,8 @@ class PluginStatus(BaseModel):
 
 
 class ArtistSummary(BaseModel):
+    """艺术家公开信息。"""
+
     media_source: str
     media_id: str
     name: str
@@ -30,21 +36,29 @@ class ArtistSummary(BaseModel):
 
 
 class ArtistSearchResponse(BaseModel):
+    """艺术家搜索结果。"""
+
     items: list[ArtistSummary] = Field(default_factory=list)
 
 
 class CatalogWork(BaseModel):
+    """官方作品及媒体库状态。"""
+
     media: dict[str, Any]
     library_state: Literal["present", "missing", "unknown"] = "unknown"
 
 
 class ArtistCatalogResponse(BaseModel):
+    """艺术家作品目录。"""
+
     artist: ArtistSummary
     works: list[CatalogWork] = Field(default_factory=list)
     library_status_complete: bool = False
 
 
 class CoverageRow(BaseModel):
+    """单作品覆盖证据。"""
+
     media_id: str
     title: str
     year: int | None = None
@@ -54,6 +68,8 @@ class CoverageRow(BaseModel):
 
 
 class Coverage(BaseModel):
+    """合集清单覆盖结果。"""
+
     folder_name: str = ""
     file_count: int = 0
     confirmed_count: int = 0
@@ -63,6 +79,8 @@ class Coverage(BaseModel):
 
 
 class CollectionCandidate(BaseModel):
+    """合集公开候选。"""
+
     key: str
     title: str
     description: str = ""
@@ -74,11 +92,15 @@ class CollectionCandidate(BaseModel):
 
 
 class CollectionSearchResponse(BaseModel):
+    """合集搜索结果。"""
+
     items: list[CollectionCandidate] = Field(default_factory=list)
     searched_terms: list[str] = Field(default_factory=list)
 
 
 class ResourceCandidate(BaseModel):
+    """作品资源候选。"""
+
     key: str
     title: str
     description: str = ""
@@ -89,12 +111,16 @@ class ResourceCandidate(BaseModel):
 
 
 class CompletionWork(BaseModel):
+    """缺失作品与候选资源。"""
+
     media: dict[str, Any]
     library_state: Literal["present", "missing", "unknown"] = "unknown"
     resources: list[ResourceCandidate] = Field(default_factory=list)
 
 
 class CompletionResponse(BaseModel):
+    """缺失补全扫描结果。"""
+
     items: list[CompletionWork] = Field(default_factory=list)
     present_count: int = 0
     unknown_count: int = 0
@@ -102,6 +128,8 @@ class CompletionResponse(BaseModel):
 
 
 class CollectionDownloadRequest(BaseModel):
+    """单合集提交请求。"""
+
     artist_id: str = Field(min_length=1)
     artist_name: str = Field(min_length=1)
     candidate_key: str = Field(min_length=1)
@@ -110,11 +138,15 @@ class CollectionDownloadRequest(BaseModel):
 
 
 class CompletionDownloadItem(BaseModel):
+    """绑定作品的候选提交项。"""
+
     media_id: str = Field(min_length=1)
     candidate_key: str = Field(min_length=1)
 
 
 class CompletionDownloadRequest(BaseModel):
+    """批量缺失作品提交请求。"""
+
     artist_id: str = Field(min_length=1)
     artist_name: str = Field(min_length=1)
     items: list[CompletionDownloadItem] = Field(min_length=1, max_length=100)
@@ -123,6 +155,8 @@ class CompletionDownloadRequest(BaseModel):
 
 
 class DownloadJob(BaseModel):
+    """宿主下载提交记录。"""
+
     job_id: str
     kind: Literal["collection", "completion"]
     state: Literal["submitted", "partial", "failed"]
@@ -136,6 +170,8 @@ class DownloadJob(BaseModel):
 
 
 class TorrentTask(BaseModel):
+    """下载任务公开路径投影。"""
+
     hash: str
     downloader: str
     title: str
@@ -146,6 +182,8 @@ class TorrentTask(BaseModel):
 
 
 class NormalizationPreviewRequest(BaseModel):
+    """只读命名预览请求。"""
+
     hash: str = Field(min_length=1)
     downloader: str = Field(min_length=1)
     category: Literal["Album", "EP", "Single", "Artist Collection"]
@@ -159,6 +197,7 @@ class NormalizationPreviewRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_execute(self) -> "NormalizationPreviewRequest":
+        """要求执行请求带回路径快照，服务层仍拒绝执行。"""
         if self.execute and (
             not self.expected_save_path or not self.expected_content_path
         ):
@@ -167,6 +206,8 @@ class NormalizationPreviewRequest(BaseModel):
 
 
 class NormalizationPlan(BaseModel):
+    """只读目标路径规划结果。"""
+
     hash: str
     downloader: str
     current_save_path: str
