@@ -206,10 +206,14 @@ class PushPlusMsg(_PluginBase):
         title = msg_body.get("title")
         # 文本
         text = msg_body.get("text")
-
+        
         if not title and not text:
-            logger.warn("标题和内容不能同时为空")
+            logger.warning("标题和内容不能同时为空")
             return
+        
+        # PushPlus 不接受空消息正文，使用标题作为兜底
+        title = str(title or "MoviePilot通知")
+        text = str(text or title)
 
         if (msg_type and self._msgtypes
                 and msg_type.name not in self._msgtypes):
@@ -217,7 +221,7 @@ class PushPlusMsg(_PluginBase):
             return
 
         try:
-            sc_url = "http://www.pushplus.plus/send"
+            sc_url = "https://www.pushplus.plus/send"
             event_info = {
                 "token": self._token,
                 "title": title,
