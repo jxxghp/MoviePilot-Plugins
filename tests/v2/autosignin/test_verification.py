@@ -1,5 +1,8 @@
 """签到不能由已登录、脚本文案、错误状态或缺失按钮推断成功。"""
 
+import base64
+import hashlib
+import hmac
 import json
 from importlib import import_module
 from types import SimpleNamespace
@@ -84,6 +87,7 @@ def test_generic_requires_signin_evidence(monkeypatch, render, page):
     _LOGIN + '<h2>签到成功</h2>',
     _LOGIN + '<p>您今天已经签到过了，请勿重复刷新。</p>',
     _LOGIN + '<p>本次签到获得 <b>20</b> 个魔力值。</p>',
+    _LOGIN + '<p>今天签到您获得 <b>90</b> 点魔力值</p>',
     _LOGIN + '<span>今日已簽到</span>',
     _LOGIN + '<span>签到已得20魔力</span>',
     _LOGIN + '<p>You have already attend, no refresh please.</p>',
@@ -245,6 +249,93 @@ def test_login_only_adapter_is_not_signin_success():
     assert result.completed
 
 
+@pytest.mark.parametrize("login_message, expected_message", [
+    ("访问失败，接口未确认结果", "访问失败，接口未确认结果"),
+    ("模拟登录失败，Cookie已失效", "访问失败，接口未确认结果；模拟登录失败，Cookie已失效"),
+])
+def test_login_fallback_preserves_distinct_errors_without_repeating_identical_errors(
+        monkeypatch, login_message, expected_message):
+    """普通站点仍执行登录回退，相同错误只保留一次，不同原因均保留。"""
+    plugin = object.__new__(AutoSignIn)
+    login = Mock(return_value=(False, login_message))
+    handler = Mock(spec=["signin", "login"], return_value=SimpleNamespace(
+        signin=Mock(return_value=(False, "访问失败，接口未确认结果")), login=login))
+    monkeypatch.setattr(plugin, "_AutoSignIn__build_class", Mock(return_value=handler))
+    stats = SimpleNamespace(success=Mock(), fail=Mock())
+    monkeypatch.setattr("app.plugins.autosignin.SiteOper", Mock(return_value=stats))
+
+    result = plugin.signin_site(site_info())
+
+    assert result == SiteResult("测试站", expected_message, False, False)
+    login.assert_called_once()
+    stats.success.assert_not_called()
+    stats.fail.assert_called_once()
+
+
+@pytest.mark.parametrize("action", ["signin_site", "login_site"])
+@pytest.mark.parametrize("reply, completed, message", [
+    (response(payload={"message": "SUCCESS"}), True, "模拟登录成功"),
+    (response(payload={"code": "1", "message": "FAIL", "data": None}), True, "模拟登录成功"),
+    (response(payload={"code": 0}), True, "模拟登录成功"),
+    (response(payload={"code": "1", "message": "請求參數錯誤"}), False, "模拟登录失败，接口未确认访问时间更新"),
+    (response(payload={"code": 401, "message": "Full authentication is required to access this resource"}),
+     False, "模拟登录失败，Token登录态已失效"),
+    (response(status=401), False, "模拟登录失败，状态码：401"),
+    (None, False, "模拟登录失败，无法打开网站"),
+])
+def test_mteam_visit_calls_shared_endpoint_once(monkeypatch, action, reply, completed, message):
+    """馒头保号必须携带签名和登录态，每轮只请求一次并保留真实失败或登录状态。"""
+    plugin = object.__new__(AutoSignIn)
+    plugin._site_schema = [MTorrent]
+    stats = SimpleNamespace(success=Mock(), fail=Mock())
+    monkeypatch.setattr("app.plugins.autosignin.SiteOper", Mock(return_value=stats))
+    post = Mock(return_value=reply)
+    requests = Mock(return_value=SimpleNamespace(post_res=post))
+    monkeypatch.setattr("app.plugins.autosignin.sites.mteam.RequestUtils", requests)
+
+    result = getattr(plugin, action)(site_info(name="馒头", url="https://kp.m-team.cc/", token="test-token"))
+
+    headers = requests.call_args.kwargs["headers"]
+    assert headers["Authorization"] == "test-token"
+    assert headers["Content-Type"].startswith("application/x-www-form-urlencoded")
+    post.assert_called_once()
+    assert post.call_args.kwargs["url"] == "https://api.m-team.cc/api/member/updateLastBrowse"
+    data = post.call_args.kwargs["data"]
+    timestamp_ms = int(data["_timestamp"])
+    expected_sign = base64.b64encode(hmac.new(
+        b"HLkPcWmycL57mfJt",
+        f"POST&/api/member/updateLastBrowse&{timestamp_ms}".encode(),
+        hashlib.sha1,
+    ).digest()).decode()
+    assert data["_sgin"] == expected_sign
+    assert result.completed is completed
+    assert result.logged_in is completed
+    assert result.success is (completed and action == "login_site")
+    if completed:
+        assert result.message == ("模拟登录成功（未执行签到）" if action == "signin_site" else message)
+        stats.success.assert_called_once()
+        stats.fail.assert_not_called()
+    else:
+        assert message in result.message
+        stats.success.assert_not_called()
+        stats.fail.assert_called_once()
+
+
+def test_mteam_requires_browser_login_token(monkeypatch):
+    """馒头保号依赖浏览器登录态，未配置Token时不发起请求并给出可修正的提示。"""
+    plugin = object.__new__(AutoSignIn)
+    plugin._site_schema = [MTorrent]
+    stats = SimpleNamespace(success=Mock(), fail=Mock())
+    monkeypatch.setattr("app.plugins.autosignin.SiteOper", Mock(return_value=stats))
+    requests = Mock()
+    monkeypatch.setattr("app.plugins.autosignin.sites.mteam.RequestUtils", requests)
+    result = plugin.signin_site(site_info(name="馒头", url="https://kp.m-team.cc/", token=None))
+    assert not result.completed and "Token" in result.message
+    requests.assert_not_called()
+    stats.success.assert_not_called()
+    stats.fail.assert_called_once()
+
+
 def test_btschool_unconfirmed_attendance_preserves_login_visit(monkeypatch):
     """学校适配器没有独立登录接口时，回退首页仍可确认登录保号。"""
     plugin = object.__new__(AutoSignIn)
@@ -299,6 +390,18 @@ def test_btschool_missing_button_is_not_already_signed(monkeypatch, page):
 def test_btschool_confirms_result_after_request(monkeypatch):
     """学校需要在签到请求后读到明确已签到状态。"""
     page = Mock(side_effect=[_LOGIN + '<a href="index.php?action=addbonus">每日签到</a>', _SIGNED])
+    monkeypatch.setattr(BTSchool, "get_page_source", page)
+    assert BTSchool().signin(site_info()) == (True, "签到成功")
+    assert page.call_count == 2
+
+
+def test_btschool_one_time_reward_flash_confirms_signin(monkeypatch):
+    """学校签到结果只出现在签到响应的一次性到账提示里，需在该响应上确认。"""
+    page = Mock(side_effect=[
+        _LOGIN + '<a href="index.php?action=addbonus">每日签到</a>',
+        _LOGIN + '<a href="index.php?action=addbonus">每日签到</a>'
+                '<div class="nexus-notice">今天签到您获得90点魔力值</div>',
+    ])
     monkeypatch.setattr(BTSchool, "get_page_source", page)
     assert BTSchool().signin(site_info()) == (True, "签到成功")
     assert page.call_count == 2
@@ -394,7 +497,7 @@ def test_mteam_visit_requires_business_success(monkeypatch, code, success):
     """没有签到功能的馒头仍只报告模拟登录，HTTP 200 内的错误也不能成功。"""
     monkeypatch.setattr("app.plugins.autosignin.sites.mteam.RequestUtils", Mock(return_value=SimpleNamespace(
         post_res=Mock(return_value=response(payload={"code": code})))))
-    result = MTorrent().signin(site_info())
+    result = MTorrent().signin(site_info(token="test-token"))
     assert result[0] is success
     assert "签到成功" not in result[1]
 
@@ -402,6 +505,7 @@ def test_mteam_visit_requires_business_success(monkeypatch, code, success):
 def test_reward_rules_are_not_current_attendance():
     """通用奖励规则不等同于本次实际获得奖励。"""
     assert not has_signin_evidence("首次签到获得 10 个魔力值；每次连续签到可额外获得 5 个魔力值。")
+    assert not has_signin_evidence("今天签到可以获得 100 点魔力值。")
 
 
 @pytest.mark.parametrize("state, message, success", [

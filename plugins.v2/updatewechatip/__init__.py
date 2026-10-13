@@ -1,5 +1,6 @@
 import random
 import re
+import threading
 import time
 import uuid
 from dataclasses import dataclass
@@ -27,7 +28,7 @@ class UpdateWeChatIp(_PluginBase):
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本，必须和 package.v2.json 中保持一致
-    plugin_version = "1.0.8"
+    plugin_version = "1.0.9"
     # 作者信息
     plugin_author = "书小白"
     author_url = "https://github.com/thshu/MoviePilot-Plugins"
@@ -51,6 +52,7 @@ class UpdateWeChatIp(_PluginBase):
     _is_login = False
     onlyonce = False
     _cron = ""
+    _timer: threading.Timer = None
 
     _UpdateLogKey = 'UpdateLog'
 
@@ -78,6 +80,9 @@ class UpdateWeChatIp(_PluginBase):
 
     def init_plugin(self, config: dict = None):
         """根据当前配置初始化插件。"""
+        # init_plugin 可能被重复调用，先清理上一轮资源
+        self.stop_service()
+        
         config = config or {}
         self._enabled = bool(config.get("_enabled"))
         self._wwrtx_sid = config.get("_wwrtx_sid")
@@ -87,6 +92,34 @@ class UpdateWeChatIp(_PluginBase):
 
         self._se = requests.Session()
         self._se.cookies.set('wwrtx.sid', self._wwrtx_sid)
+
+        if config.get("onlyonce"):
+            # 立即检测一次：延迟 3 秒后单次执行，不影响 cron 周期服务
+            self._timer = threading.Timer(3, self._run_check_safe)
+            self._timer.daemon = True
+            self._timer.start()
+            config["onlyonce"] = False
+            self.update_config(config)
+
+    def stop_service(self):
+        """停用插件时清理后台任务、调度器、网络会话等资源。"""
+        timer = getattr(self, "_timer", None)
+        if timer:
+            try:
+                timer.cancel()
+            except Exception as e:
+                logger.error(f"取消定时器失败: {e}")
+            finally:
+                self._timer = None
+        
+        session = getattr(self, "_se", None)
+        if session:
+            try:
+                session.close()
+            except Exception as e:
+                logger.error(f"关闭 requests.Session 失败: {e}")
+            finally:
+                self._se = None
 
     def _save_current_config(self):
         self._login_success()
@@ -219,7 +252,7 @@ class UpdateWeChatIp(_PluginBase):
                 channel=channel,
                 title="登录失败",
                 userid=userid,
-                text=f"未获取到本地登录对应的qrcode_key",
+                text="未获取到本次登录对应的qrcode_key",
             )
             return
         text, qrcode_key = callback_text.split("|", 1)
@@ -381,7 +414,7 @@ class UpdateWeChatIp(_PluginBase):
                                             'model': '_app_id',
                                             'label': '[必填]应用ID',
                                             'rows': 1,
-                                            'placeholder': '输入应用ID,多个使用(,)英文逗号隔开,在企业微信应用页面URL末尾获取'
+                                            'placeholder': '输入应用ID，多个使用英文逗号(,)隔开，在企业微信应用页面URL末尾获取'
                                         }
                                     }
                                 ]
@@ -395,7 +428,8 @@ class UpdateWeChatIp(_PluginBase):
             "_wwrtx_sid": "",
             "_app_id": "",
             "_party_cache_data": {},
-            "_cron": '*/10 * * * *'
+            "_cron": '*/10 * * * *',
+            "onlyonce": False
         }
 
     def get_page(self) -> List[dict]:
@@ -521,10 +555,6 @@ class UpdateWeChatIp(_PluginBase):
             }
         ]
 
-    def stop_service(self):
-        """没有后台任务时可以留空。"""
-        pass
-
     def _get_key(self):
         logger.info("开始获取登录二维码key")
         url = "https://work.weixin.qq.com/wework_admin/wwqrlogin/mng/get_key"
@@ -537,7 +567,7 @@ class UpdateWeChatIp(_PluginBase):
             'crossorigin': "1"
         }
         response = self._se.get(url, params=params, headers=self._headers)
-        logger.info(f"获取登录二维码key成功,返回值:{response.text}")
+        logger.info(f"获取登录二维码key成功，返回值:{response.text}")
 
         return response.json().get('data', {}).get('qrcode_key')
 
@@ -559,7 +589,7 @@ class UpdateWeChatIp(_PluginBase):
         return img_url
 
     def _check(self, key) -> Dict:
-        logger.info(f"开始获取扫码结果")
+        logger.info("开始获取扫码结果")
         for _ in range(2):
             url = "https://work.weixin.qq.com/wework_admin/wwqrlogin/mng/check"
             params = {
@@ -572,19 +602,21 @@ class UpdateWeChatIp(_PluginBase):
             if data.get("status") == "QRCODE_SCAN_SUCC":
                 return data
             time.sleep(1)
-        logger.info(f"获取扫码结果超时")
+        logger.info("获取扫码结果超时")
         return None
 
     def _loginpage_wx(self, key, code) -> requests.Response:
-        logger.info(f"开始登录")
+        logger.info("开始登录")
         url = "https://work.weixin.qq.com/wework_admin/loginpage_wx"
+        # 动态生成当前毫秒级时间戳
+        now_ms = str(int(time.time() * 1000))
         params = {
             '_r': "234",
             'redirect_uri': "https://work.weixin.qq.com/wework_admin/frame",
             'url_hash': "#/apps",
             'code': code,
-            'auth_redirect_time': "1780446137000",
-            'getauth_time': "1780446137000",
+            'auth_redirect_time': now_ms,
+            'getauth_time': now_ms,
             'wwqrlogin': "1",
             'qrcode_key': key,
             'auth_source': "SOURCE_FROM_WEWORK",
@@ -595,7 +627,7 @@ class UpdateWeChatIp(_PluginBase):
         return response
 
     def _confirm_captcha(self, tl_key, captcha):
-        logger.info(f"开始提交验证码")
+        logger.info("开始提交验证码")
         _url = "https://work.weixin.qq.com/wework_admin/mobile_confirm/confirm_captcha?ajax=1&f=json&d2st="
         _data = {
             "captcha": captcha,
@@ -607,7 +639,7 @@ class UpdateWeChatIp(_PluginBase):
         logger.info(f"choose_corp接口返回值:{res.text}")
 
     def _party_cache(self):
-        logger.info(f"开始获取企业信息,判断是否登录成功")
+        logger.info("开始获取企业信息,判断是否登录成功")
         if not self._wwrtx_sid:
             return False
         url = "https://work.weixin.qq.com/wework_admin/contacts/party/cache"
@@ -636,13 +668,13 @@ class UpdateWeChatIp(_PluginBase):
         return False
 
     def _login(self, channel, userid):
-        logger.info(f"触发登录回调,开始执行登录步骤")
+        logger.info("触发登录回调，开始执行登录步骤")
         check_data = self._check(self._qrcode_key)
         if check_data:
             code = check_data.get('auth_code')
             res = self._loginpage_wx(self._qrcode_key, code)
             if 'tl_key' in res.url:
-                logger.info(f"返回值中获取到tl_key,触发短信验证码")
+                logger.info("返回值中获取到tl_key,触发短信验证码")
                 self.post_message(
                     channel=channel,
                     title="短信验证码",
@@ -662,7 +694,7 @@ class UpdateWeChatIp(_PluginBase):
             else:
                 self._wwrtx_sid = self._se.cookies.get_dict().get('wwrtx.sid')
                 if self._party_cache():
-                    logger.info(f"登录成功")
+                    logger.info("登录成功")
                     self._login_success()
                     self.post_message(
                         channel=channel,
@@ -749,7 +781,7 @@ class UpdateWeChatIp(_PluginBase):
         return "获取IP失败"
 
     def _get_corp_app_v2(self):
-        logger.info(f"开始获取企业应用配置")
+        logger.info("开始获取企业应用配置")
         if not self._app_id:
             logger.error("未配置应用ID")
             return {}
@@ -764,6 +796,15 @@ class UpdateWeChatIp(_PluginBase):
         except Exception as e:
             logger.error(f"获取企业应用配置异常: {e}")
         return {}
+
+    def _run_check_safe(self):
+        """Timer 线程里安全执行 check()，避免异常导致线程静默退出。"""
+        try:
+            self.check()
+        except Exception as e:
+            logger.error(f"立即检测一次执行异常: {e}")
+        finally:
+            self._timer = None
 
     def check(self):
         if not self._enabled:
@@ -787,7 +828,7 @@ class UpdateWeChatIp(_PluginBase):
             self._save_ip_config()
             self.post_message(
                 title='企业微信IP更新',
-                text="出发IP更新,最新IP为:" + self._ip
+                text="触发IP更新,最新IP为：" + self._ip
             )
 
 
