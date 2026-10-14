@@ -170,6 +170,7 @@
     "icon": "signin.png",
     "author": "thsrite",
     "level": 2,
+    "v3": false,
     "release": true,
     "history": {
       "v2.9.13": "修复学校(btschool)一次性到账提示未识别导致的签到误报；馒头(m-team)按前端接口生成签名更新访问时间，需在站点配置Token中填写浏览器登录态",
