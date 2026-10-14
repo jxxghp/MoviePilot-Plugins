@@ -108,7 +108,7 @@ def test_v3_system_range_keeps_baseline_and_allows_upper_bound(value, expected):
 
 
 def test_v3_index_has_matching_dedicated_plugins() -> None:
-    """V3 条目必须具有独立目录；迁移插件还需在旧索引阻断 V3。"""
+    """V3 条目必须有独立目录；依赖后续宿主版本时允许显式保留旧实现入口。"""
     package = _load_json(PACKAGE_PATH)
     package_v2 = _load_json(REPO_ROOT / "package.v2.json")
     package_v1 = _load_json(REPO_ROOT / "package.json")
@@ -118,7 +118,13 @@ def test_v3_index_has_matching_dedicated_plugins() -> None:
         assert _supports_v3_baseline(metadata.get("system_version")), plugin_id
         old_metadata = _legacy_metadata(plugin_id, package_v2, package_v1)
         if old_metadata is not None:
-            assert old_metadata.get("v3") is False
+            if old_metadata.get("v3") is not False:
+                # 新合同覆盖全部 V3 时仍阻断旧实现；提高宿主下界时可保留兼容旧版。
+                assert old_metadata.get("v3") is True, plugin_id
+                new_range = SpecifierSet(metadata["system_version"])
+                assert not new_range.contains(Version("3.0.0")), plugin_id
+                new_floor = max(Version(item.version) for item in new_range if item.operator == ">=")
+                assert not SpecifierSet(old_metadata.get("system_version", "")).contains(new_floor), plugin_id
 
 
 def test_v3_versions_use_next_major_and_descending_history() -> None:
