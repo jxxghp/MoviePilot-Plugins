@@ -105,7 +105,7 @@ def test_form_exposes_enabled_style_switch(monkeypatch):
 
 
 def test_v3_metadata_requires_next_backend_version_and_preserves_v2():
-    """V3 独立发版和最低版本限制同步，V2 仅声明不可回退加载。"""
+    """V3 独立发版和最低版本限制同步，V2 保留对旧版 V3 的兼容。"""
     import json
     from pathlib import Path
     from packaging.specifiers import SpecifierSet
@@ -119,5 +119,40 @@ def test_v3_metadata_requires_next_backend_version_and_preserves_v2():
     assert "3.1.5" not in requirement
     assert "3.1.6" in requirement
     assert "3.2.0" in requirement
-    assert v2["version"] == "2.9.13" and v2["v3"] is False
+    assert v2["version"] == "2.9.13" and v2["v3"] is True
+    assert v2["system_version"] == "<=3.1.5"
+    legacy_requirement = SpecifierSet(v2["system_version"])
+    assert "2.2.1" in legacy_requirement
+    assert "3.1.5" in legacy_requirement
+    assert "3.1.6" not in legacy_requirement
     assert "v2.9.14" not in v2["history"]
+
+
+def test_old_v3_can_install_v2_compatible_entry(monkeypatch):
+    """旧版 V3 可选择并通过 V2 安装准入，新样式版本仍受最低版本限制。"""
+    import json
+    from pathlib import Path
+
+    from packaging.version import Version
+
+    from app.adapters.external.plugin import client as client_module
+    from app.adapters.external.plugin.client import PluginMarketTransport
+
+    root = Path(__file__).resolve().parents[3]
+    indexes = {generation: json.loads((root / f"package.{generation}.json").read_text())
+               for generation in ("v2", "v3")}
+    monkeypatch.setattr(client_module, "get_runtime_setting",
+                        lambda key, default=None: "v3" if key == "VERSION_FLAG" else default)
+    monkeypatch.setattr(PluginMarketTransport, "get_current_system_version",
+                        staticmethod(lambda: Version("3.1.5")))
+    transport = PluginMarketTransport()
+    monkeypatch.setattr(transport, "get_plugins",
+                        lambda _repo, package_version=None: indexes.get(package_version, {}))
+    assert transport.get_plugin_package_version("AutoSignIn", "https://github.com/jxxghp/MoviePilot-Plugins",
+                                                package_version="v2") == "v2"
+    assert transport.check_plugin_install_compatibility(indexes["v2"]["AutoSignIn"])[0]
+    assert not transport.check_plugin_install_compatibility(indexes["v3"]["AutoSignIn"])[0]
+    monkeypatch.setattr(PluginMarketTransport, "get_current_system_version",
+                        staticmethod(lambda: Version("3.1.6")))
+    assert not transport.check_plugin_install_compatibility(indexes["v2"]["AutoSignIn"])[0]
+    assert transport.check_plugin_install_compatibility(indexes["v3"]["AutoSignIn"])[0]
