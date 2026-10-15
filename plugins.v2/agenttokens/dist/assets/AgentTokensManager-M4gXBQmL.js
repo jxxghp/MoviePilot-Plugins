@@ -1,10 +1,10 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, f as formatTokens, P as PROVIDER_TYPE_OPTIONS, a as createProvider, b as buildProviderRows, d as buildProviderSummary, g as getNextProviderPriority, e as duplicateProvider, n as normalizeProvider } from './provider-pRHHIZkt.js';
+import { _ as _export_sfc, f as formatTokens, P as PROVIDER_TYPE_OPTIONS, d as createProvider, b as buildProviderRows, a as buildProviderSummary, g as getNextProviderPriority, e as duplicateProvider, n as normalizeProvider } from './provider-B09_BBg1.js';
 
 const {resolveComponent:_resolveComponent$5,mergeProps:_mergeProps$1,createVNode:_createVNode$5,withCtx:_withCtx$5,createTextVNode:_createTextVNode$5,openBlock:_openBlock$5,createBlock:_createBlock$5} = await importShared('vue');
 
 
-const {ref: ref$1} = await importShared('vue');
+const {ref: ref$2} = await importShared('vue');
 
 
 
@@ -32,8 +32,8 @@ const _sfc_main$5 = {
 
 const props = __props;
 
-const settingsMenu = ref$1(false);
-const settingsDraft = ref$1({ enabled: false, show_sidebar_nav: true });
+const settingsMenu = ref$2(false);
+const settingsDraft = ref$2({ enabled: false, show_sidebar_nav: true });
 
 // 从已保存配置创建菜单草稿，取消菜单时不污染当前页面配置。
 function syncSettingsDraft() {
@@ -139,7 +139,7 @@ return (_ctx, _cache) => {
 };
 const AgentTokensSettingsMenu = /*#__PURE__*/_export_sfc(_sfc_main$5, [['__scopeId',"data-v-a38d4879"]]);
 
-const {createElementVNode:_createElementVNode$3,openBlock:_openBlock$4,createElementBlock:_createElementBlock$2,createCommentVNode:_createCommentVNode$2,renderList:_renderList$1,Fragment:_Fragment$1,resolveComponent:_resolveComponent$4,createVNode:_createVNode$4,toDisplayString:_toDisplayString$4,createTextVNode:_createTextVNode$4,withCtx:_withCtx$4,unref:_unref$4,mergeProps:_mergeProps,createBlock:_createBlock$4} = await importShared('vue');
+const {createElementVNode:_createElementVNode$3,openBlock:_openBlock$4,createElementBlock:_createElementBlock$3,createCommentVNode:_createCommentVNode$3,renderList:_renderList$1,Fragment:_Fragment$2,resolveComponent:_resolveComponent$4,createVNode:_createVNode$4,toDisplayString:_toDisplayString$4,createTextVNode:_createTextVNode$4,withCtx:_withCtx$4,unref:_unref$4,mergeProps:_mergeProps,createBlock:_createBlock$4} = await importShared('vue');
 
 
 const _hoisted_1$3 = { key: 0 };
@@ -148,9 +148,9 @@ const _hoisted_3$3 = {
   key: 0,
   class: "truncate-cell"
 };
-const _hoisted_4$2 = { key: 1 };
-const _hoisted_5$2 = { class: "text-right" };
-const _hoisted_6$2 = { key: 0 };
+const _hoisted_4$3 = { key: 1 };
+const _hoisted_5$3 = { class: "text-right" };
+const _hoisted_6$3 = { key: 0 };
 const _hoisted_7$2 = ["colspan"];
 
 
@@ -205,11 +205,11 @@ return (_ctx, _cache) => {
               _cache[2] || (_cache[2] = _createElementVNode$3("th", null, "名称", -1)),
               _cache[3] || (_cache[3] = _createElementVNode$3("th", null, "类型", -1)),
               (__props.showCredentials)
-                ? (_openBlock$4(), _createElementBlock$2("th", _hoisted_1$3, "地址"))
-                : _createCommentVNode$2("", true),
+                ? (_openBlock$4(), _createElementBlock$3("th", _hoisted_1$3, "地址"))
+                : _createCommentVNode$3("", true),
               (__props.showCredentials)
-                ? (_openBlock$4(), _createElementBlock$2("th", _hoisted_2$3, "Key"))
-                : _createCommentVNode$2("", true),
+                ? (_openBlock$4(), _createElementBlock$3("th", _hoisted_2$3, "Key"))
+                : _createCommentVNode$3("", true),
               _cache[4] || (_cache[4] = _createElementVNode$3("th", null, "代理", -1)),
               _cache[5] || (_cache[5] = _createElementVNode$3("th", null, "模型", -1)),
               _cache[6] || (_cache[6] = _createElementVNode$3("th", null, "额度", -1)),
@@ -217,8 +217,8 @@ return (_ctx, _cache) => {
             ])
           ]),
           _createElementVNode$3("tbody", null, [
-            (_openBlock$4(true), _createElementBlock$2(_Fragment$1, null, _renderList$1(__props.providers, (row, index) => {
-              return (_openBlock$4(), _createElementBlock$2("tr", {
+            (_openBlock$4(true), _createElementBlock$3(_Fragment$2, null, _renderList$1(__props.providers, (row, index) => {
+              return (_openBlock$4(), _createElementBlock$3("tr", {
                 key: row.id || index
               }, [
                 _createElementVNode$3("td", null, [
@@ -234,11 +234,11 @@ return (_ctx, _cache) => {
                 _createElementVNode$3("td", null, _toDisplayString$4(row.name), 1),
                 _createElementVNode$3("td", null, _toDisplayString$4(row.provider), 1),
                 (__props.showCredentials)
-                  ? (_openBlock$4(), _createElementBlock$2("td", _hoisted_3$3, _toDisplayString$4(row.base_url), 1))
-                  : _createCommentVNode$2("", true),
+                  ? (_openBlock$4(), _createElementBlock$3("td", _hoisted_3$3, _toDisplayString$4(row.base_url), 1))
+                  : _createCommentVNode$3("", true),
                 (__props.showCredentials)
-                  ? (_openBlock$4(), _createElementBlock$2("td", _hoisted_4$2, _toDisplayString$4(getMaskedApiKey(index)), 1))
-                  : _createCommentVNode$2("", true),
+                  ? (_openBlock$4(), _createElementBlock$3("td", _hoisted_4$3, _toDisplayString$4(getMaskedApiKey(index)), 1))
+                  : _createCommentVNode$3("", true),
                 _createElementVNode$3("td", null, [
                   _createVNode$4(_component_VChip, {
                     size: "small",
@@ -253,7 +253,7 @@ return (_ctx, _cache) => {
                 ]),
                 _createElementVNode$3("td", null, _toDisplayString$4(row.model), 1),
                 _createElementVNode$3("td", null, _toDisplayString$4(row.token_limit > 0 ? _unref$4(formatTokens)(row.token_limit) : '不限'), 1),
-                _createElementVNode$3("td", _hoisted_5$2, [
+                _createElementVNode$3("td", _hoisted_5$3, [
                   _createVNode$4(_component_VTooltip, { text: "复制" }, {
                     activator: _withCtx$4(({ props: tooltipProps }) => [
                       _createVNode$4(_component_VBtn, _mergeProps({ ref_for: true }, tooltipProps, {
@@ -283,13 +283,13 @@ return (_ctx, _cache) => {
               ]))
             }), 128)),
             (!__props.providers.length)
-              ? (_openBlock$4(), _createElementBlock$2("tr", _hoisted_6$2, [
+              ? (_openBlock$4(), _createElementBlock$3("tr", _hoisted_6$3, [
                   _createElementVNode$3("td", {
                     colspan: __props.showCredentials ? 10 : 8,
                     class: "text-center text-medium-emphasis py-8"
                   }, "暂无供应商", 8, _hoisted_7$2)
                 ]))
-              : _createCommentVNode$2("", true)
+              : _createCommentVNode$3("", true)
           ])
         ]),
         _: 1
@@ -303,7 +303,7 @@ return (_ctx, _cache) => {
 };
 const ProviderConfigTable = /*#__PURE__*/_export_sfc(_sfc_main$4, [['__scopeId',"data-v-41448444"]]);
 
-const {toDisplayString:_toDisplayString$3,createTextVNode:_createTextVNode$3,resolveComponent:_resolveComponent$3,withCtx:_withCtx$3,createVNode:_createVNode$3,unref:_unref$3,openBlock:_openBlock$3,createBlock:_createBlock$3} = await importShared('vue');
+const {toDisplayString:_toDisplayString$3,createTextVNode:_createTextVNode$3,resolveComponent:_resolveComponent$3,withCtx:_withCtx$3,createVNode:_createVNode$3,unref:_unref$3,Fragment:_Fragment$1,openBlock:_openBlock$3,createElementBlock:_createElementBlock$2,createCommentVNode:_createCommentVNode$2,createBlock:_createBlock$3} = await importShared('vue');
 
 
 const {computed: computed$2} = await importShared('vue');
@@ -358,7 +358,7 @@ return (_ctx, _cache) => {
 
   return (_openBlock$3(), _createBlock$3(_component_VDialog, {
     modelValue: dialogVisible.value,
-    "onUpdate:modelValue": _cache[11] || (_cache[11] = $event => ((dialogVisible).value = $event)),
+    "onUpdate:modelValue": _cache[16] || (_cache[16] = $event => ((dialogVisible).value = $event)),
     "max-width": "760",
     "max-height": "85vh",
     scrollable: ""
@@ -532,7 +532,91 @@ return (_ctx, _cache) => {
                       }, null, 8, ["modelValue"])
                     ]),
                     _: 1
-                  })
+                  }),
+                  _createVNode$3(_component_VCol, { cols: "12" }, {
+                    default: _withCtx$3(() => [
+                      _createVNode$3(_component_VSwitch, {
+                        modelValue: __props.provider.failure_cooldown_enabled,
+                        "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((__props.provider.failure_cooldown_enabled) = $event)),
+                        color: "primary",
+                        label: "连续失败自动冷却",
+                        hint: "默认关闭；连续执行失败达到阈值后，后续 Agent 轮次按优先级使用其他可用供应商",
+                        "persistent-hint": ""
+                      }, null, 8, ["modelValue"])
+                    ]),
+                    _: 1
+                  }),
+                  (__props.provider.failure_cooldown_enabled)
+                    ? (_openBlock$3(), _createElementBlock$2(_Fragment$1, { key: 0 }, [
+                        _createVNode$3(_component_VCol, {
+                          cols: "12",
+                          md: "6"
+                        }, {
+                          default: _withCtx$3(() => [
+                            _createVNode$3(_component_VTextField, {
+                              modelValue: __props.provider.failure_threshold,
+                              "onUpdate:modelValue": _cache[11] || (_cache[11] = $event => ((__props.provider.failure_threshold) = $event)),
+                              modelModifiers: { number: true },
+                              label: "连续失败次数",
+                              hint: "成功后清零；用户取消不计入失败",
+                              "persistent-hint": "",
+                              type: "number",
+                              min: "1",
+                              variant: "outlined"
+                            }, null, 8, ["modelValue"])
+                          ]),
+                          _: 1
+                        }),
+                        _createVNode$3(_component_VCol, {
+                          cols: "12",
+                          md: "6"
+                        }, {
+                          default: _withCtx$3(() => [
+                            _createVNode$3(_component_VTextField, {
+                              modelValue: __props.provider.cooldown_seconds,
+                              "onUpdate:modelValue": _cache[12] || (_cache[12] = $event => ((__props.provider.cooldown_seconds) = $event)),
+                              modelModifiers: { number: true },
+                              label: "初始冷却时长（秒）",
+                              hint: "冷却到期后自动恢复参与选号",
+                              "persistent-hint": "",
+                              type: "number",
+                              min: "1",
+                              variant: "outlined"
+                            }, null, 8, ["modelValue"])
+                          ]),
+                          _: 1
+                        }),
+                        _createVNode$3(_component_VCol, { cols: "12" }, {
+                          default: _withCtx$3(() => [
+                            _createVNode$3(_component_VSwitch, {
+                              modelValue: __props.provider.cooldown_exponential,
+                              "onUpdate:modelValue": _cache[13] || (_cache[13] = $event => ((__props.provider.cooldown_exponential) = $event)),
+                              color: "primary",
+                              label: "指数退避",
+                              hint: "恢复后再次达到失败阈值，冷却时长翻倍；调用成功后恢复初始时长",
+                              "persistent-hint": ""
+                            }, null, 8, ["modelValue"])
+                          ]),
+                          _: 1
+                        }),
+                        _createVNode$3(_component_VCol, { cols: "12" }, {
+                          default: _withCtx$3(() => [
+                            _createVNode$3(_component_VTextField, {
+                              modelValue: __props.provider.cooldown_max_seconds,
+                              "onUpdate:modelValue": _cache[14] || (_cache[14] = $event => ((__props.provider.cooldown_max_seconds) = $event)),
+                              modelModifiers: { number: true },
+                              label: "冷却时长上限（秒）",
+                              hint: "固定冷却和指数退避均不超过此值",
+                              "persistent-hint": "",
+                              type: "number",
+                              min: "1",
+                              variant: "outlined"
+                            }, null, 8, ["modelValue"])
+                          ]),
+                          _: 1
+                        })
+                      ], 64))
+                    : _createCommentVNode$2("", true)
                 ]),
                 _: 1
               })
@@ -544,9 +628,9 @@ return (_ctx, _cache) => {
               _createVNode$3(_component_VSpacer),
               _createVNode$3(_component_VBtn, {
                 variant: "text",
-                onClick: _cache[10] || (_cache[10] = $event => (dialogVisible.value = false))
+                onClick: _cache[15] || (_cache[15] = $event => (dialogVisible.value = false))
               }, {
-                default: _withCtx$3(() => [...(_cache[12] || (_cache[12] = [
+                default: _withCtx$3(() => [...(_cache[17] || (_cache[17] = [
                   _createTextVNode$3("取消", -1)
                 ]))]),
                 _: 1
@@ -555,7 +639,7 @@ return (_ctx, _cache) => {
                 color: "primary",
                 onClick: commitProvider
               }, {
-                default: _withCtx$3(() => [...(_cache[13] || (_cache[13] = [
+                default: _withCtx$3(() => [...(_cache[18] || (_cache[18] = [
                   _createTextVNode$3("确定", -1)
                 ]))]),
                 _: 1
@@ -578,8 +662,19 @@ const {createElementVNode:_createElementVNode$2,renderList:_renderList,Fragment:
 
 
 const _hoisted_1$2 = { class: "progress-cell" };
-const _hoisted_2$2 = { class: "text-right" };
-const _hoisted_3$2 = { key: 0 };
+const _hoisted_2$2 = { class: "status-cell" };
+const _hoisted_3$2 = {
+  key: 0,
+  class: "text-caption text-medium-emphasis mt-1"
+};
+const _hoisted_4$2 = {
+  key: 1,
+  class: "text-caption text-medium-emphasis mt-1"
+};
+const _hoisted_5$2 = { class: "text-right" };
+const _hoisted_6$2 = { key: 0 };
+
+const {onMounted,onUnmounted,ref: ref$1} = await importShared('vue');
 
 
 const _sfc_main$2 = {
@@ -596,11 +691,26 @@ const _sfc_main$2 = {
 
 
 const emit = __emit;
+const now = ref$1(Date.now());
+let clockTimer;
+
+// 使用本地时钟更新冷却倒计时；卸载时清理计时器。
+onMounted(() => {
+  clockTimer = setInterval(() => { now.value = Date.now(); }, 1000);
+});
+onUnmounted(() => clearInterval(clockTimer));
+
+// 到期后立即显示可用状态，无需等待下一次拉取状态。
+function cooldownRemaining(row) {
+  if (!row.failure_cooldown_enabled) return 0
+  return Math.max(0, Math.ceil(Number(row.usage?.cooldown_until || 0) - now.value / 1000))
+}
 
 // 根据供应商状态返回 Vuetify 颜色。
 function rowStatusColor(row) {
   if (!row.enabled) return 'default'
   if (row.usage?.exhausted) return 'error'
+  if (cooldownRemaining(row)) return 'warning'
   if (!row.api_key || !row.base_url || !row.model) return 'warning'
   return 'success'
 }
@@ -609,6 +719,7 @@ function rowStatusColor(row) {
 function rowStatusText(row) {
   if (!row.enabled) return '停用'
   if (row.usage?.exhausted) return '耗尽'
+  if (cooldownRemaining(row)) return `冷却 ${cooldownRemaining(row)} 秒`
   if (!row.api_key || !row.base_url || !row.model) return '缺配置'
   return '可用'
 }
@@ -658,7 +769,7 @@ return (_ctx, _cache) => {
                     rounded: ""
                   }, null, 8, ["model-value", "color"])
                 ]),
-                _createElementVNode$2("td", null, [
+                _createElementVNode$2("td", _hoisted_2$2, [
                   _createVNode$2(_component_VChip, {
                     size: "small",
                     color: rowStatusColor(row),
@@ -668,9 +779,14 @@ return (_ctx, _cache) => {
                       _createTextVNode$2(_toDisplayString$2(rowStatusText(row)), 1)
                     ]),
                     _: 2
-                  }, 1032, ["color"])
+                  }, 1032, ["color"]),
+                  (cooldownRemaining(row))
+                    ? (_openBlock$2(), _createElementBlock$1("div", _hoisted_3$2, _toDisplayString$2(row.usage?.cooldown_reason), 1))
+                    : (row.failure_cooldown_enabled)
+                      ? (_openBlock$2(), _createElementBlock$1("div", _hoisted_4$2, " 连续失败 " + _toDisplayString$2(row.usage?.consecutive_failures || 0) + " / " + _toDisplayString$2(row.failure_threshold), 1))
+                      : _createCommentVNode$1("", true)
                 ]),
-                _createElementVNode$2("td", _hoisted_2$2, [
+                _createElementVNode$2("td", _hoisted_5$2, [
                   _createVNode$2(_component_VBtn, {
                     icon: "mdi-backup-restore",
                     size: "small",
@@ -681,7 +797,7 @@ return (_ctx, _cache) => {
               ]))
             }), 128)),
             (!__props.providerRows.length)
-              ? (_openBlock$2(), _createElementBlock$1("tr", _hoisted_3$2, [...(_cache[0] || (_cache[0] = [
+              ? (_openBlock$2(), _createElementBlock$1("tr", _hoisted_6$2, [...(_cache[0] || (_cache[0] = [
                   _createElementVNode$2("td", {
                     colspan: "8",
                     class: "text-center text-medium-emphasis py-8"
@@ -699,7 +815,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ProviderUsageTable = /*#__PURE__*/_export_sfc(_sfc_main$2, [['__scopeId',"data-v-a305c97e"]]);
+const ProviderUsageTable = /*#__PURE__*/_export_sfc(_sfc_main$2, [['__scopeId',"data-v-ad9ce114"]]);
 
 const {toDisplayString:_toDisplayString$1,createElementVNode:_createElementVNode$1,resolveComponent:_resolveComponent$1,withCtx:_withCtx$1,createVNode:_createVNode$1,unref:_unref$1,createTextVNode:_createTextVNode$1,openBlock:_openBlock$1,createBlock:_createBlock$1} = await importShared('vue');
 
@@ -1147,4 +1263,4 @@ return (_ctx, _cache) => {
 };
 const AgentTokensManager = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c2958f61"]]);
 
-export { AgentTokensSettingsMenu as A, AgentTokensManager as a };
+export { AgentTokensManager as A, AgentTokensSettingsMenu as a };
