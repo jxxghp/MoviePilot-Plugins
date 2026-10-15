@@ -105,27 +105,30 @@ def test_form_exposes_enabled_style_switch(monkeypatch):
 
 
 def test_v3_metadata_requires_next_backend_version_and_preserves_v2():
-    """V3 独立发版和最低版本限制同步，V2 保留对旧版 V3 的兼容。"""
+    """V3 与 V2 可独立发布补丁，版本历史和各自宿主兼容范围必须保持一致。"""
     import json
     from pathlib import Path
     from packaging.specifiers import SpecifierSet
+    from packaging.version import Version
 
     root = Path(__file__).resolve().parents[3]
     v3 = json.loads((root / "package.v3.json").read_text())["AutoSignIn"]
     v2 = json.loads((root / "package.v2.json").read_text())["AutoSignIn"]
-    assert AutoSignIn.plugin_version == v3["version"] == "3.0.0"
+    assert AutoSignIn.plugin_version == v3["version"]
+    assert Version(v3["version"]).major == 3
+    assert f'v{v3["version"]}' in v3["history"]
     assert v3["system_version"] == ">=3.1.6"
     requirement = SpecifierSet(v3["system_version"])
     assert "3.1.5" not in requirement
     assert "3.1.6" in requirement
     assert "3.2.0" in requirement
-    assert v2["version"] == "2.9.13" and v2["v3"] is True
+    assert Version(v2["version"]).major == 2 and v2["v3"] is True
     assert v2["system_version"] == "<=3.1.5"
     legacy_requirement = SpecifierSet(v2["system_version"])
     assert "2.2.1" in legacy_requirement
     assert "3.1.5" in legacy_requirement
     assert "3.1.6" not in legacy_requirement
-    assert "v2.9.14" not in v2["history"]
+    assert f'v{v2["version"]}' in v2["history"]
 
 
 def test_old_v3_can_install_v2_compatible_entry(monkeypatch):
