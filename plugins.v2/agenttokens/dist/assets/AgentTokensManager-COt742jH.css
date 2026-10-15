@@ -20,13 +20,18 @@
   white-space: nowrap;
 }
 
-.provider-table-shell[data-v-a305c97e] {
+.provider-table-shell[data-v-ad9ce114] {
   overflow-x: auto;
 }
-.provider-table-shell[data-v-a305c97e] table {
+.provider-table-shell[data-v-ad9ce114] table {
   min-width: 760px;
 }
-.progress-cell[data-v-a305c97e] {
+.status-cell[data-v-ad9ce114] {
+  min-width: 140px;
+  max-width: 280px;
+  overflow-wrap: anywhere;
+}
+.progress-cell[data-v-ad9ce114] {
   min-width: 140px;
 }
 
