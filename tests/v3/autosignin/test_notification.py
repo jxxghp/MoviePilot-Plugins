@@ -22,16 +22,16 @@ def test_notification_counts_groups_and_retry(action):
     texts = [block.text or "" for block in content.blocks]
     assert "仅登录 1  ·  失败 1" in titles[1]
     assert texts[1] == "已选 5  /  本次 3  /  下次执行 2"
-    assert titles.index("失败站 · ↻ 下次执行") < titles.index("保号站") < titles.index("成功站 · ↻ 下次执行")
-    assert sum("↻ 下次执行" in title for title in titles) == 2
+    assert texts.index("失败站 ↻") < texts.index("保号站") < texts.index("成功站 ↻")
+    assert sum(text.count("↻") for text in texts[:-1]) == 2
 
 
 def test_external_results_are_raw_data_in_universal_payload():
     """插件保留站点文本原意，转义和渠道语法由宿主完成。"""
     result = SiteResult("<script>*站_点*", "<!channel> [链接](https://bad.example) **成功**", False)
     content = build_notification_content("2026-10-14", "签到", [result], 1, [], [1])
-    row = next(block for block in content.blocks if block.title == result.site_name)
-    assert row.text == result.message
+    row = next(block for block in content.blocks if block.title == result.message)
+    assert row.text == result.site_name
     assert set(content.to_dict()) == {"title", "blocks"}
 
 
@@ -41,10 +41,54 @@ def test_large_report_prioritizes_failures_and_keeps_every_site():
     failure = SiteResult("失败站", "失败 " * 5000, False)
     content = build_notification_content("2026-10-14", "签到", success + [failure], 41, [40], list(range(41)))
     titles = [block.title or "" for block in content.blocks]
-    assert titles.index("失败站 · ↻ 下次执行") < titles.index("成功站0")
-    assert all(f"成功站{index}" in titles for index in range(40))
+    texts = [block.text or "" for block in content.blocks]
+    assert texts.index("失败站 ↻") < next(index for index, text in enumerate(texts) if "成功站0" in text)
+    success_names = next(block.text for block in content.blocks if (block.title or "").startswith("奖励"))
+    assert all(f"成功站{index}" in success_names for index in range(40))
     assert "确认签到 40" in titles[1]
-    assert len([block for block in content.blocks if block.text and block.text.endswith("…")]) == 41
+    assert len([block for block in content.blocks if block.title and block.title.endswith("…")]) == 2
+
+
+def test_same_reason_is_grouped_before_display_truncation():
+    """相同原因只出现一次，长原因显示前缀相同时也不能误合并不同结果。"""
+    reasons = ["Cookie已失效", "Cookie已失效", "相同前缀" * 80 + "原因一", "相同前缀" * 80 + "原因二"]
+    results = [SiteResult(f"站点{index}", reason, False) for index, reason in enumerate(reasons)]
+    content = build_notification_content("2026-10-16", "签到", results, 4, [0], list(range(4)))
+    reason_blocks = content.blocks[3:-1]
+    assert len(reason_blocks) == 3
+    assert reason_blocks[0].title == "Cookie已失效"
+    assert reason_blocks[0].text == "站点0 ↻、站点1"
+    assert reason_blocks[1].text == "站点2"
+    assert reason_blocks[2].text == "站点3"
+
+
+def test_47_site_report_has_compact_groups_and_native_telegram_hierarchy():
+    """按反馈中的 47 站经过真实转换器，验证归并、全部名称、缩进和可点击入口。"""
+    import json
+    from pathlib import Path
+
+    from app.modules.telegram.module import TelegramModule
+    from app.modules.telegram.telegram import Telegram
+    from app.schemas.message import Message
+
+    rows = json.loads((Path(__file__).parent / "fixtures/notification_47.json").read_text())
+    results = [SiteResult(row["name"], row["message"], row["success"], row["logged_in"]) for row in rows]
+    content = build_notification_content("2026-10-16", "签到", results, 47, list(range(9)), list(range(47)))
+    assert sum(block.title == "签到成功" for block in content.blocks) == 1
+    assert sum(block.title == "登录成功，签到未确认" for block in content.blocks) == 1
+    cookie_group = next(block for block in content.blocks if block.title == rows[0]["message"])
+    assert cookie_group.text == "我堡 ↻、藏宝阁 ↻、冬樱 ↻、1PTBA ↻、AGSVPT ↻"
+    message = Message(title="站点自动签到", text="原有完整结果", rich_content=content,
+                      link="https://example.com/#/plugins?tab=installed&id=AutoSignIn")
+    chunks = Telegram._build_rich_message_chunks(TelegramModule._notification_rich_message(message))
+    body = "".join(chunk["html"] for chunk in chunks)
+    assert body.count("<h3>") == 3
+    assert body.count("<li>") == 7
+    assert body.count("<b>签到成功</b>") == 1
+    assert '<a href="https://example.com/#/plugins?tab=installed&amp;id=AutoSignIn">查看详情</a>' in body
+    assert "&lt;a href" not in body
+    assert all(row["name"] in body for row in rows)
+    assert Message.model_validate_json(message.model_dump_json()).rich_content == content
 
 
 @pytest.mark.parametrize("rich_enabled", [True, False])
