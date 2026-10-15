@@ -29,6 +29,11 @@ function createProvider() {
     token_limit: 0,
     used_tokens: 0,
     priority: 1,
+    failure_cooldown_enabled: false,
+    failure_threshold: 3,
+    cooldown_seconds: 60,
+    cooldown_exponential: false,
+    cooldown_max_seconds: 3600,
   }
 }
 
@@ -127,7 +132,7 @@ function buildProviderSummary(rows) {
   const limitedUsagePercent = totalLimit > 0 ? Math.min((limitedUsed * 100) / totalLimit, 100) : 0;
 
   return {
-    available_count: enabledRows.filter(row => !row.usage?.exhausted && row.api_key && row.base_url && row.model).length,
+    available_count: enabledRows.filter(row => !row.usage?.exhausted && !row.usage?.cooling_down && row.api_key && row.base_url && row.model).length,
     enabled_count: enabledRows.length,
     limited_provider_count: limitedRows.length,
     unlimited_provider_count: unlimitedRows.length,
@@ -140,4 +145,4 @@ function buildProviderSummary(rows) {
   }
 }
 
-export { PROVIDER_TYPE_OPTIONS as P, _export_sfc as _, createProvider as a, buildProviderRows as b, cloneConfig as c, buildProviderSummary as d, duplicateProvider as e, formatTokens as f, getNextProviderPriority as g, normalizeProvider as n, unwrapResponse as u };
+export { PROVIDER_TYPE_OPTIONS as P, _export_sfc as _, buildProviderSummary as a, buildProviderRows as b, cloneConfig as c, createProvider as d, duplicateProvider as e, formatTokens as f, getNextProviderPriority as g, normalizeProvider as n, unwrapResponse as u };
