@@ -23,11 +23,11 @@ class EpisodeTag(_PluginBase):
     # 插件名称
     plugin_name = "集数标签"
     # 插件描述
-    plugin_desc = "下载剧集时自动给任务打上每集独立标签（E01/E02/...），支持定时对存量种子补全（可按标签包含/排除），qB/Tr 通用"
+    plugin_desc = "下载剧集时自动给任务打集数标签（E01、E02-03），连续集数按阈值合并，前缀/分隔符可配，改配置自动刷新存量标签，qB/Tr 通用"
     # 插件图标
     plugin_icon = "Youtube-dl_B.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "devin"
     # 作者主页
@@ -49,8 +49,11 @@ class EpisodeTag(_PluginBase):
     _onlyonce = False
     _cron = None
     _only_tv = True
-    _skip_existing = True
-    _tag_prefix = ""
+    # 标签格式：{前缀}{集数:02d}[{分隔符}{结束集数:02d}]
+    _tag_prefix = "E"  # 必填，留空自动回退 E（老版本默认即 E，保持兼容）
+    _merge_threshold = 2  # 连续段超过该集数时合并为一个标签；<=1 时永不合并
+    _tag_separator = "-"  # 合并标签起止集数分隔符，允许为空
+    _known_prefixes = ["E"]  # 历史使用过的前缀，用于识别并清理旧格式标签
     _include_tags: Set[str] = set()
     _exclude_tags: Set[str] = set()
     _downloaders = None
@@ -60,31 +63,70 @@ class EpisodeTag(_PluginBase):
                    ".flv", ".mpeg", ".mpg", ".rmvb", ".iso", ".webm", ".m4v")
 
     def init_plugin(self, config: dict = None):
+        # 记录本次 init 是否需要触发一次全量刷新（立即补全 / 标签格式变更）
+        need_run_once = False
+        config_changed = False
         # 读取配置
         if config:
             self._enabled = config.get("enabled")
             self._onlyonce = config.get("onlyonce")
             self._cron = (config.get("cron") or "").strip()
             self._only_tv = config.get("only_tv", True)
-            self._skip_existing = config.get("skip_existing", True)
-            self._tag_prefix = (config.get("tag_prefix") or "").strip()
+            # 前缀必填：留空回退 E（老版本空前缀即默认 E，标签不变）
+            self._tag_prefix = (config.get("tag_prefix") or "").strip() or "E"
+            # 合并阈值：非法回退 2，范围 [0, 99]，<=1 视为不合并
+            try:
+                self._merge_threshold = int(str(config.get("merge_threshold", "2")).strip() or 2)
+            except (TypeError, ValueError):
+                self._merge_threshold = 2
+            self._merge_threshold = max(0, min(self._merge_threshold, 99))
+            # 分隔符允许为空串（区别于未配置：未配置时用默认 -）
+            sep = config.get("tag_separator")
+            self._tag_separator = "-" if sep is None else str(sep).strip()
             self._include_tags = self._parse_tag_filter(config.get("include_tags"))
             self._exclude_tags = self._parse_tag_filter(config.get("exclude_tags"))
             self._downloaders = config.get("downloaders")
 
+            # 历史前缀集合：持久化到插件独立 data（不随插件配置保存/回放被覆盖回滚，
+            # 否则改回旧前缀配置快照时会丢失历史前缀，导致旧格式标签无法识别清理）
+            stored = self.get_data("known_prefixes") or []
+            known = set(stored) | set(config.get("known_prefixes") or [])
+            known.add("E")
+            known.add(self._tag_prefix)
+            self._known_prefixes = sorted(known)
+            if self._known_prefixes != stored:
+                self.save_data("known_prefixes", self._known_prefixes)
+
+            if self._onlyonce:
+                need_run_once = True
+            # 标签格式快照变化（前缀/合并阈值/分隔符）→ 全量刷新已有标签
+            fmt_key = f"{self._tag_prefix}|{self._merge_threshold}|{self._tag_separator}"
+            if config.get("last_format") != fmt_key:
+                config["last_format"] = fmt_key
+                need_run_once = True
+                config_changed = True
+            if config.get("known_prefixes") is not None:
+                # 旧值已迁移到插件 data，从配置中移除
+                config.pop("known_prefixes", None)
+                config_changed = True
+            # 关闭 onlyonce
+            if self._onlyonce:
+                self._onlyonce = False
+                config.update({"onlyonce": self._onlyonce})
+                config_changed = True
+            if config_changed:
+                self.update_config(config)
+
         # 停止现有任务
         self.stop_service()
 
-        if self._enabled and (self._onlyonce or self._cron):
+        if self._enabled and (need_run_once or self._cron):
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-            if self._onlyonce:
-                # 执行一次, 关闭 onlyonce
-                self._onlyonce = False
-                config.update({"onlyonce": self._onlyonce})
-                self.update_config(config)
+            if need_run_once:
                 self._scheduler.add_job(
                     func=self._complement_history,
                     trigger='date',
+                    name="集数标签立即补全/格式刷新",
                     run_date=datetime.datetime.now(tz=pytz.timezone(settings.TZ)) + datetime.timedelta(seconds=3)
                 )
             if self._cron:
@@ -263,40 +305,55 @@ class EpisodeTag(_PluginBase):
 
     # ============ 标签构造 ============
 
-    @staticmethod
-    def _format_episodes(episodes: List[int]) -> List[str]:
+    def _format_episodes(self, episodes: List[int]) -> List[str]:
         """
-        每集一个独立标签，不压缩范围：[1,2,3] -> ['E01','E02','E03']
+        按当前配置生成集数标签：连续集数段超过合并阈值时合并为一个标签，
+        否则每集独立。格式：{前缀}{集:02d} 或 {前缀}{起:02d}{分隔符}{止:02d}
+        例（前缀E、阈值2、分隔符-）：[1,2] -> E01,E02；[1,2,3] -> E01-03
         """
         eps = sorted(set(int(e) for e in episodes))
-        return [f"E{e:02d}" for e in eps]
-
-    def _build_tags(self, episodes: List[int]) -> List[str]:
-        tags = self._format_episodes(episodes)
-        if self._tag_prefix:
-            tags = [f"{self._tag_prefix}{t}" for t in tags]
+        if not eps:
+            return []
+        prefix, sep, threshold = self._tag_prefix, self._tag_separator, self._merge_threshold
+        if threshold <= 1:
+            # 阈值 <=1：不合并，每集独立标签
+            return [f"{prefix}{e:02d}" for e in eps]
+        tags = []
+        seg = [eps[0]]
+        for e in eps[1:]:
+            if e == seg[-1] + 1:
+                seg.append(e)
+            else:
+                tags.extend(self._segment_tags(seg, prefix, sep, threshold))
+                seg = [e]
+        tags.extend(self._segment_tags(seg, prefix, sep, threshold))
         return tags
 
-    # ============ 标签识别 ============
-
     @staticmethod
-    def _is_episode_tag(tag: str) -> bool:
+    def _segment_tags(seg: List[int], prefix: str, sep: str, threshold: int) -> List[str]:
         """
-        单集标签：以 E数字结尾（E03 / 集数-E03）
+        单个连续集数段 -> 标签列表：段长 > 阈值合并，否则拆开
+        """
+        if len(seg) > threshold:
+            return [f"{prefix}{seg[0]:02d}{sep}{seg[-1]:02d}"]
+        return [f"{prefix}{e:02d}" for e in seg]
+
+    # ============ 插件标签识别（含历史格式迁移清理） ============
+
+    def _is_plugin_tag(self, tag: str) -> bool:
+        """
+        判断标签是否为本插件产物（含所有历史版本格式），用于迁移/清理：
+        1. 老版默认格式：以 E数字 结尾（E01 / 自定义前缀-E03 / v1.0 范围 E01-E12）
+        2. 新格式：{已知前缀}{1-3位数字}[{<=3位分隔}{1-3位数字}]
         """
         if not tag:
             return False
-        return bool(re.search(r"E\d{1,3}$", tag))
-
-    @staticmethod
-    def _is_range_tag(tag: str) -> bool:
-        """
-        旧版范围标签：E01-E12（v1.0 产物，需迁移为每集）
-        """
-        if not tag:
-            return False
-        return bool(re.search(r"E\d{1,3}-E\d{1,3}$", tag))
-
+        if re.search(r"E\d{1,3}$", tag):
+            return True
+        for p in self._known_prefixes:
+            if re.match(rf"^{re.escape(p)}\d{{1,3}}(?:\S{{0,3}}\d{{1,3}})?$", tag):
+                return True
+        return False
     # ============ 存量扫描标签过滤 ============
 
     @staticmethod
@@ -347,11 +404,12 @@ class EpisodeTag(_PluginBase):
         except Exception:
             return None
 
-    # ============ 打标签（含范围→每集迁移，幂等） ============
+    # ============ 打标签（含旧格式迁移，幂等） ============
 
     def _apply_tags(self, service: ServiceInfo, _hash: str, new_tags: List[str]) -> bool:
         """
-        追加缺失的每集标签，并移除旧版范围标签(E01-E12)。幂等：无变化则不写。
+        按当前格式对齐标签：追加缺失标签，移除所有旧格式/多余的本插件标签。
+        幂等：无变化则不写。非本插件标签不受影响。
         """
         if not service or not service.instance or not _hash or not new_tags:
             return False
@@ -364,26 +422,27 @@ class EpisodeTag(_PluginBase):
             logger.warn(f"{self.LOG_TAG}读取种子当前标签失败: {e}")
             cur = []
         cur_set = set(cur)
+        new_set = set(new_tags)
         to_add = [t for t in new_tags if t not in cur_set]
-        to_remove = [t for t in cur if self._is_range_tag(t)]
+        to_remove = [t for t in cur if self._is_plugin_tag(t) and t not in new_set]
         if not to_add and not to_remove:
             return False
         try:
             if dl_type == "qbittorrent":
-                # 移除旧范围标签（参数名为 tag）
+                # 移除旧格式标签（参数名为 tag）
                 if to_remove:
                     downloader.delete_torrents_tag(ids=_hash, tag=to_remove)
-                # 追加缺失的每集标签
+                # 追加缺失标签
                 if to_add:
                     downloader.set_torrents_tag(ids=_hash, tags=to_add)
             else:
-                # Transmission 整体覆盖：去掉范围标签后合并每集标签
+                # Transmission 整体覆盖：去掉旧标签后合并新标签
                 merged = [t for t in cur if t not in set(to_remove)]
                 merged = list(dict.fromkeys(merged + to_add))
                 downloader.set_torrent_tag(ids=_hash, tags=merged)
             logger.info(f"{self.LOG_TAG}{service.name} {_hash[:12]} "
                         f"{('+标签 ' + ','.join(to_add)) if to_add else ''} "
-                        f"{('-范围 ' + ','.join(to_remove)) if to_remove else ''}".strip())
+                        f"{('-旧 ' + ','.join(to_remove)) if to_remove else ''}".strip())
             return True
         except Exception as e:
             logger.error(f"{self.LOG_TAG}设置标签失败: {e}")
@@ -415,7 +474,7 @@ class EpisodeTag(_PluginBase):
             episodes = self._extract_episodes(context, _hash, service=service)
             if not episodes:
                 return
-            self._apply_tags(service, _hash, self._build_tags(episodes))
+            self._apply_tags(service, _hash, self._format_episodes(episodes))
         except Exception as e:
             logger.error(f"{self.LOG_TAG}处理下载加入事件失败: {e}")
 
@@ -458,11 +517,6 @@ class EpisodeTag(_PluginBase):
                     # 包含/排除标签过滤（仅影响存量扫描，不影响下载加入事件）
                     if not self._match_tags(labels):
                         continue
-                    has_ep = any(self._is_episode_tag(t) for t in labels)
-                    has_range = any(self._is_range_tag(t) for t in labels)
-                    # 已是每集标签且无旧范围标签 → 跳过（避免重复处理）
-                    if self._skip_existing and has_ep and not has_range:
-                        continue
                     # 仅剧集：跳过电影
                     history = downloadhis.get_by_hash(_hash)
                     if self._only_tv:
@@ -475,7 +529,12 @@ class EpisodeTag(_PluginBase):
                     episodes = self._extract_episodes(None, _hash, service=service, torrent_name=torrent_name)
                     if not episodes:
                         continue
-                    self._apply_tags(service, _hash, self._build_tags(episodes))
+                    new_tags = self._format_episodes(episodes)
+                    # 已是当前格式（插件标签集合完全一致）→ 跳过，无需重打；
+                    # 旧格式标签（v1.0 范围 / v1.x 前缀或阈值差异）会在 _apply_tags 中自动迁移
+                    if {t for t in labels if self._is_plugin_tag(t)} == set(new_tags):
+                        continue
+                    self._apply_tags(service, _hash, new_tags)
                 except Exception as e:
                     logger.error(f"{self.LOG_TAG}补全种子失败: {e}")
         logger.info(f"{self.LOG_TAG}补全完成")
@@ -492,30 +551,23 @@ class EpisodeTag(_PluginBase):
                         'content': [
                             {
                                 'component': 'VCol',
-                                'props': {'cols': 12, 'md': 3},
+                                'props': {'cols': 12, 'md': 4},
                                 'content': [
                                     {'component': 'VSwitch', 'props': {'model': 'enabled', 'label': '启用插件'}}
                                 ]
                             },
                             {
                                 'component': 'VCol',
-                                'props': {'cols': 12, 'md': 3},
+                                'props': {'cols': 12, 'md': 4},
                                 'content': [
                                     {'component': 'VSwitch', 'props': {'model': 'only_tv', 'label': '跳过电影'}}
                                 ]
                             },
                             {
                                 'component': 'VCol',
-                                'props': {'cols': 12, 'md': 3},
+                                'props': {'cols': 12, 'md': 4},
                                 'content': [
-                                    {'component': 'VSwitch', 'props': {'model': 'skip_existing', 'label': '已标记则跳过'}}
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {'cols': 12, 'md': 3},
-                                'content': [
-                                    {'component': 'VSwitch', 'props': {'model': 'onlyonce', 'label': '立即补全历史(一次)'}}
+                                    {'component': 'VSwitch', 'props': {'model': 'onlyonce', 'label': '立即补全/刷新(一次)'}}
                                 ]
                             }
                         ]
@@ -595,14 +647,42 @@ class EpisodeTag(_PluginBase):
                         'content': [
                             {
                                 'component': 'VCol',
-                                'props': {'cols': 12},
+                                'props': {'cols': 12, 'md': 4},
                                 'content': [
                                     {
                                         'component': 'VTextField',
                                         'props': {
                                             'model': 'tag_prefix',
-                                            'label': '标签前缀(可选，如 集数-)',
-                                            'placeholder': '留空则为纯 E01'
+                                            'label': '标签前缀',
+                                            'placeholder': '默认 E，必填；留空自动回退 E'
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {'cols': 12, 'md': 4},
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'merge_threshold',
+                                            'label': '合并阈值',
+                                            'placeholder': '默认 2；连续超过该集数则合并，≤1 不合并'
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {'cols': 12, 'md': 4},
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'tag_separator',
+                                            'label': '合并分隔符',
+                                            'placeholder': '默认 -，可改为空或其他字符'
                                         }
                                     }
                                 ]
@@ -621,9 +701,13 @@ class EpisodeTag(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '每集拆成独立标签（E01、E02、E03…），不再使用 E01-E12 范围；'
-                                                    '已有的范围标签会在补全时自动拆开。无下载记录的种子会读取种子文件列表解析集数。'
-                                                    '电影默认跳过。配置定时周期后按周期扫描存量种子补标签：'
+                                            'text': '标签格式：{前缀}{集数}，连续集数超过合并阈值时合并为一个标签（如 E01-03）。'
+                                                    '前缀默认 E（必填，留空自动回退 E，老版本默认 E 无缝兼容）；'
+                                                    '合并阈值默认 2（连续 ≤2 集各打一个标签，≥3 集合并为一个；≤1 则永不合并）；'
+                                                    '分隔符默认 -（可改为空）。'
+                                                    '修改前缀/合并阈值/分隔符保存后会自动全量刷新所有种子的标签到新格式，'
+                                                    '旧版本标签（E01-E12 范围、旧前缀）在补全/刷新时自动迁移。'
+                                                    '无下载记录的种子会读取种子文件列表解析集数；电影默认跳过。'
                                                     '命中任一排除标签的种子跳过；配置了包含标签时仅处理命中任一包含标签的种子（留空则处理全部）。'
                                                     '标签过滤仅影响存量扫描（定时/立即补全），不影响新下载任务的即时打标签。'
                                         }
@@ -639,8 +723,9 @@ class EpisodeTag(_PluginBase):
             "onlyonce": False,
             "cron": "",
             "only_tv": True,
-            "skip_existing": True,
-            "tag_prefix": "",
+            "tag_prefix": "E",
+            "merge_threshold": 2,
+            "tag_separator": "-",
             "include_tags": "",
             "exclude_tags": "",
             "downloaders": None
