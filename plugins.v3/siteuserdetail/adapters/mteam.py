@@ -109,13 +109,27 @@ class MTeamAdapter(SiteAdapter):
         return clients
 
     def parse_leeching(self, uid: str) -> List[Dict[str, Any]]:
-        """POST api/member/getUserTorrentList 翻页取下载中种子（type=INCOMPLETE）。
+        """POST api/member/getUserTorrentList 取正在下载的种子（type=INCOMPLETE）。
 
         响应结构（oes v3.1.5 实测）：
         data = {"pageNumber", "pageSize", "total", "totalPages", "data": [
             {"torrent": {"id", "name", "smallDescr", "size", "infoHash",
                          "status": {"discount": "FREE"/"PERCENT_50"/"_2X"...}}, "peer": ...}]}
+
+        注意：M-Team 的 INCOMPLETE 是**历史未完成**列表（含客户端已删除的种子），
+        行内 peer 非空才代表当前正在下载。先取 myPeerStatus.leecher（活动下载数）：
+        为 0 直接返回空，>0 时翻页收集到该数量即止。若响应行均无 peer 字段
+        （API 结构变化），回退为返回全部行。
         """
+        # 活动下载数（权威计数，兼作翻页上限）
+        leecher_count = None
+        try:
+            peer_status = self._api_post("api/tracker/myPeerStatus", {"uid": int(uid)}) or {}
+            leecher_count = int(peer_status.get("leecher") or 0)
+        except (AdapterError, TypeError, ValueError):
+            leecher_count = None
+        if leecher_count == 0:
+            return []
         torrents: List[Dict[str, Any]] = []
         page = 0
         for _ in range(self.max_pages):
@@ -134,8 +148,12 @@ class MTeamAdapter(SiteAdapter):
             rows = payload.get("data") or payload.get("rows") or []
             if not rows:
                 break
+            has_peer_field = any("peer" in row for row in rows if isinstance(row, dict))
             for row in rows:
                 if not isinstance(row, dict):
+                    continue
+                # 历史未完成（peer 为空）不算正在下载
+                if has_peer_field and not row.get("peer"):
                     continue
                 torrent = row.get("torrent") or row
                 tid = torrent.get("id")
@@ -152,7 +170,8 @@ class MTeamAdapter(SiteAdapter):
                     "hash": str(torrent.get("infoHash") or torrent.get("hash") or "").lower(),
                 })
             total = int(payload.get("total") or 0)
-            if total and len(torrents) >= total:
+            if (total and len(torrents) >= total) or \
+                    (leecher_count is not None and len(torrents) >= leecher_count):
                 break
         return torrents
 

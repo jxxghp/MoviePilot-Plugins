@@ -112,8 +112,11 @@ SITE_ADAPTERS["hdsky.me"] = HdskyAdapter
 
 ## 说明与限制
 
-- M-Team 客户端数据来自 `api/tracker/myPeerStatus`，下载中列表来自 `api/member/getUserTorrentList`；
-  若站点后续调整 API 字段，只需修改 `adapters/mteam.py` 的映射常量；
+- M-Team 下载中列表来自 `api/member/getUserTorrentList`（type=INCOMPLETE）：该列表是
+  **历史未完成**（含客户端已删除的种子），插件以 `myPeerStatus.leecher` 与行内 `peer`
+  活动会话判定**当前真实下载**，无活动下载时返回空列表；客户端数据 API（myPeerStatus）
+  无 peers 明细，客户端条目为全空值；种子 hash 仅能通过下载器名匹配回填（列表/详情 API
+  均不返回 infohash）。若站点后续调整 API 字段，只需修改 `adapters/mteam.py` 的映射常量；
 - NexusPHP 客户端表格解析为通用启发式（表头列名定位 + 单元格 IP/UA 特征识别），
   覆盖不到的站点请通过站点适配器微调；
 - 种子详情页兜底会访问 `details.php`，注意配置合理的 `detail_limit` 与请求间隔，避免请求过多。

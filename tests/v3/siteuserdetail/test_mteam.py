@@ -2,6 +2,7 @@
 
 import pytest
 
+from app.plugins.siteuserdetail.adapters.base import AdapterError
 from app.plugins.siteuserdetail.adapters.mteam import MTeamAdapter
 
 
@@ -89,39 +90,72 @@ class TestParseClients:
 
 class TestParseLeeching:
 
-    def test_rows_and_pagination(self, mt_site, monkeypatch):
-        """响应结构按 oes v3.1.5 实测：data.data 为行列表，种子字段在 torrent 子对象。"""
+    @staticmethod
+    def _row(tid, name, size=100, discount=None, peer=None, with_peer=True):
+        row = {"torrent": {"id": tid, "name": name, "size": size,
+                           "status": {"discount": discount} if discount else {}}}
+        if with_peer:
+            row["peer"] = peer
+        return row
+
+    def test_leecher_zero_returns_empty_without_listing(self, mt_site, monkeypatch):
+        """myPeerStatus.leecher=0（无活动下载）直接返回空，不再请求种子列表。"""
+        adapter = make_adapter(mt_site)
+        calls = []
+
+        def fake_api_post(path, payload):
+            calls.append(path)
+            return {"seeder": 32, "leecher": "0"}
+
+        monkeypatch.setattr(adapter, "_api_post", fake_api_post)
+        assert adapter.parse_leeching("606354") == []
+        assert calls == ["api/tracker/myPeerStatus"]
+
+    def test_only_active_peer_rows_returned(self, mt_site, monkeypatch):
+        """INCOMPLETE 是历史未完成列表：peer 为空的行（已删种）不算正在下载。"""
         adapter = make_adapter(mt_site)
         pages = [
-            {"total": 3, "data": [
-                {"torrent": {"id": 9001, "name": "MT.Torrent.A", "size": 100,
-                              "infoHash": "ab" * 20, "status": {"discount": "FREE"}}},
-                {"torrent": {"id": 9002, "name": "MT.Torrent.B", "size": 200,
-                              "status": {}}},
+            {"total": 4, "data": [
+                self._row(9001, "Active.A", peer={"status": "DOWNLOADING"}),
+                self._row(9002, "Historical.B", peer=None),          # 历史未完成 → 剔除
+                self._row(9003, "Active.C", 200, "FREE", peer={"progress": 0.5}),
             ]},
-            {"total": 3, "data": [
-                {"torrent": {"id": 9003, "name": "MT.Torrent.C", "size": 300,
-                              "status": {"discount": "PERCENT_50"}}},
+            {"total": 4, "data": [
+                self._row(9004, "Active.D", 300, "PERCENT_50", peer={"status": "DOWNLOADING"}),
             ]},
         ]
 
         def fake_api_post(path, payload):
-            assert path == "api/member/getUserTorrentList"
-            assert payload["type"] == "INCOMPLETE"
-            assert payload["userid"] == 606354
+            if path == "api/tracker/myPeerStatus":
+                return {"seeder": 32, "leecher": "3"}
             return pages[payload["pageNumber"] - 1]
 
         monkeypatch.setattr(adapter, "_api_post", fake_api_post)
         torrents = adapter.parse_leeching("606354")
-        assert [t["id"] for t in torrents] == ["9001", "9002", "9003"]
-        assert torrents[0]["tags"] == ["Free"]
-        assert torrents[0]["hash"] == "ab" * 20
-        assert torrents[2]["tags"] == ["50%"]
+        assert [t["id"] for t in torrents] == ["9001", "9003", "9004"]
+        assert torrents[1]["tags"] == ["Free"]
         assert torrents[1]["hash"] == ""
+
+    def test_fallback_when_peer_field_missing(self, mt_site, monkeypatch):
+        """响应无 peer 字段（API 结构变化）时回退为返回全部行。"""
+        adapter = make_adapter(mt_site)
+        rows = [{"torrent": {"id": 9001, "name": "A", "size": 1}},
+                {"torrent": {"id": 9002, "name": "B", "size": 2}}]
+
+        def fake_api_post(path, payload):
+            if path == "api/tracker/myPeerStatus":
+                raise AdapterError("boom")
+            return {"total": 2, "data": rows}
+
+        monkeypatch.setattr(adapter, "_api_post", fake_api_post)
+        torrents = adapter.parse_leeching("606354")
+        assert [t["id"] for t in torrents] == ["9001", "9002"]
 
     def test_no_rows_stops(self, mt_site, monkeypatch):
         adapter = make_adapter(mt_site)
-        monkeypatch.setattr(adapter, "_api_post", lambda path, payload: {"total": 0, "data": []})
+        monkeypatch.setattr(adapter, "_api_post", lambda path, payload: (
+            {"seeder": 1, "leecher": "5"} if path.endswith("myPeerStatus")
+            else {"total": 0, "data": []}))
         assert adapter.parse_leeching("1") == []
 
 

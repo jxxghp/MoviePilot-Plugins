@@ -318,7 +318,7 @@ class TestGetPage:
                  "ipv6": "", "port": 51413},
                 {"site": "站B", "domain": "b.org", "agent": "qB 5.0", "ipv4": "1.1.1.1",
                  "ipv6": "240c::1", "port": 51413},
-                {"site": "站C", "domain": "c.org", "agent": "", "ipv4": "", "ipv6": "", "port": None},
+                {"site": "", "domain": "c.org", "agent": "", "ipv4": "", "ipv6": "", "port": None},
             ],
             "torrents": [
                 {"site": "站A", "domain": "a.org", "id": "1", "name": "T1",
@@ -337,6 +337,33 @@ class TestGetPage:
             assert expected in texts
         # IPv4 聚合：1.1.1.1 出现在 2 个站点
         assert "1.1.1.1" in texts and "×" in texts
+        # 分节顺序：IP 聚合在 BT 客户端之前（rfind 跳过顶部摘要卡的同名统计标签）
+        assert texts.find("IPv4 聚合") < texts.find("BT 客户端") < texts.rfind("下载中种子")
+        # 站点空值回退 domain
+        assert "c.org" in texts
+
+    def test_page_sections_collapsible_and_ordered(self, plugin, monkeypatch):
+        """各分节为可折叠手风琴；IP 聚合在 BT 客户端之前。"""
+        snapshot = {
+            "update_time": 1760000000,
+            "clients": [{"site": "站A", "domain": "a.org", "agent": "qB/5.0",
+                         "ipv4": "1.1.1.1", "ipv6": "", "port": 1}],
+            "torrents": [], "errors": [],
+        }
+        monkeypatch.setattr(plugin, "get_data", Mock(return_value=snapshot))
+        page = plugin.get_page()
+        sections = [node for node in page[1]["content"]
+                    if isinstance(node, dict) and node.get("component") == "VExpansionPanels"]
+        assert len(sections) == 3  # IPv4 聚合 + IPv6 聚合无数据时不生成 → BT客户端 + 下载中种子
+        titles = []
+        for section in sections:
+            panel = section["content"][0]
+            assert panel["component"] == "VExpansionPanel"
+            assert panel["content"][0]["component"] == "VExpansionPanelTitle"
+            assert panel["content"][1]["component"] == "VExpansionPanelText"
+            titles.append(json.dumps(panel["content"][0], ensure_ascii=False))
+        order = ["".join(titles).find(name) for name in ("BT 客户端", "下载中种子")]
+        assert order == sorted(order)
 
 
 class TestCollectRobustness:

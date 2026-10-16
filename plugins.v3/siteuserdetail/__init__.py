@@ -49,7 +49,7 @@ class SiteUserDetail(_PluginBase):
     # 插件图标
     plugin_icon = "siteuserdetail.png"
     # 插件版本
-    plugin_version = "1.0.1"
+    plugin_version = "1.0.3"
     # 插件作者
     plugin_author = "Guoyin-Wen"
     # 作者主页
@@ -465,10 +465,11 @@ class SiteUserDetail(_PluginBase):
                                             f"已匹配 hash {hash_hit} 个", "mdi-download", "primary"),
                         ]
                     },
+                    # IP 聚合在前，明细表默认折叠
+                    *self._ip_sections(clients),
                     self._page_section(
                         title="BT 客户端", icon="mdi-lan-connect", count_text=f"{len(clients)} 条记录",
                         content=[self._clients_table(clients)]),
-                    *self._ip_sections(clients),
                     self._page_section(
                         title="下载中种子", icon="mdi-download", count_text=f"{len(torrents)} 个",
                         content=torrents_content),
@@ -487,7 +488,7 @@ class SiteUserDetail(_PluginBase):
     # ------------------------------------------------------------------ 详情页构件
 
     _PAGE_CSS = """
-    .sud-page { display: flex; flex-direction: column; gap: 14px; }
+    .sud-page { display: flex; flex-direction: column; gap: 10px; }
     .sud-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
     .sud-stat { min-width: 0; padding: 10px 12px; border-radius: 8px;
                 background: rgba(var(--v-theme-surface-variant), .35); }
@@ -498,13 +499,15 @@ class SiteUserDetail(_PluginBase):
     .sud-stat__value { margin-top: 8px; font-size: 1.15rem; font-weight: 700; line-height: 1.2;
                        word-break: break-all; }
     .sud-stat__meta { margin-top: 4px; color: rgba(var(--v-theme-on-surface), .5); font-size: .72rem; }
-    .sud-section-head { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
-    .sud-section-title { font-size: .95rem; font-weight: 700; }
+    .sud-section .v-expansion-panel-title { font-weight: 600; }
+    .sud-section-head { display: flex; align-items: center; gap: 6px; }
     .sud-table th { height: 34px !important; padding: 0 8px !important; white-space: nowrap;
                     color: rgba(var(--v-theme-on-surface), .62); font-size: .75rem; }
     .sud-table td { height: 36px !important; padding: 0 8px !important; font-size: .8rem;
                     vertical-align: middle; max-width: 420px; overflow: hidden;
                     text-overflow: ellipsis; white-space: nowrap; }
+    .sud-table td.sud-wrap { white-space: normal; overflow: visible; max-width: none;
+                             line-height: 1.6; }
     .sud-muted td { color: rgba(var(--v-theme-on-surface), .38); }
     .sud-promo { display: flex; flex-wrap: wrap; gap: 4px; }
     @media (max-width: 720px) { .sud-summary { grid-template-columns: 1fr; } }
@@ -513,6 +516,11 @@ class SiteUserDetail(_PluginBase):
     @classmethod
     def _page_css(cls) -> str:
         return cls._PAGE_CSS
+
+    @staticmethod
+    def _site_label(item: Dict[str, Any]) -> str:
+        """站点显示名：name 为空时回退 domain，再回退「未知」。"""
+        return str(item.get("site") or item.get("domain") or "未知")
 
     @staticmethod
     def _stat_item(label: str, value: str, meta: str = "",
@@ -531,21 +539,35 @@ class SiteUserDetail(_PluginBase):
 
     @staticmethod
     def _page_section(title: str, icon: str, count_text: str, content: list) -> dict:
+        """可折叠分节（手风琴，默认收起，点击展开）。"""
         return {
-            'component': 'div',
+            'component': 'VExpansionPanels',
+            'props': {'variant': 'accordion', 'multiple': True, 'class': 'sud-section'},
             'content': [
                 {
-                    'component': 'div',
-                    'props': {'class': 'sud-section-head'},
+                    'component': 'VExpansionPanel',
                     'content': [
-                        {'component': 'VIcon', 'props': {'size': 'small', 'color': 'primary'}, 'text': icon},
-                        {'component': 'span', 'props': {'class': 'sud-section-title'}, 'text': title},
-                        {'component': 'VSpacer'},
-                        {'component': 'VChip', 'props': {
-                            'size': 'x-small', 'variant': 'tonal', 'color': 'primary'}, 'text': count_text},
+                        {
+                            'component': 'VExpansionPanelTitle',
+                            'content': [
+                                {
+                                    'component': 'div',
+                                    'props': {'class': 'sud-section-head'},
+                                    'content': [
+                                        {'component': 'VIcon', 'props': {
+                                            'size': 'small', 'color': 'primary'}, 'text': icon},
+                                        {'component': 'span', 'text': title},
+                                        {'component': 'VSpacer'},
+                                        {'component': 'VChip', 'props': {
+                                            'size': 'x-small', 'variant': 'tonal',
+                                            'color': 'primary'}, 'text': count_text},
+                                    ]
+                                }
+                            ]
+                        },
+                        {'component': 'VExpansionPanelText', 'content': content},
                     ]
-                },
-                *content,
+                }
             ]
         }
 
@@ -584,13 +606,13 @@ class SiteUserDetail(_PluginBase):
 
     def _clients_table(self, clients: list) -> dict:
         rows = []
-        for client in sorted(clients, key=lambda c: str(c.get("site") or "")):
+        for client in sorted(clients, key=lambda c: self._site_label(c)):
             muted = not (client.get("agent") or client.get("ipv4") or client.get("ipv6"))
             ipv6 = client.get("ipv6") or ""
             rows.append({
                 'props': {'class': 'sud-muted'} if muted else {},
                 'cells': [
-                    self._td(client.get("site"), muted=muted),
+                    self._td(self._site_label(client), muted=muted, title=client.get("domain")),
                     self._td(client.get("agent"), muted=muted),
                     self._td(client.get("ipv4"), muted=muted),
                     self._td(ipv6[:48] + ("…" if len(ipv6) > 48 else ""), muted=muted, title=ipv6),
@@ -609,8 +631,7 @@ class SiteUserDetail(_PluginBase):
                 if not ip:
                     continue
                 group = groups.setdefault(ip, {"sites": set(), "agents": set()})
-                if client.get("site"):
-                    group["sites"].add(str(client["site"]))
+                group["sites"].add(self._site_label(client))
                 if client.get("agent"):
                     group["agents"].add(str(client["agent"]))
             if not groups:
@@ -618,17 +639,19 @@ class SiteUserDetail(_PluginBase):
             rows = []
             for ip, group in sorted(groups.items(), key=lambda kv: -len(kv[1]["sites"])):
                 display_ip = ip[:48] + ("…" if len(ip) > 48 else "")
+                # 全量站点 chips，超出显示范围自动换行
                 site_chips = [{
                     'component': 'VChip', 'props': {
-                        'size': 'x-small', 'variant': 'tonal', 'class': 'mr-1',
+                        'size': 'x-small', 'variant': 'tonal', 'class': 'mr-1 mb-1',
                         'color': 'warning' if len(group["sites"]) > 1 else 'default'},
-                    'text': site} for site in sorted(group["sites"])[:6]]
+                    'text': site} for site in sorted(group["sites"])]
                 agent_text = " / ".join(sorted(group["agents"])[:3]) or "-"
                 rows.append({
                     'cells': [
                         self._td(display_ip, title=ip),
                         self._td(len(group["sites"])),
-                        {'component': 'td', 'props': {'class': 'text-start'}, 'content': site_chips},
+                        {'component': 'td', 'props': {'class': 'text-start sud-wrap'},
+                         'content': site_chips},
                         self._td(agent_text, title=agent_text),
                     ]
                 })
@@ -639,7 +662,7 @@ class SiteUserDetail(_PluginBase):
 
     def _torrents_table(self, torrents: list) -> dict:
         rows = []
-        for torrent in sorted(torrents, key=lambda t: str(t.get("site") or ""))[:300]:
+        for torrent in sorted(torrents, key=lambda t: self._site_label(t))[:300]:
             name = str(torrent.get("name") or "")
             torrent_hash = str(torrent.get("hash") or "")
             tags = torrent.get("tags") or []
@@ -649,7 +672,7 @@ class SiteUserDetail(_PluginBase):
                 'text': tag} for tag in tags]
             rows.append({
                 'cells': [
-                    self._td(torrent.get("site")),
+                    self._td(self._site_label(torrent), title=torrent.get("domain")),
                     self._td(name[:80] + ("…" if len(name) > 80 else ""), title=name),
                     {'component': 'td', 'props': {'class': 'text-start'}, 'content': tag_chips}
                     if tag_chips else self._td(""),
@@ -728,7 +751,7 @@ class SiteUserDetail(_PluginBase):
         errors: List[Dict[str, Any]] = []
         for site, site_clients, site_torrents, error, uid in results:
             domain = site.get("domain")
-            site_name = site.get("name")
+            site_name = site.get("name") or domain or "未知"
             if uid and domain:
                 uid_map[domain] = uid
             if error:
