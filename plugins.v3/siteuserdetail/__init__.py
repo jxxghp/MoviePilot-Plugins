@@ -469,7 +469,8 @@ class SiteUserDetail(_PluginBase):
                     # IP 聚合在前；客户端分节：无数据站点 + 全部站点（同级可折叠）
                     *self._ip_sections(clients),
                     self._page_section(
-                        title="无数据站点", icon="mdi-lan-alert" if no_data_clients else "mdi-lan-check",
+                        title="无数据站点",
+                        icon="mdi-lan-disconnect" if no_data_clients else "mdi-lan-connect",
                         count_text=f"{len(no_data_clients)} 个",
                         content=self._clients_no_data_content(no_data_clients, errors)),
                     self._page_section(
