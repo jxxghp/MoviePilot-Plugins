@@ -29,8 +29,8 @@ from .base import AdapterError, SiteAdapter
 
 # 网页端 HMAC 签名密钥（由主站前端 main.*.js 生成，站点轮换后需同步更新）
 _WEB_SIGN_SECRET = "HLkPcWmycL57mfJt"
-# 查询 peers 的种子数量上限（做种列表前 N 个，控制请求量）
-_PEERS_TORRENT_LIMIT = 3
+# 查询 peers 的种子数量上限（做种列表前 N 个，控制请求量、降低风控风险）
+_PEERS_TORRENT_LIMIT = 2
 
 # M-Team 优惠字段（discount）→ 促销标签片段
 _DISCOUNT_TOKENS = (
