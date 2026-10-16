@@ -1,4 +1,6 @@
-"""M-Team 适配器测试：API 映射、分页、discount 促销标签。"""
+"""M-Team 适配器测试：JWT peers 客户端匹配、API 映射、分页、discount 促销标签。"""
+
+from unittest.mock import Mock
 
 import pytest
 
@@ -16,6 +18,7 @@ def mt_site():
         "cookie": None,
         "ua": "Mozilla/5.0 (test)",
         "apikey": "x-api-key-token",
+        "token": "jwt-browser-token",
         "proxy": False,
     }
 
@@ -57,35 +60,55 @@ class TestGetUid:
 
 class TestParseClients:
 
-    def test_peer_list_mapping(self, mt_site, monkeypatch):
+    @staticmethod
+    def _seeding_row(tid):
+        return {"torrent": {"id": tid, "name": f"T{tid}"}, "peer": {"peerId": "x"}}
+
+    def test_member_id_matching_and_dedup(self, mt_site, monkeypatch):
+        """peers 里 memberId 等于自己 uid 的即本人会话；同客户端多会话去重。"""
         adapter = make_adapter(mt_site)
         monkeypatch.setattr(adapter, "_api_post", lambda path, payload: {
-            "seeder": 2, "leecher": 1, "peers": [
-                {"agent": "qBittorrent 5.0.1", "ip": "1.2.3.4", "port": 51413},
-                {"agent": "Transmission 4.0.3", "ip": "::ffff:1.2.3.5", "ipv6": "240c::66",
-                 "port": 51413},
-            ]})
+            "total": 3, "data": [self._seeding_row(1), self._seeding_row(2)]})
+
+        def fake_signed(path, params):
+            assert path == "/api/torrent/peers"
+            if params["id"] == "1":
+                return [
+                    {"memberId": "606354", "agent": "qBittorrent/5.2.4", "ip": "1.2.3.4",
+                     "ipv6": "240c::1"},
+                    {"memberId": "999", "agent": "Deluge 2.0", "ip": "5.6.7.8", "ipv6": None},
+                ]
+            # 第二个种子：同客户端同 IP（去重）+ 新 IPv4 会话
+            return [
+                {"memberId": "606354", "agent": "qBittorrent/5.2.4", "ip": "1.2.3.4",
+                 "ipv6": "240c::1"},
+                {"memberId": "606354", "agent": "qBittorrent/5.2.4", "ip": "9.9.9.9",
+                 "ipv6": None},
+            ]
+
+        monkeypatch.setattr(adapter, "_call_signed", fake_signed)
         clients = adapter.parse_clients("606354")
-        assert len(clients) == 2
-        assert clients[0]["agent"] == "qBittorrent 5.0.1"
-        assert clients[0]["ipv4"] == "1.2.3.4"
-        assert clients[0]["port"] == 51413
-        assert clients[1]["ipv6"] == "240c::66"
+        assert clients == [
+            {"agent": "qBittorrent/5.2.4", "ipv4": "1.2.3.4", "ipv6": "240c::1", "port": None},
+            {"agent": "qBittorrent/5.2.4", "ipv4": "9.9.9.9", "ipv6": "", "port": None},
+        ]
 
-    def test_no_peer_detail_returns_empty(self, mt_site, monkeypatch):
-        adapter = make_adapter(mt_site)
-        monkeypatch.setattr(adapter, "_api_post", lambda path, payload: {"seeder": 3})
-        assert adapter.parse_clients("1") == []
+    def test_no_web_token_returns_empty(self, mt_site, monkeypatch):
+        adapter = MTeamAdapter({**mt_site, "token": None}, interval=0)
+        monkeypatch.setattr(adapter, "_api_post", Mock())  # 不应被调用
+        assert adapter.parse_clients("606354") == []
 
-    def test_api_error_returns_empty(self, mt_site, monkeypatch):
+    def test_token_expired_returns_empty(self, mt_site, monkeypatch):
         from app.plugins.siteuserdetail.adapters.base import AdapterError
 
         adapter = make_adapter(mt_site)
-        def boom(path, payload):
-            raise AdapterError("boom")
 
-        monkeypatch.setattr(adapter, "_api_post", boom)
-        assert adapter.parse_clients("1") == []
+        def boom(path, payload):
+            raise AdapterError("Token 登录态已失效，请重新登录站点更新 Token")
+
+        monkeypatch.setattr(adapter, "_api_post", lambda path, payload: {"data": [self._seeding_row(1)]})
+        monkeypatch.setattr(adapter, "_call_signed", boom)
+        assert adapter.parse_clients("606354") == []
 
 
 class TestParseLeeching:

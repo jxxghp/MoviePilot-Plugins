@@ -1,17 +1,22 @@
 # -*- coding: utf-8 -*-
-"""M-Team（馒头）API 型站点适配器（x-api-key 认证）。
+"""M-Team（馒头）API 型站点适配器。
 
-数据来源（M-Team openapi，api.<注册域> 域名 + x-api-key 请求头）：
-- 用户 ID：POST api/member/profile（不带 uid 返回本人）；
-- BT 客户端列表：POST api/tracker/myPeerStatus；
-- 下载中种子列表：POST api/member/getUserTorrentList（type=INCOMPLETE，翻页）。
+认证与数据来源（oes v3.1.5 实测）：
+- x-api-key（站点 APIKEY 字段）：api/member/profile（uid）、api/member/getUserTorrentList
+  （INCOMPLETE 历史未完成列表，需按 peer 活动会话过滤）；
+- 浏览器 JWT（站点 Token 字段，localStorage.auth）+ HMAC 签名：
+  api/torrent/peers（种子 peers 明细，含 agent/ip/ipv6/memberId）——
+  用 memberId == 自己 uid 精确识别自己的会话，聚合得到 BT 客户端列表（API 无 port）。
 
-注意：字段结构以实际响应为准，M-Team myPeerStatus 的 peers 明细字段
-在 MoviePilot 生态内无先例可参考，本适配器采用防御式映射，
-实测后如字段名不同只需调整本文件的映射常量。
+客户端采集流程：取做种列表前几个种子 → 逐个调 torrent/peers → 匹配 memberId → 去重。
+未配置 Token 或 Token 过期（401）时客户端为空（主类兜底全空值条目）。
 """
 
+import base64
+import hashlib
+import hmac
 import json
+import time
 from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin
 
@@ -22,6 +27,11 @@ from app.sdk.utilities import StringUtils
 
 from .base import AdapterError, SiteAdapter
 
+# 网页端 HMAC 签名密钥（由主站前端 main.*.js 生成，站点轮换后需同步更新）
+_WEB_SIGN_SECRET = "HLkPcWmycL57mfJt"
+# 查询 peers 的种子数量上限（做种列表前 N 个，控制请求量）
+_PEERS_TORRENT_LIMIT = 3
+
 # M-Team 优惠字段（discount）→ 促销标签片段
 _DISCOUNT_TOKENS = (
     ("FREE", "Free"),
@@ -31,14 +41,6 @@ _DISCOUNT_TOKENS = (
     ("PERCENT_70", "70%"),
     ("2X", "2x"),
 )
-
-# peers 明细中可能的列表字段名（按顺序探测）
-_PEER_LIST_KEYS = ("peers", "list", "rows", "data", "items")
-# 单个 peer 中可能的字段名
-_PEER_AGENT_KEYS = ("agent", "client", "userAgent", "peerAgent")
-_PEER_IPV4_KEYS = ("ip", "ipv4", "ipV4", "address")
-_PEER_IPV6_KEYS = ("ipv6", "ipV6", "address6")
-_PEER_PORT_KEYS = ("port", "connectPort", "listenPort")
 
 
 class MTeamAdapter(SiteAdapter):
@@ -73,40 +75,108 @@ class MTeamAdapter(SiteAdapter):
         return self._uid
 
     def parse_clients(self, uid: str) -> List[Dict[str, Any]]:
-        """POST api/tracker/myPeerStatus 取当前活动客户端。"""
-        try:
-            data = self._api_post("api/tracker/myPeerStatus", {"uid": int(uid)})
-        except AdapterError as err:
-            logger.warning(f"【{self.site_name}】获取客户端信息失败: {err}")
+        """
+        采集 BT 客户端列表（需站点配置 Token=浏览器登录态 JWT）。
+
+        流程：getUserTorrentList(SEEDING) 取前几个做种种子 → 逐个调
+        /api/torrent/peers（JWT+签名）→ memberId 等于自己 uid 的即本人会话 →
+        按 (agent, ipv4, ipv6) 去重。API 不返回端口。
+        """
+        if not self.token:
+            logger.info(f"【{self.site_name}】未配置站点 Token（浏览器登录态），无法采集客户端明细")
             return []
-        peers = None
-        if isinstance(data, list):
-            peers = data
-        elif isinstance(data, dict):
-            for key in _PEER_LIST_KEYS:
-                value = data.get(key)
-                if isinstance(value, list):
-                    peers = value
+        try:
+            seeding = self._api_post("api/member/getUserTorrentList", {
+                "pageNumber": 1, "pageSize": _PEERS_TORRENT_LIMIT,
+                "type": "SEEDING", "userid": int(uid),
+            })
+            rows = (seeding or {}).get("data") or []
+            if not rows:
+                return []
+            clients: List[Dict[str, Any]] = []
+            seen = set()
+            for row in rows[:_PEERS_TORRENT_LIMIT]:
+                torrent = row.get("torrent") or {}
+                tid = torrent.get("id")
+                if not tid:
+                    continue
+                peers = self._call_signed("/api/torrent/peers", {"id": str(tid)})
+                for peer in peers or []:
+                    if not isinstance(peer, dict) or str(peer.get("memberId")) != str(uid):
+                        continue
+                    ipv4 = str(peer.get("ip") or "")
+                    ipv6 = str(peer.get("ipv6") or "")
+                    agent = str(peer.get("agent") or "")
+                    key = (agent, ipv4, ipv6)
+                    if not agent and not ipv4 and not ipv6:
+                        continue
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    clients.append({"agent": agent, "ipv4": ipv4, "ipv6": ipv6, "port": None})
+                # 命中一个客户端后继续查剩余种子（不同客户端可能做不同的种），
+                # 但已有结果时提前结束可减少对 peers 接口的请求量
+                if clients and len(clients) >= _PEERS_TORRENT_LIMIT:
                     break
-        clients: List[Dict[str, Any]] = []
-        for peer in peers or []:
-            if not isinstance(peer, dict):
-                continue
-            agent = next((str(peer[k]) for k in _PEER_AGENT_KEYS if peer.get(k)), "")
-            ipv4 = next((str(peer[k]) for k in _PEER_IPV4_KEYS if peer.get(k)), "")
-            ipv6 = next((str(peer[k]) for k in _PEER_IPV6_KEYS if peer.get(k)), "")
-            port = next((peer[k] for k in _PEER_PORT_KEYS if peer.get(k) is not None), None)
-            if agent or ipv4 or ipv6 or port:
-                clients.append({
-                    "agent": agent,
-                    "ipv4": "" if ":" in ipv4 and "." not in ipv4 else ipv4,
-                    "ipv6": ipv6,
-                    "port": int(port) if port else None,
-                })
-        if peers is None and data:
-            # 响应无 peers 明细：记录结构便于后续适配
-            logger.debug(f"【{self.site_name}】myPeerStatus 响应无 peers 明细: {list(data)[:20]}")
-        return clients
+            return clients
+        except AdapterError as err:
+            parts = str(self.token or "").split(".")
+            fingerprint = parts[1][60:110] if len(parts) == 3 and len(parts[1]) > 110 else str(self.token or "")[:30]
+            logger.warning(f"【{self.site_name}】客户端信息获取失败（Token 可能过期，请重新登录站点更新）: {err} "
+                           f"[token指纹: {fingerprint}]")
+            return []
+
+    def _call_signed(self, api_path: str, params: Dict[str, Any]) -> Any:
+        """
+        浏览器 JWT + HMAC 签名调用网页端接口（form 编码）。
+
+        签名：HMAC-SHA1(密钥, "POST&<path>&<毫秒时间戳>") 的 Base64，
+        与站点前端一致（参考 autosignin 馒头签到实现）。返回 data 字段。
+        """
+        if not self.token:
+            raise AdapterError("未配置站点 Token")
+        self._throttle()
+        ts_ms = int(time.time() * 1000)
+        sign = base64.b64encode(hmac.new(
+            _WEB_SIGN_SECRET.encode(), f"POST&{api_path}&{ts_ms}".encode(),
+            hashlib.sha1).digest()).decode()
+        fingerprint = hashlib.sha256(self.token.encode()).hexdigest()
+        form = dict(params)
+        form["_timestamp"] = str(ts_ms)
+        form["_sgin"] = sign
+        # 注意：RequestUtils 传入 headers 时 ua 参数不生效，UA 必须写进 headers
+        res = RequestUtils(
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                "Accept": "application/json, text/plain, */*",
+                "Authorization": self.token,
+                "Origin": self.base_url,
+                "Referer": urljoin(self.base_url, "/index"),
+                "Ts": str(ts_ms // 1000),
+                "webversion": "2000",
+                "Did": fingerprint[:32],
+                "visitorid": fingerprint[32:],
+                "User-Agent": self.ua or ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                                          "AppleWebKit/537.36 (KHTML, like Gecko) "
+                                          "Chrome/124.0.0.0 Safari/537.36"),
+            },
+            proxies=settings.PROXY if self.proxy else None,
+            timeout=self.timeout,
+        ).post_res(url=urljoin(self.api_base, api_path.lstrip("/")), data=form)
+        if res is None:
+            raise AdapterError("网页接口无法访问")
+        if res.status_code != 200:
+            raise AdapterError(f"网页接口返回状态码 {res.status_code}")
+        try:
+            payload = res.json()
+        except ValueError as err:
+            raise AdapterError(f"网页接口返回非 JSON: {err}") from err
+        code = str(payload.get("code"))
+        if code == "401" or "full authentication" in str(payload.get("message") or "").lower():
+            raise AdapterError("Token 登录态已失效，请重新登录站点更新 Token")
+        if code != "0":
+            raise AdapterError(f"网页接口返回错误: {payload.get('message') or code}")
+        return payload.get("data")
 
     def parse_leeching(self, uid: str) -> List[Dict[str, Any]]:
         """POST api/member/getUserTorrentList 取正在下载的种子（type=INCOMPLETE）。
