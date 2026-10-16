@@ -75,8 +75,10 @@ class TestDownloadTags:
             type(plugin), "service_info", new_callable=PropertyMock, return_value=mock_service
         )
         patch_helper = patch("app.plugins.brushflow.DownloaderHelper", return_value=mock_dh)
-        patch_request = patch("app.plugins.brushflow.RequestUtils", return_value=MagicMock(ok=False))
-        return patch_service, patch_helper, patch_request
+        download_chain = MagicMock()
+        download_chain.return_value.download_torrent.return_value = (b"torrent-content", "", [])
+        patch_download = patch("app.plugins.brushflow.DownloadChain", download_chain)
+        return patch_service, patch_helper, patch_download
 
     def test_qb_download_applies_only_readable_tag(self):
         task = _make_task()
@@ -91,9 +93,9 @@ class TestDownloadTags:
         downloader = MagicMock()
         downloader.add_torrent.return_value = True
         downloader.get_torrent_id_by_tag.return_value = "hash123"
-        patch_service, patch_helper, patch_request = self._mock_qb_environment(plugin, downloader)
+        patch_service, patch_helper, patch_download = self._mock_qb_environment(plugin, downloader)
         with patch("app.plugins.brushflow.SiteOper") as mock_site_oper, \
-             patch_service, patch_helper, patch_request:
+             patch_service, patch_helper, patch_download:
             mock_site_oper.return_value.get.return_value = FakeSite("聆音")
             result = plugin._BrushFlow__download(torrent)
 
@@ -125,16 +127,42 @@ class TestDownloadTags:
         mock_service.instance = downloader
         mock_dh = MagicMock()
         mock_dh.is_downloader.side_effect = lambda name, service=None: name == "transmission"
+        download_chain = MagicMock()
+        download_chain.return_value.download_torrent.return_value = (b"torrent-content", "", [])
         with patch("app.plugins.brushflow.SiteOper") as mock_site_oper, \
              patch.object(type(plugin), "service_info", new_callable=PropertyMock, return_value=mock_service), \
              patch("app.plugins.brushflow.DownloaderHelper", return_value=mock_dh), \
-             patch("app.plugins.brushflow.RequestUtils", return_value=MagicMock(ok=False)):
+             patch("app.plugins.brushflow.DownloadChain", download_chain):
             mock_site_oper.return_value.get.return_value = FakeSite("聆音")
             result = plugin._BrushFlow__download(torrent)
 
         assert result == "hashxyz"
         _, kwargs = downloader.add_torrent.call_args
         assert kwargs["labels"] == ["刷流-聆音"]
+
+    def test_invalid_site_response_is_rejected_before_downloader(self):
+        """站点返回登录页或确认页时，不应把页面内容交给下载器。"""
+        task = _make_task()
+        plugin = _make_plugin(task)
+        torrent = MagicMock()
+        torrent.enclosure = "https://hdsky.me/download.php?id=123"
+        torrent.site_proxy = False
+        torrent.site_cookie = "uid=1; pass=secret"
+        torrent.site_ua = "MoviePilot-Test"
+        torrent.site = 1
+        torrent.title = "测试种子"
+        downloader = MagicMock()
+        download_chain = MagicMock()
+        download_chain.return_value.download_torrent.return_value = (None, "", [])
+
+        with patch("app.plugins.brushflow.DownloadChain", download_chain), \
+             patch.object(type(plugin), "service_info", new_callable=PropertyMock):
+            assert plugin._BrushFlow__download(torrent) is None
+
+        prepared = download_chain.return_value.download_torrent.call_args.args[0]
+        assert prepared.site_cookie == torrent.site_cookie
+        assert prepared.enclosure == torrent.enclosure
+        downloader.add_torrent.assert_not_called()
 
 
 class TestGlobalDownloadingCount:
