@@ -8,6 +8,7 @@ from ruamel.yaml import CommentedMap
 from app.core.config import settings
 from app.helper.ocr import OcrHelper
 from app.log import logger
+from app.plugins.autosignin.result import has_signin_evidence
 from app.plugins.autosignin.sites import _ISiteSigninHandler
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
@@ -19,9 +20,6 @@ class Opencd(_ISiteSigninHandler):
     """
     # 匹配的站点Url，每一个实现类都需要设置为自己的站点Url
     site_url = "open.cd"
-
-    # 已签到
-    _repeat_text = "/plugin_sign-in.php?cmd=show-log"
 
     @classmethod
     def match(cls, url: str) -> bool:
@@ -60,7 +58,7 @@ class Opencd(_ISiteSigninHandler):
             logger.error(f"{site} 签到失败，Cookie已失效")
             return False, '签到失败，Cookie已失效'
 
-        if self._repeat_text in html_text:
+        if has_signin_evidence(html_text):
             logger.info(f"{site} 今日已签到")
             return True, '今日已签到'
 
@@ -76,7 +74,7 @@ class Opencd(_ISiteSigninHandler):
 
         # 没有签到则解析html
         html = etree.HTML(html_text)
-        if not html:
+        if html is None:
             return False, '签到失败'
 
         # 签到参数
@@ -123,7 +121,7 @@ class Opencd(_ISiteSigninHandler):
                 logger.debug(f"sign_res返回 {sign_res.text}")
                 # sign_res.text = '{"state":"success","signindays":"0","integral":"10"}'
                 sign_dict = json.loads(sign_res.text)
-                if sign_dict['state']:
+                if sign_dict.get('state') == 'success':
                     logger.info(f"{site} 签到成功")
                     return True, '签到成功'
                 else:

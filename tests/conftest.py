@@ -8,7 +8,11 @@
 from __future__ import annotations
 
 import sys
+from dataclasses import fields
 from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
 
 # 相对导入本仓薄壳，先定位同级 MoviePilot 后端并加入 ``sys.path``，再复用主程序共享引导。
 from ._bootstrap import (
@@ -58,6 +62,8 @@ def _configure_test_plugin_runtime() -> None:
                 logger=plugin_manager_module.logger,
                 set_default_target=_set_plugin_default_target,
                 clear_default_target=_clear_plugin_default_target,
+                # 测试不走安装流程，没有运行时声明快照；按宿主"未声明即兼容"的语义返回空映射
+                runtime_declaration=lambda _plugin_id: {},
             ),
             tool_build_max_attempts=PluginManager.AGENT_TOOLS_BUILD_MAX_ATTEMPTS,
         )
@@ -96,6 +102,32 @@ def pytest_configure(config) -> None:
     else:
         prepare_v1_backend()
     _configure_test_plugin_runtime()
+
+
+@pytest.fixture(autouse=True)
+def configure_plugin_chain_context(request):
+    """
+    为插件逻辑测试装配替身 Chain 运行上下文。
+
+    插件基类构造时会创建 PluginChain，生产环境由启动组合根配置运行上下文；插件仓测试
+    不走完整启动流程，未配置时构造插件会直接抛错。字段按宿主数据类动态填充 MagicMock，
+    宿主新增字段时不必同步修改；需要特定行为的用例仍可自行覆盖 provider。
+    """
+    if _selected_generation(request.config) == "ci":
+        yield
+        return
+
+    from app.application.chain.context import (
+        ChainRuntimeContext,
+        configure_chain_runtime_context_provider,
+    )
+
+    context = ChainRuntimeContext(**{item.name: MagicMock() for item in fields(ChainRuntimeContext)})
+    configure_chain_runtime_context_provider(lambda: context)
+    try:
+        yield
+    finally:
+        configure_chain_runtime_context_provider(None)
 
 
 def _report_session_cleanup_error(session, name: str, err: Exception) -> None:

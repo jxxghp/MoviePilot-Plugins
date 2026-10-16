@@ -8,9 +8,8 @@ from app.plugins.sitestatistic import SiteStatistic
 
 
 def _plugin() -> SiteStatistic:
-    """构造站点数据统计插件，并隔离宿主 Chain 初始化。"""
-    with patch("app.plugins.PluginChian"):
-        plugin = SiteStatistic()
+    """构造站点数据统计插件；宿主 Chain 运行上下文由根 conftest 统一装配替身。"""
+    plugin = SiteStatistic()
     plugin._notify_type = "inc"
     return plugin
 
@@ -346,3 +345,36 @@ def test_cumulative_notification_marks_pb_reading_without_changing_total():
     assert '上传量：≈ 1.00PB' in text
     assert '总上传：≈ 1.00PB' in text
     assert '实际增量未知' not in text
+
+
+@pytest.mark.parametrize('baseline,expected', [
+    ((100, 0), ([2.0], [])),
+    ((0, 100), ([], [3.0])),
+    ((0, 0), ([], [])),
+    ((100, 100), ([2.0], [3.0])),
+    ((None, 100), ([], [3.0])),
+    ((100, None), ([2.0], [])),
+    (None, ([], [])),
+])
+@pytest.mark.parametrize('dashboard', ['today', 'all'])
+def test_dashboard_computes_upload_and_download_increments_independently(baseline, expected, dashboard):
+    """零值或缺失历史字段只影响自身方向，无历史快照时不展示累计量为增量。"""
+    gib = 1024 ** 3
+    current = _display_data(102 * gib, '2026-10-13')
+    current.download = 103 * gib
+    previous = []
+    if baseline is not None:
+        data = _display_data(baseline[0], '2026-10-12')
+        data.upload = baseline[0] * gib if isinstance(baseline[0], int) else baseline[0]
+        data.download = baseline[1] * gib if isinstance(baseline[1], int) else baseline[1]
+        previous = [data]
+    plugin = _plugin()
+    plugin._dashboard_type = dashboard
+    with patch.object(plugin, '_SiteStatistic__get_data', return_value=('2026-10-13', [current], previous)):
+        _, _, elements = plugin.get_dashboard('sitestatistic')
+    charts = [element['props'] for element in _components(elements) if element['component'] == 'VApexChart']
+    assert len(charts) == 2
+    for chart, series in zip(charts, expected):
+        assert chart['series'] == series
+        assert chart['options']['labels'] == (['站点A'] if series else [])
+        assert f'共 {sum(series)} GB' in chart['options']['title']['text']

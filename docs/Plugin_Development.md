@@ -91,7 +91,7 @@ workspace/
 ```python
 from typing import Any
 
-from app.plugins import _PluginBase
+from app.sdk.plugin import _PluginBase
 
 
 class MyPlugin(_PluginBase):
@@ -199,7 +199,7 @@ class MyPlugin(_PluginBase):
 
 ## 5. `_PluginBase` 生命周期
 
-插件主类继承 `app.plugins._PluginBase`。最重要的不是实现尽可能多的方法，而是把
+插件主类继承 `app.sdk.plugin._PluginBase`。最重要的不是实现尽可能多的方法，而是把
 启用、停用和重复初始化做正确。
 
 ### 5.1 必须实现的方法
@@ -222,6 +222,7 @@ class MyPlugin(_PluginBase):
 | `get_dashboard()` / `get_dashboard_meta()` | 注册一个或多个仪表板 |
 | `get_render_mode()` | 选择 `vuetify` 或 `vue` 渲染模式 |
 | `get_sidebar_nav()` | 为 Vue 插件声明侧栏全页入口 |
+| `get_agent_pets()` | 为 Vue 插件声明智能助手形象 |
 | `get_actions()` | 注册工作流动作 |
 | `get_agent_tools()` | 注册 Agent 工具 |
 | `get_auth_providers()` | 注册外部认证入口 |
@@ -477,7 +478,7 @@ class MyPluginDatabaseMixin:
 [project]
 name = "moviepilot-plugin-myplugin"
 dynamic = ["version"]
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
     "example-package>=1",
 ]
@@ -557,6 +558,7 @@ Vue 模式下，前端构建产物放入插件目录，由后端暴露静态资�
 `get_sidebar_nav()`。完整暴露名、路由、权限和多入口约束见：
 
 - [侧栏入口 FAQ](./faq/17-register-plugin-sidebar-nav.md)
+- [智能助手形象 FAQ](./faq/22-register-agent-pet.md)，替换页面右下角助手的角色时实现 `get_agent_pets()`
 - [MoviePilot-Frontend V3 模块联邦指南](https://github.com/jxxghp/MoviePilot-Frontend/blob/v3/docs/module-federation-guide.md)
 
 虚拟分身复用源插件的同一份 `remoteEntry.js`。宿主会向配置页、数据页、仪表盘、
@@ -719,6 +721,37 @@ def get_service(self) -> list[dict]:
 
 服务 ID 必须稳定且唯一。插件停用时，还要清理自行创建、不由宿主服务调度器管理的
 线程、异步任务、文件句柄或网络客户端。
+
+“立即运行一次”或“事件发生后延迟几秒执行”这类一次性任务，使用
+`app.sdk.scheduler.add_plugin_once_job()` 交给宿主调度器，不要为此自建
+`BackgroundScheduler`。自建调度器会常驻调度线程和工作线程，重复创建而不关闭还会让线程持续累积。
+
+```python
+from app.sdk import scheduler as scheduler_sdk
+
+
+def init_plugin(self, config: dict | None = None) -> None:
+    """保存配置时勾选“立即运行一次”，则延迟 3 秒执行一次刷新。"""
+    config = config or {}
+    if config.get("onlyonce"):
+        scheduler_sdk.add_plugin_once_job(
+            self.__class__.__name__,
+            "refresh_once",
+            self.refresh,
+            "我的插件立即运行一次",
+            delay_seconds=3,
+        )
+        config["onlyonce"] = False
+        self.update_config(config)
+```
+
+- 追加一次性任务不会重建 `get_service()` 声明的周期服务，也不会重置它们的计时。
+- 同一插件内同一任务 ID 重复追加时只保留最后一次，可以直接用来合并短时间内的重复触发。
+- `func` 传插件实例的绑定方法。插件重载换成新实例后，宿主会丢弃旧实例登记的待执行任务，插件卸载时任务一并清除。
+- 插件停止后不应再执行的任务，在 `stop_service()` 里用 `remove_plugin_once_job(插件ID, 任务ID)` 取消。
+- 调度器未运行时返回 `False`，调用方按需兜底。需要兼容尚未提供该接口的主程序时，用
+  `getattr(scheduler_sdk, "add_plugin_once_job", None)` 判断，或按
+  [限定主系统版本](./faq/18-limit-moviepilot-version.md) 声明 `system_version`。
 
 ### 9.4 通知、工作流和 Agent
 

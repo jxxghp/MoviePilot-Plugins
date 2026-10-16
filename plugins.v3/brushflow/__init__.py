@@ -218,7 +218,7 @@ class BrushFlow(_PluginBase):
     plugin_name = "站点刷流"
     plugin_desc = "自动托管多个站点刷流任务，并独立调度、统计与诊断。"
     plugin_icon = "brush-flow.png"
-    plugin_version = "6.1.2"
+    plugin_version = "6.1.3"
     plugin_author = "jxxghp,InfinityPacer,Seed680"
     author_url = "https://github.com/InfinityPacer"
     plugin_config_prefix = "brushflow_"
@@ -698,12 +698,7 @@ class BrushFlow(_PluginBase):
         for torrent_task in torrent_tasks.values():
             if not isinstance(torrent_task, dict) or torrent_task.get("deleted"):
                 continue
-            try:
-                total_size = float(torrent_task.get("size") or 0)
-                downloaded = float(torrent_task.get("downloaded") or 0)
-            except (TypeError, ValueError):
-                total_size = downloaded = 0
-            if total_size > 0 and downloaded >= total_size:
+            if self._torrent_complete(torrent_task):
                 continue
             expiry = self._promotion_expiry_at(torrent_task.get("freedate"), task.timezone_offset)
             if expiry and expiry > now:
@@ -1572,7 +1567,7 @@ class BrushFlow(_PluginBase):
             torrent.site_name != item.get("site_name")
             and torrent.title == item.get("title")
             and not item.get("deleted")
-            and (item.get("downloaded") or 0) < (item.get("size") or 0)
+            and not self._torrent_complete(item)
             for item in torrent_tasks.values()
         ):
             return False, "其他站点存在尚未下载完成的相同种子"
@@ -1719,6 +1714,7 @@ class BrushFlow(_PluginBase):
             torrent_task.update(
                 {
                     "downloaded": torrent_info.get("downloaded"),
+                    "progress": torrent_info.get("progress"),
                     "uploaded": torrent_info.get("uploaded"),
                     "ratio": torrent_info.get("ratio"),
                     "seeding_time": torrent_info.get("seeding_time"),
@@ -1812,7 +1808,7 @@ class BrushFlow(_PluginBase):
             return True, f"上传量达到 {task.seed_size} GB"
         if (
             task.download_time
-            and torrent_info.get("downloaded", 0) < torrent_info.get("total_size", 0)
+            and not self._torrent_complete(torrent_info)
             and torrent_info.get("dltime", 0) >= float(task.download_time) * 3600
         ):
             return True, f"下载耗时达到 {task.download_time} 小时"
@@ -1832,7 +1828,7 @@ class BrushFlow(_PluginBase):
         if (
             not task
             or not task.del_no_free
-            or torrent_info.get("downloaded", 0) >= torrent_info.get("total_size", 0)
+            or self._torrent_complete(torrent_info)
         ):
             return False, ""
         expiry = self._promotion_expiry_at(torrent_task.get("freedate"), task.timezone_offset)
@@ -1882,7 +1878,7 @@ class BrushFlow(_PluginBase):
             expired, reason = self.__promotion_expired(torrent_info, torrent_task)
             timed_out = bool(
                 task.download_time
-                and torrent_info.get("downloaded", 0) < torrent_info.get("total_size", 0)
+                and not self._torrent_complete(torrent_info)
                 and torrent_info.get("dltime", 0) >= float(task.download_time) * 3600
             )
             if not expired and not timed_out:
@@ -2080,7 +2076,7 @@ class BrushFlow(_PluginBase):
                         expired, expired_reason = self.__promotion_expired(torrent_info, torrent_task)
                         timed_out = bool(
                             task.download_time
-                            and torrent_info.get("downloaded", 0) < torrent_info.get("total_size", 0)
+                            and not self._torrent_complete(torrent_info)
                             and torrent_info.get("dltime", 0) >= float(task.download_time) * 3600
                         )
                         if expired:
@@ -2102,9 +2098,7 @@ class BrushFlow(_PluginBase):
                             "pre_delete_reason": pre_delete_reason,
                             "conditional_reason": conditional_reason if should_delete else "",
                             "proxy_delete": task.proxy_delete,
-                            "completed": bool(
-                                torrent_size > 0 and torrent_info.get("downloaded", 0) >= torrent_size
-                            ),
+                            "completed": self._torrent_complete(torrent_info),
                             "hit_and_run": bool(torrent_task.get("hit_and_run")),
                             "seeding_time": torrent_info.get("seeding_time", 0),
                         }
@@ -2401,6 +2395,7 @@ class BrushFlow(_PluginBase):
             "freedate_diff": None,
             "ratio": torrent_info.get("ratio", 0),
             "downloaded": torrent_info.get("downloaded", 0),
+            "progress": torrent_info.get("progress"),
             "uploaded": torrent_info.get("uploaded", 0),
             "seeding_time": torrent_info.get("seeding_time", 0),
             "deleted": False,
@@ -2592,6 +2587,19 @@ class BrushFlow(_PluginBase):
             logger.error(f"获取种子标签失败：{str(err)}")
             return []
 
+    @staticmethod
+    def _torrent_complete(torrent_info: dict) -> bool:
+        """按下载器实际完成度判断，旧记录缺少进度时兼容原下载量判断。"""
+        try:
+            progress = torrent_info.get("progress")
+            if progress is not None:
+                return float(progress) >= 1
+            size = float(torrent_info.get("total_size") or torrent_info.get("size") or 0)
+            downloaded = float(torrent_info.get("downloaded") or 0)
+            return size > 0 and downloaded >= size
+        except (TypeError, ValueError):
+            return False
+
     def __get_torrent_info(self, torrent: Any) -> dict:
         """统一提取 qBittorrent 与 transmission-rpc v7 种子状态"""
         now_timestamp = int(time.time())
@@ -2607,6 +2615,7 @@ class BrushFlow(_PluginBase):
             iatime = now_timestamp - last_activity if last_activity > 0 else 0
             ratio = torrent.get("ratio") or 0
             uploaded = torrent.get("uploaded") or 0
+            progress = torrent.get("progress")
             downloaded = torrent.get("downloaded") or 0
             total_size = torrent.get("total_size") or 0
             tags = torrent.get("tags") or ""
@@ -2625,9 +2634,14 @@ class BrushFlow(_PluginBase):
             iatime = now_timestamp - activity_timestamp if activity_timestamp else 0
             total_size = getattr(torrent, "total_size", 0) or 0
             progress = getattr(torrent, "progress", 0) or 0
-            downloaded = int(total_size * progress / 100)
+            progress = progress / 100
+            downloaded = getattr(torrent, "downloaded_ever", None)
+            if downloaded is None:
+                downloaded = int(total_size * progress)
             ratio = getattr(torrent, "ratio", 0) or 0
-            uploaded = int(downloaded * ratio)
+            uploaded = getattr(torrent, "uploaded_ever", None)
+            if uploaded is None:
+                uploaded = int(downloaded * ratio)
             tags = getattr(torrent, "labels", None) or ""
             tracker_list = getattr(torrent, "tracker_list", None)
             tracker = tracker_list[0] if tracker_list else ""
@@ -2639,6 +2653,7 @@ class BrushFlow(_PluginBase):
             "ratio": ratio,
             "uploaded": uploaded,
             "downloaded": downloaded,
+            "progress": progress,
             "avg_upspeed": avg_upspeed,
             "iatime": iatime,
             "dltime": dltime,

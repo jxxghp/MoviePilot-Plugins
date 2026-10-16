@@ -5,6 +5,7 @@ from ruamel.yaml import CommentedMap
 
 from app.core.config import settings
 from app.log import logger
+from app.plugins.autosignin.result import has_signin_evidence
 from app.plugins.autosignin.sites import _ISiteSigninHandler
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
@@ -78,9 +79,10 @@ class Hares(_ISiteSigninHandler):
         # {"code":1,"msg":"您今天已经签到过了"}
         # {"code":0,"msg":"签到成功"}
         sign_dict = json.loads(sign_res.text)
-        if sign_dict['code'] == 0:
+        if type(sign_dict.get('code')) is int and sign_dict['code'] == 0:
             logger.info(f"{site} 签到成功")
             return True, '签到成功'
-        else:
+        if sign_dict.get('code') == 1 and has_signin_evidence(sign_dict.get('msg')):
             logger.info(f"{site} 今日已签到")
             return True, '今日已签到'
+        return False, '签到失败，签到接口未返回明确的成功或重复签到结果'

@@ -21,6 +21,11 @@ export function createProvider() {
     token_limit: 0,
     used_tokens: 0,
     priority: 1,
+    failure_cooldown_enabled: false,
+    failure_threshold: 3,
+    cooldown_seconds: 60,
+    cooldown_exponential: false,
+    cooldown_max_seconds: 3600,
   }
 }
 
@@ -119,7 +124,7 @@ export function buildProviderSummary(rows) {
   const limitedUsagePercent = totalLimit > 0 ? Math.min((limitedUsed * 100) / totalLimit, 100) : 0
 
   return {
-    available_count: enabledRows.filter(row => !row.usage?.exhausted && row.api_key && row.base_url && row.model).length,
+    available_count: enabledRows.filter(row => !row.usage?.exhausted && !row.usage?.cooling_down && row.api_key && row.base_url && row.model).length,
     enabled_count: enabledRows.length,
     limited_provider_count: limitedRows.length,
     unlimited_provider_count: unlimitedRows.length,

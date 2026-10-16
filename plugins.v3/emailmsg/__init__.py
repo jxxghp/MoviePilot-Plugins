@@ -1,5 +1,7 @@
 import smtplib
 from email.header import Header
+from email.mime.image import MIMEImage
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr
 from typing import Any, Dict, List, Optional, Tuple
@@ -29,7 +31,7 @@ class EmailMsg(_PluginBase):
     # 插件图标
     plugin_icon = "Email_A.png"
     # 插件版本
-    plugin_version = "1.3.1"
+    plugin_version = "1.3.3"
     # 插件作者
     plugin_author = "LLL001a"
     # 作者主页
@@ -53,9 +55,9 @@ class EmailMsg(_PluginBase):
 
     # 通知模板选项：按特点命名
     TEMPLATES = {
-        "dark_card": "深色渐变卡片",
-        "poster_hero": "海报大字报",
-        "poster_full": "海报铺满背景",
+        "dark_card": "流光夜幕",
+        "poster_hero": "光影头图",
+        "poster_full": "沉浸全屏",
     }
 
     def init_plugin(self, config: dict = None) -> None:
@@ -628,7 +630,7 @@ class EmailMsg(_PluginBase):
     def _build_html_dark_card(self, safe_title: str, fields: List[tuple],
                               image: Optional[str], link: Optional[str],
                               safe_type: str) -> str:
-        """深色渐变卡片模板：横屏海报 + 字段名值靠左列表。"""
+        """流光夜幕模板：深色背景 + 渐变光晕，横屏海报 + 字段名值靠左列表。"""
         import html as html_lib
         # 海报区域
         poster_html = ""
@@ -701,7 +703,7 @@ class EmailMsg(_PluginBase):
     def _build_html_poster_hero(self, safe_title: str, fields: List[tuple],
                                 image: Optional[str], link: Optional[str],
                                 safe_type: str) -> str:
-        """海报大字报模板：横屏海报全宽顶图 + 标题叠加 + 字段由上至下排列。"""
+        """光影头图模板：横屏海报全宽顶图 + 标题叠加 + 字段由上至下排列。"""
         import html as html_lib
         # 海报顶图
         poster_html = ""
@@ -777,7 +779,7 @@ class EmailMsg(_PluginBase):
     def _build_html_poster_full(self, safe_title: str, fields: List[tuple],
                                 image: Optional[str], link: Optional[str],
                                 safe_type: str) -> str:
-        """海报铺满背景模板：横屏海报铺满背景 + 文本浮层 + 字段胶囊标签。"""
+        """沉浸全屏模板：横屏海报铺满背景 + 文本浮层 + 字段胶囊标签。"""
         import html as html_lib
         # 字段胶囊标签（fields 已转义，不再重复转义）
         tags_html = ""
@@ -850,10 +852,94 @@ class EmailMsg(_PluginBase):
             '</div></div></body></html>'
         )
 
+    def _resolve_poster_image(self, title: str,
+                              fallback: Optional[str] = None) -> Optional[str]:
+        """从通知标题识别媒体，获取竖屏海报；失败时回退到原图。
+
+        通知事件数据默认携带剧照（横屏 backdrop），本方法通过标题识别媒体
+        获取竖屏海报（poster），识别结果按标题缓存，避免重复识别。
+
+        :param title: 通知标题
+        :param fallback: 识别失败时的回退图片（通常为剧照）
+        :return: 竖屏海报地址或回退图片
+        """
+        if not title:
+            return fallback
+        cache_key = f"poster_{title}"
+        try:
+            cached = self.get_data(cache_key)
+        except Exception:
+            cached = None
+        if cached:
+            # 缓存命中：__none__ 表示此前识别无海报
+            return fallback if cached == "__none__" else cached
+        try:
+            from app.chain.media import MediaChain
+            from app.sdk.media import MetaInfo
+            meta = MetaInfo(title)
+            if not meta.name:
+                return fallback
+            mediainfo = MediaChain().recognize_media(meta=meta)
+            if mediainfo:
+                poster = mediainfo.get_poster_image()
+                if poster:
+                    try:
+                        self.save_data(cache_key, poster)
+                    except Exception:
+                        pass
+                    return poster
+            # 识别成功但无海报，或识别失败：缓存空结果
+            try:
+                self.save_data(cache_key, "__none__")
+            except Exception:
+                pass
+        except Exception as err:
+            logger.warn(f"邮箱通知：识别竖屏海报失败，回退原图：{str(err)}")
+        return fallback
+
+    def _download_image(self, url: str) -> Optional[tuple]:
+        """下载海报图片，返回 (图片字节, MIME 类型)。
+
+        豆瓣图片有防盗链，需要携带 Referer 才能访问；下载失败时返回 None，
+        由调用方回退为远程 URL 引用。
+
+        :param url: 海报图片地址
+        :return: (图片字节, MIME 类型) 或 None
+        """
+        import urllib.request
+        if not url:
+            return None
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                          "AppleWebKit/537.36 (KHTML, like Gecko) "
+                          "Chrome/120.0.0.0 Safari/537.36",
+        }
+        # 豆瓣图片需要 Referer，否则返回 418
+        if "doubanio.com" in url:
+            headers["Referer"] = "https://movie.douban.com/"
+        try:
+            request = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(request, timeout=10) as response:
+                content = response.read()
+                content_type = response.headers.get("Content-Type", "image/jpeg")
+            if not content:
+                return None
+            # 规范化 MIME 类型
+            content_type = str(content_type).split(";")[0].strip().lower()
+            if not content_type.startswith("image/"):
+                content_type = "image/jpeg"
+            return content, content_type
+        except Exception as err:
+            logger.warn(f"邮箱通知：下载海报图片失败，将回退为远程引用：{str(err)}")
+            return None
+
     def _send_mail(self, recipients: List[str], title: str, text: str,
                    image: Optional[str] = None, link: Optional[str] = None,
                    msg_type: Optional[str] = None) -> bool:
         """通过 SMTP 发送邮件。
+
+        海报图片优先下载后内嵌（CID），避免豆瓣等图片防盗链导致邮件客户端
+        无法加载；下载失败时回退为远程 URL 引用。
 
         :param recipients: 收件人邮箱列表
         :param title: 邮件标题
@@ -870,9 +956,24 @@ class EmailMsg(_PluginBase):
         server = None
         try:
             port = int(self._smtp_port or 465)
+            # 尝试下载海报图片用于内嵌
+            image_data = self._download_image(image) if image else None
+            # 内嵌成功时 HTML 使用 cid 引用，否则回退远程 URL
+            html_image = "cid:poster" if image_data else image
             # 生成美化后的 HTML 正文
-            html_body = self._build_html(title, text, image=image, link=link, msg_type=msg_type)
-            msg = MIMEText(html_body, "html", "utf-8")
+            html_body = self._build_html(title, text, image=html_image, link=link, msg_type=msg_type)
+            if image_data:
+                # 内嵌图片：使用 related 复合类型，图片作为内联附件
+                msg = MIMEMultipart("related")
+                msg.attach(MIMEText(html_body, "html", "utf-8"))
+                img_bytes, img_mime = image_data
+                subtype = img_mime.split("/")[-1] if "/" in img_mime else "jpeg"
+                img = MIMEImage(img_bytes, _subtype=subtype)
+                img.add_header("Content-ID", "<poster>")
+                img.add_header("Content-Disposition", "inline", filename="poster")
+                msg.attach(img)
+            else:
+                msg = MIMEText(html_body, "html", "utf-8")
             msg["Subject"] = Header(title or "MoviePilot 通知", "utf-8")
             msg["From"] = formataddr((str(Header("MoviePilot", "utf-8")), self._sender))
             # To 使用发件人自身地址，收件人地址放入 Bcc（密送），避免收件人之间互相看到邮箱地址
@@ -948,6 +1049,10 @@ class EmailMsg(_PluginBase):
         if not recipients:
             logger.warn("邮箱消息通知：未获取到收件人邮箱，跳过发送")
             return
+
+        # 媒体类通知（有图片）且模板需要海报时，尝试识别竖屏海报替换剧照
+        if image and self._template in ("poster_full", "poster_hero"):
+            image = self._resolve_poster_image(title, fallback=image)
 
         # 发送邮件
         self._send_mail(

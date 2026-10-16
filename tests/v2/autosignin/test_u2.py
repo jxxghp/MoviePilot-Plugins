@@ -48,13 +48,15 @@ def _logged_in_page() -> str:
 
 @pytest.mark.parametrize("redirect_url", ["showup.php", "https://u2.dmhy.org/showup.php"])
 def test_signin_accepts_success_redirect_variants(redirect_url):
-    """已登录页面包含 maxlogin.php 时应识别 U2 的相对或绝对成功跳转。"""
+    """相对或绝对跳转后，必须回读到已签到状态才确认成功。"""
     response = SimpleNamespace(
         status_code=200,
         text=f"<script>window.location.href = '{redirect_url}';</script>",
     )
     with (
-        patch.object(U2, "get_page_source", return_value=_logged_in_page()),
+        patch.object(U2, "get_page_source", side_effect=[
+            _logged_in_page(), '<a href="logout.php">退出</a><a href="showup.php">已签到</a>',
+        ]) as get_page,
         patch("app.plugins.autosignin.sites.u2.RequestUtils") as request_utils,
         patch("app.plugins.autosignin.sites.u2.random.randint", return_value=0),
         patch("app.plugins.autosignin.sites.u2.datetime.datetime") as datetime,
@@ -65,6 +67,7 @@ def test_signin_accepts_success_redirect_variants(redirect_url):
         result = U2().signin(_site_info())
 
     assert result == (True, "签到成功")
+    assert get_page.call_count == 2
     request_utils.assert_called_once_with(
         cookies="u2=test-cookie",
         ua="MoviePilot-Test",
@@ -102,3 +105,19 @@ def test_signin_reports_expired_cookie_for_login_form():
 
     assert result == (False, "签到失败，Cookie已失效")
     request_utils.assert_not_called()
+
+
+@pytest.mark.parametrize("checked_page", [_logged_in_page(), "", '<form><input type="password"></form>'])
+def test_redirect_without_confirmed_state_is_not_success(checked_page):
+    """提交后仅跳回表单、空页面或登录页都不能伪报成功。"""
+    response = SimpleNamespace(status_code=200, text="<script>window.location.href='showup.php';</script>")
+    with (
+        patch.object(U2, "get_page_source", side_effect=[_logged_in_page(), checked_page]),
+        patch("app.plugins.autosignin.sites.u2.RequestUtils") as request_utils,
+        patch("app.plugins.autosignin.sites.u2.random.randint", return_value=0),
+        patch("app.plugins.autosignin.sites.u2.datetime.datetime") as datetime,
+    ):
+        datetime.now.return_value.hour = 12
+        request_utils.return_value.post_res.return_value = response
+        result = U2().signin(_site_info())
+    assert result == (False, "签到失败，未确认签到结果")

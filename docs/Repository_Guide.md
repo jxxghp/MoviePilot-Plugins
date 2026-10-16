@@ -68,7 +68,10 @@ MoviePilot-Plugins/
 
 当前 V3 插件索引文件，对应源码必须放在
 `plugins.v3/<plugin_id_lower>/`。新插件从这里开始；当条目存在 V3 专用副本时，
-旧索引中的同名条目应声明 `"v3": false`，避免 V3 回退到旧合同实现。
+旧索引中的同名条目通常声明 `"v3": false`，避免 V3 回退到不兼容的旧合同实现。
+新版插件依赖后续主程序版本、旧实现仍兼容 V3 时，可显式声明 `"v3": true`，
+保留尚未达到新版最低要求的 V3 主程序选择旧实现的安装入口。
+旧条目同时声明 `system_version` 上界，与新条目的最低主程序版本分开。
 
 ### 3.2 `package.v2.json`
 
@@ -108,7 +111,7 @@ V2 历史插件索引文件。MoviePilot 在 V2 环境下会优先读取这里�
 - `history`：更新日志
 - `release`：是否使用 GitHub Release 压缩包发布
 - `v2`：默认索引中的插件是否兼容 V2
-- `v3`：旧索引中的插件是否允许 V3 回退使用；`false` 表示存在不兼容或已有 V3 专用实现
+- `v3`：旧索引中的插件是否允许 V3 回退使用；不兼容旧实现声明 `false`，新版提高宿主最低要求时可将仍兼容的旧实现显式声明为 `true`
 
 这些字段是“插件市场展示元数据”，而不是运行时唯一真相。真正加载后的插件类仍然需要在代码里声明自己的 `plugin_name`、`plugin_desc`、`plugin_version` 等属性。两者必须同步。
 
@@ -128,7 +131,7 @@ MoviePilot 当前的插件版本选择逻辑可以概括为：
 - 同一个插件若在 `package.v2.json` 中已有专用实现，就不要再依赖 `package.json` 中的兼容声明做“隐式覆盖”。
 - 只有维护历史 V2 插件时，才继续使用 `plugins.v2/` 和 `package.v2.json`。
 - 旧插件确实跨版本共用一套实现时，才使用 `package.json + "v2": true` 的方式。
-- 依赖 V3 新合同的实现必须放入 `plugins.v3/` 并在 `package.v3.json` 声明 `system_version: ">=3.0.0"`。
+- 依赖 V3 新合同的实现必须放入 `plugins.v3/` 并在 `package.v3.json` 声明 `system_version: ">=3.0.0"`；依赖某个 3.x 版本才提供的宿主能力时，把下界提高到该版本，例如 `">=3.0.11"`。
 - 依赖宿主新增能力的插件需要同步声明 `system_version`，否则旧版 MoviePilot 仍可能看到更新入口但安装后无法加载。
 
 涉及媒体识别、搜索、订阅、下载、整理、刮削、媒体库事件、插件自有媒体数据、
@@ -273,6 +276,7 @@ yarn dev
 - `get_dashboard()` / `get_dashboard_meta()` 是否正常显示
 - `get_render_mode() == "vue"` 的远程组件是否能成功加载
 - `get_sidebar_nav()` 是否正确出现在前端侧栏
+- `get_agent_pets()` 声明的形象是否出现在智能助手的“更换形象”里并能正常加载
 
 ## 8. 发布流程
 

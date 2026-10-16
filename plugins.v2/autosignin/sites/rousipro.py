@@ -3,6 +3,7 @@ from typing import Tuple
 from ruamel.yaml import CommentedMap
 
 from app.log import logger
+from app.plugins.autosignin.result import has_signin_evidence
 from app.core.config import settings
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
@@ -38,7 +39,17 @@ class RousiPro(_ISiteSigninHandler):
             payload = res.json() or {}
         except (TypeError, ValueError):
             return -1
-        return payload.get("code", -1) if isinstance(payload, dict) else -1
+        code = payload.get("code") if isinstance(payload, dict) else None
+        return code if type(code) is int else -1
+
+    @classmethod
+    def _already_signed(cls, res) -> bool:
+        """业务错误码还需明确重复签到提示，防止把其他 400 错误当作成功。"""
+        if res is None or res.status_code != 400 or cls._response_code(res) != 1:
+            return False
+        payload = res.json()
+        message = payload.get("message") or payload.get("msg")
+        return isinstance(message, str) and has_signin_evidence(message)
 
     @classmethod
     def match(cls, url: str) -> bool:
@@ -91,7 +102,7 @@ class RousiPro(_ISiteSigninHandler):
             if res is not None and res.status_code == 200 and code == 0:
                 logger.info(f"{site} 签到成功")
                 return True, "签到成功"
-            if res is not None and res.status_code == 400 and code == 1:
+            if self._already_signed(res):
                 logger.info(f"{site} 今日已签到")
                 return True, "今日已签到"
             if token:
@@ -111,7 +122,7 @@ class RousiPro(_ISiteSigninHandler):
         if res is not None and res.status_code == 200 and code == 0:
             logger.info(f"{site} 签到成功")
             return True, "签到成功"
-        elif res is not None and res.status_code == 400 and code == 1:
+        elif self._already_signed(res):
             logger.info(f"{site} 今日已签到")
             return True, "今日已签到"
         elif res is not None and res.status_code in (401, 403):

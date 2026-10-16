@@ -4,6 +4,7 @@ import random
 import re
 from threading import Event
 from typing import Tuple, List, Dict, Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -14,7 +15,7 @@ from app.chain.subscribe import SubscribeChain
 from app.chain.tmdb import TmdbChain
 from app.core.config import settings
 from app.core.context import MediaInfo
-from app.helper.browser import BrowserPage, PlaywrightHelper
+from app.helper.browser import PlaywrightHelper
 from app.core.metainfo import MetaInfo
 from app.log import logger
 from app.plugins import _PluginBase
@@ -43,7 +44,7 @@ class MaoyanRank(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/baozaodetudou/MoviePilot-Plugins/main/icons/maoyan.jpg"
     # 插件版本
-    plugin_version = "3.2"
+    plugin_version = "3.6"
     # 插件作者
     plugin_author = "逗猫"
     # 作者主页
@@ -81,6 +82,7 @@ class MaoyanRank(_PluginBase):
     _yk_num = 10
 
     def init_plugin(self, config: dict = None):
+        """加载榜单配置并按周期或一次性开关注册刷新任务。"""
         self.downloadchain = DownloadChain()
         self.subscribechain = SubscribeChain()
 
@@ -151,16 +153,20 @@ class MaoyanRank(_PluginBase):
                 self._scheduler.start()
 
     def get_state(self) -> bool:
+        """返回插件启用状态。"""
         return self._enabled
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
+        """本插件不注册聊天命令。"""
         pass
 
     def get_api(self) -> List[Dict[str, Any]]:
+        """本插件不注册额外 API。"""
         pass
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
+        """提供榜单类型、平台、数量和执行周期配置。"""
         return [
             {
                 'component': 'VForm',
@@ -903,89 +909,89 @@ class MaoyanRank(_PluginBase):
         web_movie_url = ''
         tv_urls = []
         # 获取当前日期时间格式化为字符串
-        format_date = current_time.strftime("%Y-%m-%d")
+        show_date = datetime.datetime.now(pytz.timezone('Asia/Shanghai')).strftime('%Y%m%d')
         maoyan_url = 'https://piaofang.maoyan.com'
         if 'movie' in self._type:
             movie_url = f'{maoyan_url}/dashboard-ajax/movie'
         if 'web-movie' in self._type:
 
-            web_movie_url = (f'{maoyan_url}/dashboard/webMaoYanHotData?seriesType=0&platform=20&'
-                             f'date={format_date}&networkHot=3')
+            web_movie_url = (f'{maoyan_url}/i/api/encrypt/dashboard/webHeatNetData?'
+                             f'showDate={show_date}&platformType=3&dateType=0&rankType=0')
         # 0: 电视剧  1: 网络剧 2: 综艺 不传递-1代表电视剧+网络剧
         # 参数 platformType: 代表平台 0 全网 3 腾讯视频 2 爱奇艺 1 优酷 7 芒果
         # 电视剧
-        tv_url = f'{maoyan_url}/dashboard/webHeatData'
+        tv_url = f'{maoyan_url}/i/api/encrypt/dashboard/webHeatData'
         if 'web-heat' in self._type:
             # 全网
             if self._all_enabled:
-                url = f'{tv_url}?seriesType=0&platformType=&showDate=2'
+                url = f'{tv_url}?seriesType=0&showDate={show_date}'
                 tv_urls.append([url, self._all_num])
             # tx
             if self._tx_enabled:
-                url = f'{tv_url}?seriesType=0&platformType=3&showDate=2'
+                url = f'{tv_url}?seriesType=0&platformType=3&showDate={show_date}'
                 tv_urls.append([url, self._tx_num])
             # iqy
             if self._iqy_enabled:
-                url = f'{tv_url}?seriesType=0&platformType=2&showDate=2'
+                url = f'{tv_url}?seriesType=0&platformType=2&showDate={show_date}'
                 tv_urls.append([url, self._iqy_num])
             # mg
             if self._mg_enabled:
-                url = f'{tv_url}?seriesType=0&platformType=7&showDate=2'
+                url = f'{tv_url}?seriesType=0&platformType=7&showDate={show_date}'
                 tv_urls.append([url, self._mg_num])
             # yk
             if self._yk_enabled:
-                url = f'{tv_url}?seriesType=0&platformType=1&showDate=2'
+                url = f'{tv_url}?seriesType=0&platformType=1&showDate={show_date}'
                 tv_urls.append([url, self._yk_num])
         # 网剧
         if 'web-tv' in self._type:
             # 全网
             if self._all_enabled:
-                url = f'{tv_url}?seriesType=1&platformType=&showDate=2'
+                url = f'{tv_url}?seriesType=1&showDate={show_date}'
                 tv_urls.append([url, self._all_num])
             # tx
             if self._tx_enabled:
-                url = f'{tv_url}?seriesType=1&platformType=3&showDate=2'
+                url = f'{tv_url}?seriesType=1&platformType=3&showDate={show_date}'
                 tv_urls.append([url, self._tx_num])
             # iqy
             if self._iqy_enabled:
-                url = f'{tv_url}?seriesType=1&platformType=2&showDate=2'
+                url = f'{tv_url}?seriesType=1&platformType=2&showDate={show_date}'
                 tv_urls.append([url, self._iqy_num])
             # mg
             if self._mg_enabled:
-                url = f'{tv_url}?seriesType=1&platformType=7&showDate=2'
+                url = f'{tv_url}?seriesType=1&platformType=7&showDate={show_date}'
                 tv_urls.append([url, self._mg_num])
             # yk
             if self._yk_enabled:
-                url = f'{tv_url}?seriesType=1&platformType=1&showDate=2'
+                url = f'{tv_url}?seriesType=1&platformType=1&showDate={show_date}'
                 tv_urls.append([url, self._yk_num])
         # 综艺
         if 'zongyi' in self._type:
             # 全网
             if self._all_enabled:
-                url = f'{tv_url}?seriesType=2&platformType=&showDate=2'
+                url = f'{tv_url}?seriesType=2&showDate={show_date}'
                 tv_urls.append([url, self._all_num])
             # tx
             if self._tx_enabled:
-                url = f'{tv_url}?seriesType=2&platformType=3&showDate=2'
+                url = f'{tv_url}?seriesType=2&platformType=3&showDate={show_date}'
                 tv_urls.append([url, self._tx_num])
             # iqy
             if self._iqy_enabled:
-                url = f'{tv_url}?seriesType=2&platformType=2&showDate=2'
+                url = f'{tv_url}?seriesType=2&platformType=2&showDate={show_date}'
                 tv_urls.append([url, self._iqy_num])
             # mg
             if self._mg_enabled:
-                url = f'{tv_url}?seriesType=2&platformType=7&showDate=2'
+                url = f'{tv_url}?seriesType=2&platformType=7&showDate={show_date}'
                 tv_urls.append([url, self._mg_num])
             # yk
             if self._yk_enabled:
-                url = f'{tv_url}?seriesType=2&platformType=1&showDate=2'
+                url = f'{tv_url}?seriesType=2&platformType=1&showDate={show_date}'
                 tv_urls.append([url, self._yk_num])
         tv_list = []
         movie_list = []
         try:
             movie_list, tv_list = self.__get_url_info(movie_url, tv_urls, web_movie_url, nums)
         except Exception as e:
-            logger.warn(e)
+            logger.error(f"获取猫眼榜单失败：{e}")
         self.set_sub(movie_list, history, MediaType.MOVIE)
         self.set_sub(tv_list, history, MediaType.TV)
         # 保存历史记录
@@ -999,16 +1005,12 @@ class MaoyanRank(_PluginBase):
         # 获取当前日期时间
         current_time = datetime.datetime.now()
         for addr in addr_list:
+            title = "未知标题"
             try:
                 title = addr.get('title')
-                try:
-                    # 计算日期，获取年份信息
-                    subtract = int(''.join(re.findall(r'\d', addr.get('releaseInfo'))))
-                    target_time = current_time - datetime.timedelta(days=subtract)
-                    year = target_time.year
-                except Exception as e:
-                    logger.warn(e)
-                    year = None
+                if not isinstance(title, str) or not title.strip():
+                    raise ValueError("缺少有效标题")
+                year = self.__release_year(addr.get('releaseInfo'), current_time)
                 # 元数据
                 meta = MetaInfo(title)
                 meta.year = year
@@ -1054,7 +1056,27 @@ class MaoyanRank(_PluginBase):
                     "unique": unique_flag
                 })
             except Exception as e:
-                logger.error(str(e))
+                logger.error(f"猫眼{mtype.value}条目 {title} 处理失败，继续处理下一条：{e}")
+
+    @staticmethod
+    def __release_year(release_info, current_time: datetime.datetime) -> int | None:
+        """仅从明确上映日期或已上映天数推算年份；缺失和未知文案保留未知年份。"""
+        if not isinstance(release_info, str):
+            return None
+        release_info = release_info.strip()
+        if release_info in ("上映首日", "上线首日", "开播首日", "今日上映", "今日上线", "今日开播"):
+            return current_time.year
+        date_match = re.match(r"^(\d{4})[-年/.](\d{1,2})[-月/.](\d{1,2})(?!\d)", release_info)
+        days_match = re.fullmatch(r"(?:上映|上线|开播)\s*(\d+)\s*天", release_info)
+        try:
+            if date_match:
+                return datetime.date(*(int(part) for part in date_match.groups())).year
+            if days_match:
+                return (current_time - datetime.timedelta(days=int(days_match.group(1)))).year
+        except (ValueError, OverflowError):
+            # 上游可能包含非法日期或异常大的天数，不应阻断媒体识别。
+            return None
+        return None
 
     @staticmethod
     def __safe_int(value) -> int | None:
@@ -1140,88 +1162,125 @@ class MaoyanRank(_PluginBase):
         return None
 
     def __get_url_info(self, movie_url, tv_urls, web_movie_url, num=10):
-        """
-        根据url获取
-        """
+        """复用一个官网浏览器会话获取榜单，页面校验失败仅影响对应来源。"""
         movies_list = []
         tv_list = []
-        user_agent = self.get_random_user_agent()
-        headers = {
-            'User-Agent': user_agent,
-        }
-        cookies = self.get_cookies()
+        sources = []
         if movie_url:
-            try:
-                # 打开网页
-                if cookies:
-                    response = RequestUtils().get_res(movie_url, cookies=cookies, headers=headers)
-                else:
-                    response = RequestUtils().get_res(movie_url, headers=headers)
-                # 获取页面内容
-                res = response.json()
-                data = res.get('movieList', {}).get('list', [])
-                def info(movie):
-                    infos = movie.get('movieInfo')
-                    return {
-                        "title": infos.get('movieName'),
-                        "releaseInfo": infos.get('releaseInfo'),
-                    }
-
-                movies_list += [info(i) for i in data][:num]
-            except Exception as e:
-                logger.error(f"获取网页源码失败: {str(e)}")
+            sources.append((movie_url, num, '电影票房榜单', 'movieList', 'movieInfo', 'movieName', movies_list))
         if web_movie_url:
-            try:
-                # 打开网页
-                if cookies:
-                    response = RequestUtils().get_res(web_movie_url, cookies=cookies, headers=headers)
-                else:
-                    response = RequestUtils().get_res(web_movie_url, headers=headers)
-                # 获取页面内容
-                res = response.json()
-                data = res.get('data', {}).get('list', [])
-                def info(movie):
-                    return {
-                        "title": movie.get('name'),
-                        "platformDesc": movie.get('platformDesc'),
-                    }
+            sources.append((web_movie_url, num, '网络电影榜单', 'dataList', None, 'movieName', movies_list))
+        for tv_url, tv_num in tv_urls:
+            sources.append((tv_url, tv_num, '剧集热度榜单', 'dataList', 'seriesInfo', 'name', tv_list))
+        if not sources:
+            return movies_list, tv_list
 
-                movies_list += [info(i) for i in data][:num]
-            except Exception as e:
-                logger.error(f"获取网页源码失败: {str(e)}")
-        if tv_urls:
-            for tv in tv_urls:
+        processed = set()
+
+        def collect(page=None):
+            """按来源隔离请求；浏览器收尾异常时避免重复请求已经处理的榜单。"""
+            headers = {'User-Agent': self.get_random_user_agent()}
+            cookies = {}
+            if page is not None:
+                headers['User-Agent'] = page.evaluate('navigator.userAgent')
+                cookies = {cookie['name']: cookie['value'] for cookie in page.context.cookies()}
+            for index, (url, limit, name, data_key, info_key, title_key, target) in enumerate(sources):
+                if index in processed:
+                    continue
+                processed.add(index)
+                source = f"{name}（{url}）"
                 try:
-                    tv_url = tv[0]
-                    tv_num = tv[1]
-                    # 打开网页
-                    if cookies:
-                        response = RequestUtils().get_res(tv_url, cookies=cookies, headers=headers)
+                    if page is not None and '/i/api/encrypt/dashboard/' in url:
+                        payload = self.__request_browser_json(page, url)
+                        if url == web_movie_url and isinstance(payload, dict) and payload.get('status') is False:
+                            calendar = payload.get('calendarNet')
+                            latest = calendar.get('selectMaxDate') if isinstance(calendar, dict) else None
+                            if isinstance(latest, str):
+                                latest = latest.replace('-', '')
+                                if re.fullmatch(r'\d{8}', latest):
+                                    datetime.datetime.strptime(latest, '%Y%m%d')
+                                    parts = urlsplit(url)
+                                    query = dict(parse_qsl(parts.query))
+                                    if latest != query.get('showDate'):
+                                        query['showDate'] = latest
+                                        retry_url = urlunsplit(parts._replace(query=urlencode(query)))
+                                        logger.info(f"猫眼网络电影榜单暂未提供当日数据，重试最新可用日期 {latest}")
+                                        payload = self.__request_browser_json(page, retry_url)
                     else:
-                        response = RequestUtils().get_res(tv_url, headers=headers)
-                    # 获取页面内容
-                    res = response.json()
-                    data = res.get('dataList', {}).get('list', [])
+                        response = RequestUtils().get_res(url, cookies=cookies, headers=headers)
+                        if response is None:
+                            raise ValueError("未收到有效响应")
+                        response.raise_for_status()
+                        payload = response.json()
+                    container = payload.get(data_key) if isinstance(payload, dict) else None
+                    data = container.get('list') if isinstance(container, dict) else None
+                    if not isinstance(data, list):
+                        raise ValueError(f"响应缺少有效的 {data_key}.list 榜单列表")
+                    items = self.__parse_rank_items(data, limit, info_key, title_key, source)
+                    target.extend(items)
+                    logger.info(f"猫眼{source}获取到 {len(items)} 条有效记录")
+                except Exception as err:
+                    logger.error(f"猫眼{source}获取失败，继续处理其他榜单：{err}")
 
-                    def tv_info(tv):
-                        infos = tv.get('seriesInfo')
-                        return {
-                            "title": infos.get('name'),
-                            "releaseInfo": infos.get('releaseInfo'),
-                            "platformDesc": infos.get('platformDesc'),
-                        }
-                    tv_list.extend([tv_info(i) for i in data][:tv_num])
-                except Exception as e:
-                    logger.error(f"获取网页源码失败: {str(e)}")
-            # 使用字典推导式和集合保持唯一性
-            unique_dicts = {item['title']: item for item in tv_list}.values()
-            # 转回列表形式
-            tv_list = list(unique_dicts)
+        try:
+            self.__with_browser(collect)
+        except Exception as err:
+            logger.warning(f"猫眼浏览器会话异常：{err}")
+        if len(processed) < len(sources):
+            logger.warning("猫眼浏览器不可用，将继续无 Cookie 请求未处理榜单，热度接口可能拒绝访问")
+            collect()
 
-        return movies_list, tv_list
+        # 同一剧集可能出现在多个平台，保留原有按标题去重的行为。
+        return movies_list, list({item['title']: item for item in tv_list}.values())
+
+    @staticmethod
+    def __request_browser_json(page, url):
+        """在官网页面内请求当前接口，由网站自身脚本维护会话与请求校验信息。"""
+        return page.evaluate("""async url => {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 15000);
+            try {
+                const headers = {Accept: 'application/json, text/plain, */*'};
+                for (const [name, key] of [['csrf', 'uid'], ['deviceId', 'uuid'], ['channelId', 'channelId']]) {
+                    const value = document.querySelector(`meta[name="${name}"]`)?.content;
+                    if (value) headers[key] = value;
+                }
+                const response = await fetch(url, {
+                    headers, credentials: 'same-origin', signal: controller.signal,
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
+                return await response.json();
+            } finally {
+                clearTimeout(timer);
+            }
+        }""", url)
+
+    @staticmethod
+    def __parse_rank_items(data, limit, info_key, title_key, source) -> List[dict]:
+        """仅解析配置排名范围内的条目，保留同榜有效数据并记录坏条目的位置。"""
+        items = []
+        for rank, item in enumerate(data[:limit], start=1):
+            try:
+                if not isinstance(item, dict):
+                    raise ValueError("条目不是对象")
+                info = item.get(info_key) if info_key else item
+                if not isinstance(info, dict):
+                    raise ValueError("缺少媒体详情")
+                title = info.get(title_key)
+                if not isinstance(title, str) or not title.strip():
+                    raise ValueError("缺少有效标题")
+                items.append({
+                    "title": title.strip(),
+                    "releaseInfo": info.get('releaseInfo'),
+                    "platformDesc": info.get('platformDesc'),
+                })
+            except (TypeError, ValueError) as err:
+                logger.warning(f"猫眼{source}第 {rank} 条数据无效，跳过该条目：{err}")
+        return items
 
     @staticmethod
     def get_random_user_agent():
+        """从桌面浏览器标识中选择请求头。"""
         user_agents = [
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0",
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0",
@@ -1230,16 +1289,9 @@ class MaoyanRank(_PluginBase):
         return random.choice(user_agents)
 
     @staticmethod
-    def get_cookies():
-        def page_handler(page: BrowserPage) -> dict:
-            """
-            从 MoviePilot 浏览器上下文中读取猫眼下发的 Cookie。
-            """
-            cookies = page.context.cookies()
-            logger.debug(f"maoyan cookie: {cookies}")
-            return {c['name']: c['value'] for c in cookies}
-
-        # 复用主程序的浏览器适配层，避免直接调用 Playwright 时浏览器可执行文件路径失配。
-        return PlaywrightHelper().action(url='https://piaofang.maoyan.com',
-                                         callback=page_handler,
-                                         headless=True) or {}
+    def __with_browser(callback):
+        """通过 V2 宿主管理官网浏览器会话，回调内完成所有榜单请求。"""
+        return PlaywrightHelper().action(url='https://piaofang.maoyan.com/dashboard/web-heat',
+                                         callback=callback,
+                                         headless=True,
+                                         timeout=30)

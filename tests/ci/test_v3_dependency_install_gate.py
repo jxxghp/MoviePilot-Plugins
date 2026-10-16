@@ -40,7 +40,7 @@ def test_manifest_discovery_covers_every_v3_pyproject() -> None:
 def test_manifest_platforms_default_to_product_matrix() -> None:
     """未声明窄平台的普通插件必须覆盖 V3 标准五平台。"""
     module = _load_install_module()
-    manifest = REPO_ROOT / "plugins.v3/agentresourceofficer/pyproject.toml"
+    manifest = REPO_ROOT / "plugins.v3/tvfirstwatch/pyproject.toml"
 
     assert module.manifest_platforms(manifest) == module.SUPPORTED_PLATFORMS
 
@@ -69,7 +69,7 @@ def test_installation_uses_fresh_environment_and_host_manifest_semantics(
     """安装命令必须面向隔离解释器并通过 -r 消费原始 pyproject。"""
     module = _load_install_module()
     environment = tmp_path / ".venv"
-    manifest = REPO_ROOT / "plugins.v3/agentresourceofficer/pyproject.toml"
+    manifest = REPO_ROOT / "plugins.v3/tvfirstwatch/pyproject.toml"
 
     create, install, healthcheck = module.installation_commands(
         uv_bin="uv",
