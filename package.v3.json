@@ -1034,16 +1034,17 @@
     }
   },
   "SiteUserDetail": {
-    "name": "PT站用户详情采集",
-    "description": "定时采集 PT 站用户详情页的 BT 客户端信息与下载中种子明细，并通过插件 API 供三方调用。",
+    "name": "站点用户详情采集",
+    "description": "定时采集 PT 站用户详情页的 BT 客户端信息与下载中种子明细，并提供插件 API 供三方调用。",
     "labels": "站点,数据",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "icon": "siteuserdetail.png",
     "author": "Guoyin-Wen",
     "level": 2,
     "system_version": ">=3.0.0",
     "release": true,
     "history": {
+      "v1.0.1": "新增插件详情页（摘要统计、客户端/种子明细、IPv4/IPv6 跨站聚合、促销分布、失败列表）；插件更名为「站点用户详情采集」；采集互斥防重入；快照保存失败不再中断采集（修复服务停机时收尾竞态报错）",
       "v1.0.0": "首个版本：通用架构采集 + 站点适配器（NexusPHP 通用 / M-Team API / sites 目录微调）；BT 客户端列表（agent/ipv4/ipv6/port，每站至少一条空值兜底）与下载中种子列表（id/hash/促销标签）；hash 下载器名匹配优先、种子详情页兜底；collect/snapshot 两个 apikey 插件 API"
     }
   }

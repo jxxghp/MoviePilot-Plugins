@@ -1,5 +1,6 @@
 """主类测试：配置、站点解析、采集调度、hash 回填与插件 API。"""
 
+import json
 from unittest.mock import Mock
 
 import pytest
@@ -294,6 +295,70 @@ class TestPluginApi:
         assert [c["site"] for c in response.data["clients"]] == ["A"]
         assert [t["site"] for t in response.data["torrents"]] == ["A"]
         assert response.data["errors"] == []
+
+
+class TestPluginMeta:
+
+    def test_plugin_name(self):
+        assert SiteUserDetail.plugin_name == "站点用户详情采集"
+        assert SiteUserDetail.plugin_version
+
+
+class TestGetPage:
+
+    def test_empty_state_alert(self, plugin):
+        page = plugin.get_page()
+        assert len(page) == 1 and page[0]["component"] == "VAlert"
+
+    def test_page_with_snapshot(self, plugin, monkeypatch):
+        snapshot = {
+            "update_time": 1760000000,
+            "clients": [
+                {"site": "站A", "domain": "a.org", "agent": "qBittorrent/5.0", "ipv4": "1.1.1.1",
+                 "ipv6": "", "port": 51413},
+                {"site": "站B", "domain": "b.org", "agent": "qB 5.0", "ipv4": "1.1.1.1",
+                 "ipv6": "240c::1", "port": 51413},
+                {"site": "站C", "domain": "c.org", "agent": "", "ipv4": "", "ipv6": "", "port": None},
+            ],
+            "torrents": [
+                {"site": "站A", "domain": "a.org", "id": "1", "name": "T1",
+                 "tags": ["Free"], "size": 1073741824, "hash": "ab" * 20},
+                {"site": "站B", "domain": "b.org", "id": "2", "name": "T2",
+                 "tags": [], "size": 5368709120, "hash": ""},
+            ],
+            "errors": [{"site": "站D", "domain": "d.org", "error": "连接失败"}],
+        }
+        monkeypatch.setattr(plugin, "get_data", Mock(return_value=snapshot))
+        page = plugin.get_page()
+        # style + 页面容器
+        assert page[0]["component"] == "style"
+        texts = json.dumps(page, ensure_ascii=False)
+        for expected in ("BT 客户端", "IPv4 聚合", "IPv6 聚合", "下载中种子", "失败站点", "1.00 GB"):
+            assert expected in texts
+        # IPv4 聚合：1.1.1.1 出现在 2 个站点
+        assert "1.1.1.1" in texts and "×" in texts
+
+
+class TestCollectRobustness:
+
+    def test_collect_skipped_when_locked(self, plugin, monkeypatch):
+        last = {"update_time": 1, "clients": [{"site": "A"}], "torrents": [], "errors": []}
+        monkeypatch.setattr(plugin, "get_data", Mock(return_value=last))
+        called = []
+        monkeypatch.setattr(plugin, "_SiteUserDetail__do_collect", lambda sites=None: called.append(1))
+        with plugin._collect_lock:
+            result = plugin.collect()
+        assert result is last and not called
+
+    def test_collect_returns_despite_save_failure(self, plugin, monkeypatch):
+        site = {"id": 14, "name": "站A", "domain": "a.org", "url": "https://a.org/"}
+        monkeypatch.setattr(plugin, "_resolve_sites", lambda sites=None: [site])
+        monkeypatch.setattr(plugin, "_build_downloader_pool", lambda: {})
+        monkeypatch.setattr(plugin, "_collect_site",
+                            lambda site, pool, uid_map: (site, [], [], None, None))
+        plugin.save_data.side_effect = RuntimeError("同步事务执行器尚未配置")
+        snapshot = plugin.collect()
+        assert snapshot["clients"][0]["site"] == "站A"
 
 
 class TestAdapterFactory:
