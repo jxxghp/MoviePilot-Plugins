@@ -53,6 +53,15 @@ class TestIpUtils:
         assert ipv6s == ["240c::1234:5678"]
         assert port == 28881
 
+    def test_extract_ips_concat_geo_text(self):
+        """IP 与地理位置文本连写（UBits 实测格式）。"""
+        ipv4s, ipv6s, port = extract_ips(
+            "46.229.250.218Podturen·克罗地亚[v4]->ASN: 209604 "
+            "2409:8a1e:8f23:9990:3ac4:d45f:9cca:b045上海·中国[v6]->ASN: 24400")
+        assert ipv4s == ["46.229.250.218"]
+        assert ipv6s == ["2409:8a1e:8f23:9990:3ac4:d45f:9cca:b045"]
+        assert port is None
+
 
 class TestAgentAndSize:
 

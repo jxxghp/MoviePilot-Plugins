@@ -333,17 +333,20 @@ class TestGetPage:
         # style + 页面容器
         assert page[0]["component"] == "style"
         texts = json.dumps(page, ensure_ascii=False)
-        for expected in ("BT 客户端", "IPv4 聚合", "IPv6 聚合", "下载中种子", "失败站点", "1.00 GB"):
+        for expected in ("IPv4 聚合", "IPv6 聚合", "无数据站点", "全部站点",
+                         "下载中种子", "失败站点", "1.00 GB", "用户页未解析到客户端数据"):
             assert expected in texts
         # IPv4 聚合：1.1.1.1 出现在 2 个站点
         assert "1.1.1.1" in texts and "×" in texts
-        # 分节顺序：IP 聚合在 BT 客户端之前（rfind 跳过顶部摘要卡的同名统计标签）
-        assert texts.find("IPv4 聚合") < texts.find("BT 客户端") < texts.rfind("下载中种子")
-        # 站点空值回退 domain
+        # 分节顺序：IP 聚合 → 无数据站点 → 全部站点 → 下载中种子
+        #（rfind 跳过顶部摘要卡的同名统计标签）
+        assert texts.find("IPv4 聚合") < texts.find("无数据站点") < texts.find("全部站点") \
+               < texts.rfind("下载中种子")
+        # 站点空值回退 domain（含全部站点表格里的空数据行）
         assert "c.org" in texts
 
     def test_page_sections_collapsible_and_ordered(self, plugin, monkeypatch):
-        """各分节为可折叠手风琴；IP 聚合在 BT 客户端之前。"""
+        """各分节为可折叠手风琴；无数据站点与全部站点为同级分节。"""
         snapshot = {
             "update_time": 1760000000,
             "clients": [{"site": "站A", "domain": "a.org", "agent": "qB/5.0",
@@ -354,7 +357,8 @@ class TestGetPage:
         page = plugin.get_page()
         sections = [node for node in page[1]["content"]
                     if isinstance(node, dict) and node.get("component") == "VExpansionPanels"]
-        assert len(sections) == 3  # IPv4 聚合 + IPv6 聚合无数据时不生成 → BT客户端 + 下载中种子
+        # IPv4 聚合 + 无数据站点 + 全部站点 + 下载中种子（IPv6 无数据不生成）
+        assert len(sections) == 4
         titles = []
         for section in sections:
             panel = section["content"][0]
@@ -362,8 +366,27 @@ class TestGetPage:
             assert panel["content"][0]["component"] == "VExpansionPanelTitle"
             assert panel["content"][1]["component"] == "VExpansionPanelText"
             titles.append(json.dumps(panel["content"][0], ensure_ascii=False))
-        order = ["".join(titles).find(name) for name in ("BT 客户端", "下载中种子")]
+        joined = "".join(titles)
+        order = [joined.find(name) for name in ("IPv4 聚合", "无数据站点", "全部站点")]
         assert order == sorted(order)
+
+    def test_all_sites_table_keeps_site_name_on_empty_rows(self, plugin, monkeypatch):
+        """全部站点表格里空数据行的站点列必须显示站点名（弱化但不为空）。"""
+        snapshot = {
+            "update_time": 1760000000,
+            "clients": [
+                {"site": "站A", "domain": "a.org", "agent": "q/5.0", "ipv4": "1.1.1.1",
+                 "ipv6": "", "port": 1},
+                {"site": "馒头", "domain": "m-team.cc", "agent": "", "ipv4": "",
+                 "ipv6": "", "port": None},
+            ],
+            "torrents": [], "errors": [],
+        }
+        monkeypatch.setattr(plugin, "get_data", Mock(return_value=snapshot))
+        table = plugin._clients_table(snapshot["clients"])
+        body_rows = table["content"][1]["content"]  # tbody -> tr
+        assert body_rows[1]["content"][0]["text"] == "馒头"
+        assert body_rows[1]["props"].get("class") == "sud-muted"
 
 
 class TestCollectRobustness:

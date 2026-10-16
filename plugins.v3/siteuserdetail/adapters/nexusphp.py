@@ -74,14 +74,74 @@ class NexusPhpAdapter(SiteAdapter):
     # ------------------------------------------------------------------ 对外接口
 
     def parse_clients(self, uid: str) -> List[Dict[str, Any]]:
-        """解析用户详情页的 BT 客户端表格。"""
+        """
+        解析用户详情页的 BT 客户端。
+
+        优先表格解析（agent/ipv4/ipv6/port 列或特征单元格）；表格结果没有
+        agent 条目时（布局表格的 IP 值单元格、无表格行内模板），改用行内文本解析。
+        """
         html = self._fetch(urljoin(self.base_url, f"{self.user_detail_page}?id={uid}"))
         if not html:
             return []
-        tables = self.client_table_locator(html)
         clients: List[Dict[str, Any]] = []
-        for table in tables:
+        for table in self.client_table_locator(html):
             clients.extend(self.client_table_parse(table))
+        if not any(client.get("agent") for client in clients):
+            # 表格结果无 agent（多为页面布局表的 IP 值），行内解析优先
+            inline = self._parse_inline_clients(html)
+            if inline:
+                clients = inline
+        # 去重（agent/ipv4/ipv6/port 完全一致的条目）
+        seen = set()
+        unique: List[Dict[str, Any]] = []
+        for client in clients:
+            key = (client.get("agent"), client.get("ipv4"), client.get("ipv6"), client.get("port"))
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(client)
+        return unique
+
+    # 行内 agent 特征：程序名/版本（无空格），如 qBittorrent/5.2.4、aria2/1.37.0
+    _INLINE_AGENT_RE = re.compile(r"[A-Za-z][A-Za-z0-9._+~-]*/\d[\w.-]*")
+
+    def _parse_inline_clients(self, html: str) -> List[Dict[str, Any]]:
+        """
+        行内文本兜底：覆盖无客户端表格的站点模板（实测样本）——
+
+        - 家园/学校/高清视界：`qBittorrent/5.2.4 (2409:...:b045:57501 / Torrents:10)`
+        - PT时间：`qBittorrent/5.2.4【46.229.250.218:57501 ｜ 2409:...:b045:57501】`
+        - 憨憨（div 网格）：`qBittorrent/5.2.4 46.229.250.218 2409:...:b045 57501`
+
+        以 agent 特征（程序名/版本）切分文本，逐段在其后窗口内提取 IP/端口。
+        """
+        doc = etree.HTML(html)
+        if doc is None:
+            return []
+        text = " ".join(" ".join(doc.xpath("//text()")).split())
+        matches = list(self._INLINE_AGENT_RE.finditer(text))
+        clients: List[Dict[str, Any]] = []
+        for idx, match in enumerate(matches):
+            agent = match.group(0).strip()
+            if not looks_like_agent(agent):
+                continue
+            end = matches[idx + 1].start() if idx + 1 < len(matches) else min(len(text), match.end() + 260)
+            window = text[match.end():end]
+            ipv4s, ipv6s, port = extract_ips(window)
+            if port is None:
+                # 独立端口数字（如憨憨网格的独立 Port 列）；排除 IPv6 组（后跟冒号）等
+                for candidate in re.findall(r"(?<![\d.:])(\d{4,5})(?![\d.:])", window):
+                    value = int(candidate)
+                    if 1024 <= value <= 65535:
+                        port = value
+                        break
+            if ipv4s or ipv6s or port:
+                clients.append({
+                    "agent": agent,
+                    "ipv4": ipv4s[0] if ipv4s else "",
+                    "ipv6": ipv6s[0] if ipv6s else "",
+                    "port": port,
+                })
         return clients
 
     def parse_leeching(self, uid: str) -> List[Dict[str, Any]]:

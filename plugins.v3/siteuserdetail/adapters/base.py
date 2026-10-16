@@ -31,8 +31,10 @@ class AdapterError(Exception):
 
 
 # IPv4 / IPv6 / 端口的粗判正则，精确校验用 ipaddress 模块
+# 内嵌形式：IP 与地理位置等文本连写（无分隔符，如 "1.2.3.4克罗地亚"），不做词边界约束
 _IPV4_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
-_IPV6_RE = re.compile(r"(?:[0-9A-Fa-f]{1,4}:){2,7}[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:)+:(?:[0-9A-Fa-f]{1,4}:?)*")
+_IPV4_EMBED_RE = re.compile(r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?!\d)")
+_IPV6_EMBED_RE = re.compile(r"(?<![0-9A-Fa-f:.])(?:[0-9A-Fa-f]{1,4}:){2,7}[0-9A-Fa-f]{1,4}(?![0-9A-Fa-f])")
 _PORT_RE = re.compile(r"^\d{1,5}$")
 # NexusPHP 种子详情页里的 infohash
 _HASH_RE = re.compile(r"\b[0-9a-fA-F]{40}\b")
@@ -67,7 +69,7 @@ def classify_token(token: str) -> Tuple[Optional[str], Optional[str], Optional[i
 
     :return: (ip 类型: "ipv4"/"ipv6"/None, 规范化 IP 或 None, 端口或 None)
     """
-    token = token.strip().strip("()，,;")
+    token = token.strip().strip("()，,;【】｜|")
     if not token or token.isdigit():
         return None, None, None
     # 整体是合法 IP
@@ -96,6 +98,9 @@ def extract_ips(text: str) -> Tuple[List[str], List[str], Optional[int]]:
     """
     从任意文本中提取 IPv4 / IPv6 列表与端口。
 
+    先按空白分词做精确匹配（可带端口），命不中时再用内嵌正则兜底
+    （兼容 "IP+地理位置文本" 连写的站点，如 UBits）。
+
     :return: (ipv4 列表, ipv6 列表, 端口或 None)
     """
     ipv4s: List[str] = []
@@ -109,15 +114,30 @@ def extract_ips(text: str) -> Tuple[List[str], List[str], Optional[int]]:
             ipv6s.append(ip)
         if token_port and port is None:
             port = token_port
+    if not ipv4s:
+        for candidate in _IPV4_EMBED_RE.findall(str(text or "")):
+            try:
+                ipaddress.ip_address(candidate)
+            except ValueError:
+                continue
+            ipv4s.append(candidate)
+    if not ipv6s:
+        for candidate in _IPV6_EMBED_RE.findall(str(text or "")):
+            try:
+                ip = ipaddress.ip_address(candidate)
+            except ValueError:
+                continue
+            if ip.version == 6:
+                ipv6s.append(str(ip))
     return ipv4s, ipv6s, port
 
 
 def looks_like_agent(text: str) -> bool:
-    """BT 客户端 UA 特征：字母开头（排除纯 IP 单元格）、带 x.y 版本号、长度受限的短文本。"""
+    """BT 客户端 UA 特征：ASCII、字母开头（排除纯 IP 单元格）、带 x.y 版本号、长度受限。"""
     text = str(text or "").strip()
     if not text or not text[0].isalpha():
         return False
-    if len(text) > 100 or "\n" in text:
+    if len(text) > 100 or "\n" in text or not text.isascii():
         return False
     return bool(re.search(r"\d+(\.\d+)+", text))
 

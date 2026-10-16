@@ -49,7 +49,7 @@ class SiteUserDetail(_PluginBase):
     # 插件图标
     plugin_icon = "siteuserdetail.png"
     # 插件版本
-    plugin_version = "1.0.3"
+    plugin_version = "1.0.4"
     # 插件作者
     plugin_author = "Guoyin-Wen"
     # 作者主页
@@ -417,6 +417,7 @@ class SiteUserDetail(_PluginBase):
         site_count = len({c.get("site") for c in clients if c.get("site")})
         valid_clients = [c for c in clients
                          if c.get("agent") or c.get("ipv4") or c.get("ipv6") or c.get("port") is not None]
+        no_data_clients = [c for c in clients if not (c.get("agent") or c.get("ipv4") or c.get("ipv6"))]
         hash_hit = sum(1 for t in torrents if t.get("hash"))
         promo_counter = Counter(tag for t in torrents for tag in (t.get("tags") or []))
         no_promo = sum(1 for t in torrents if not t.get("tags"))
@@ -465,10 +466,15 @@ class SiteUserDetail(_PluginBase):
                                             f"已匹配 hash {hash_hit} 个", "mdi-download", "primary"),
                         ]
                     },
-                    # IP 聚合在前，明细表默认折叠
+                    # IP 聚合在前；客户端分节：无数据站点 + 全部站点（同级可折叠）
                     *self._ip_sections(clients),
                     self._page_section(
-                        title="BT 客户端", icon="mdi-lan-connect", count_text=f"{len(clients)} 条记录",
+                        title="无数据站点", icon="mdi-lan-alert" if no_data_clients else "mdi-lan-check",
+                        count_text=f"{len(no_data_clients)} 个",
+                        content=self._clients_no_data_content(no_data_clients, errors)),
+                    self._page_section(
+                        title="全部站点", icon="mdi-lan-connect",
+                        count_text=f"{len(clients)} 条记录",
                         content=[self._clients_table(clients)]),
                     self._page_section(
                         title="下载中种子", icon="mdi-download", count_text=f"{len(torrents)} 个",
@@ -604,6 +610,33 @@ class SiteUserDetail(_PluginBase):
         return {'component': 'td', 'props': props, 'text': "-" if text in ("", None) else str(text)} \
             if not muted else {'component': 'td', 'props': props, 'text': "-"}
 
+    @staticmethod
+    def _clients_no_data_content(no_data: list, errors: list) -> list:
+        """无数据站点分节内容：原因表格 / 全部成功的提示。"""
+        if not no_data:
+            return [{
+                'component': 'VAlert', 'props': {
+                    'type': 'success', 'variant': 'tonal', 'density': 'compact',
+                    'prepend-icon': 'mdi-check-circle-outline',
+                    'text': "全部站点均解析到客户端数据"}
+            }]
+        error_map = {e.get("site"): e.get("error") for e in (errors or [])}
+        rows = [{
+            'cells': [
+                SiteUserDetail._td(SiteUserDetail._site_label(c), title=c.get("domain")),
+                SiteUserDetail._td(error_map.get(c.get("site")) or "用户页未解析到客户端数据"),
+            ]
+        } for c in sorted(no_data, key=SiteUserDetail._site_label)]
+        return [
+            {
+                'component': 'VAlert', 'props': {
+                    'type': 'warning', 'variant': 'tonal', 'density': 'compact',
+                    'prepend-icon': 'mdi-alert-outline',
+                    'text': f"{len(no_data)} 个站点未解析到客户端数据，可能为站点限制（如馒头 API 无 peers 明细）或模板暂不支持"}
+            },
+            SiteUserDetail._table(["站点", "原因"], rows),
+        ]
+
     def _clients_table(self, clients: list) -> dict:
         rows = []
         for client in sorted(clients, key=lambda c: self._site_label(c)):
@@ -612,7 +645,8 @@ class SiteUserDetail(_PluginBase):
             rows.append({
                 'props': {'class': 'sud-muted'} if muted else {},
                 'cells': [
-                    self._td(self._site_label(client), muted=muted, title=client.get("domain")),
+                    # 站点列始终显示（空数据行只是弱化，不能没有站点名）
+                    self._td(self._site_label(client), title=client.get("domain")),
                     self._td(client.get("agent"), muted=muted),
                     self._td(client.get("ipv4"), muted=muted),
                     self._td(ipv6[:48] + ("…" if len(ipv6) > 48 else ""), muted=muted, title=ipv6),

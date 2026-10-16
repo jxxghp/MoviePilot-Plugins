@@ -57,6 +57,62 @@ class TestClientTable:
         assert clients[0]["ipv6"] == "2409:8a1e:8f23:9990:3ac4:d45f:9cca:b045"
         assert clients[0]["port"] == 57501
 
+    def test_ubits_ip_concat_geo_text(self, site_info):
+        """UBits 模板：IP 与地理位置文本连写（无分隔符）也要能提取。"""
+        adapter = make_adapter(site_info)
+        html = load_fixture("userdetails_ubits.html")
+        tables = adapter.client_table_locator(html)
+        assert len(tables) == 1
+        clients = adapter.client_table_parse(tables[0])
+        assert len(clients) == 1
+        assert clients[0]["agent"] == "qBittorrent/5.2.4"
+        assert clients[0]["ipv4"] == "46.229.250.218"
+        assert clients[0]["ipv6"] == "2409:8a1e:8f23:9990:3ac4:d45f:9cca:b045"
+        assert clients[0]["port"] == 57501
+
+    def test_inline_clients_br_template(self, site_info, monkeypatch):
+        """家园/学校/高清视界模板：`agent (ip:port / Torrents:N)` 行内文本，<br> 分隔多条。
+
+        页面布局表（含当前IP 行）解析不出 agent 条目，自动走行内兜底。
+        """
+        adapter = make_adapter(site_info)
+        html = load_fixture("userdetails_inline_br.html")
+        clients = adapter._parse_inline_clients(html)
+        assert len(clients) == 2
+        assert clients[0]["ipv6"] == "2409:8a1e:8f23:9990:3ac4:d45f:9cca:b045"
+        assert clients[0]["port"] == 57501
+        assert clients[1]["ipv4"] == "46.229.250.218"
+        assert clients[1]["port"] == 57501
+        assert clients[1]["ipv6"] == ""
+
+    def test_parse_clients_fallback_to_inline(self, site_info, monkeypatch):
+        """表格解析无 agent 时整体走行内解析（不被布局表的 IP 伪条目挡住）。"""
+        adapter = make_adapter(site_info)
+        monkeypatch.setattr(adapter, "_fetch",
+                            lambda url, **kw: load_fixture("userdetails_inline_br.html"))
+        clients = adapter.parse_clients("1")
+        assert len(clients) == 2
+        assert all(c["agent"] == "qBittorrent/5.2.4" for c in clients)
+
+    def test_inline_clients_span_template(self, site_info):
+        """PT时间模板：`agent【v4:port ｜ v6:port】`。"""
+        adapter = make_adapter(site_info)
+        clients = adapter._parse_inline_clients(load_fixture("userdetails_inline_span.html"))
+        assert len(clients) == 1
+        assert clients[0]["ipv4"] == "46.229.250.218"
+        assert clients[0]["ipv6"] == "2409:8a1e:8f23:9990:3ac4:d45f:9cca:b045"
+        assert clients[0]["port"] == 57501
+
+    def test_inline_clients_grid_template(self, site_info):
+        """憨憨模板：div 网格，端口是独立数字。"""
+        adapter = make_adapter(site_info)
+        clients = adapter._parse_inline_clients(load_fixture("userdetails_inline_grid.html"))
+        assert len(clients) == 1
+        assert clients[0]["agent"] == "qBittorrent/5.2.4"
+        assert clients[0]["ipv4"] == "46.229.250.218"
+        assert clients[0]["ipv6"] == "2409:8a1e:8f23:9990:3ac4:d45f:9cca:b045"
+        assert clients[0]["port"] == 57501
+
     def test_parse_clients_end_to_end(self, site_info, monkeypatch):
         adapter = make_adapter(site_info)
         monkeypatch.setattr(adapter, "_fetch", lambda url, **kw: load_fixture("userdetails_clients.html"))
