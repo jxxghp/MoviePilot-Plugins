@@ -1,4 +1,5 @@
 import base64
+import copy
 import json
 import re
 import threading
@@ -16,6 +17,7 @@ from fastapi import Query
 
 from app import schemas
 from app.api.endpoints.plugin import register_plugin_api
+from app.chain.download import DownloadChain
 from app.chain.torrents import TorrentsChain
 from app.sdk.config import settings
 from app.sdk.media import MediaInfo
@@ -218,7 +220,7 @@ class BrushFlow(_PluginBase):
     plugin_name = "站点刷流"
     plugin_desc = "自动托管多个站点刷流任务，并独立调度、统计与诊断。"
     plugin_icon = "brush-flow.png"
-    plugin_version = "6.1.3"
+    plugin_version = "6.1.4"
     plugin_author = "jxxghp,InfinityPacer,Seed680"
     author_url = "https://github.com/InfinityPacer"
     plugin_config_prefix = "brushflow_"
@@ -2486,7 +2488,8 @@ class BrushFlow(_PluginBase):
         torrent_content: Union[str, bytes] = torrent.enclosure
         proxies = settings.PROXY if torrent.site_proxy else None
         cookies = torrent.site_cookie
-        if isinstance(torrent_content, str) and torrent_content.startswith("["):
+        indirect_download = isinstance(torrent_content, str) and torrent_content.startswith("[")
+        if indirect_download:
             torrent_content = self.__get_redict_url(
                 torrent_content,
                 proxies=proxies,
@@ -2498,6 +2501,15 @@ class BrushFlow(_PluginBase):
             return None
         if task.site_skip_tips and isinstance(torrent_content, str):
             torrent_content = self.__reset_download_url(torrent_content, torrent.site)
+        if isinstance(torrent_content, str) and not torrent_content.startswith("magnet") and not indirect_download:
+            # 站点可能返回登录页或首次下载确认页；交给主程序下载链校验并完成确认，避免把 HTML 传给下载器。
+            download_torrent = copy.copy(torrent)
+            download_torrent.enclosure = torrent_content
+            download_torrent.site_cookie = cookies
+            torrent_content, _, _ = DownloadChain().download_torrent(download_torrent)
+            if not torrent_content:
+                logger.error(f"刷流任务 [{task.name}] 获取有效种子文件失败：{torrent.title}")
+                return None
         downloader = self.downloader
         service = self.service_info
         if not downloader or not service:
