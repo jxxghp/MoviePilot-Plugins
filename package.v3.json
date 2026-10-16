@@ -1032,5 +1032,19 @@
       "v1.1.0": "新增双向交互：接收QQ消息执行远程命令，支持NapCat HTTP上报、上报令牌鉴权、可交互用户名单与私聊定向回复",
       "v1.0.0": "首个版本：支持通过NapCat HTTP接口发送私聊、群聊通知，支持消息类型过滤、@全体成员与图片消息"
     }
+  },
+  "SiteUserDetail": {
+    "name": "PT站用户详情采集",
+    "description": "定时采集 PT 站用户详情页的 BT 客户端信息与下载中种子明细，并通过插件 API 供三方调用。",
+    "labels": "站点,数据",
+    "version": "1.0.0",
+    "icon": "siteuserdetail.png",
+    "author": "Guoyin-Wen",
+    "level": 2,
+    "system_version": ">=3.0.0",
+    "release": true,
+    "history": {
+      "v1.0.0": "首个版本：通用架构采集 + 站点适配器（NexusPHP 通用 / M-Team API / sites 目录微调）；BT 客户端列表（agent/ipv4/ipv6/port，每站至少一条空值兜底）与下载中种子列表（id/hash/促销标签）；hash 下载器名匹配优先、种子详情页兜底；collect/snapshot 两个 apikey 插件 API"
+    }
   }
 }
