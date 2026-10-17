@@ -1455,6 +1455,7 @@
     "icon": "https://raw.githubusercontent.com/changzhanghs/MoviePilot-Plugins/main/icons/ptdatastatistics.png",
     "author": "changzhanghs",
     "level": 1,
+    "release": true,
     "system_version": ">=2.12.0",
     "history": {
       "v2.1.8": "不值一提",
