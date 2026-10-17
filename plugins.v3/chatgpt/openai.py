@@ -15,6 +15,47 @@ class OpenAi:
     """
 
     _JSON_FENCE_PATTERN = re.compile(r"^```(?:json)?\s*([\s\S]*?)\s*```$", re.IGNORECASE)
+    _RELEASE_GROUP_PATTERN = re.compile(r"\[\s*loli[\s_-]*house\s*\]", re.IGNORECASE)
+    _BRACKET_PATTERN = re.compile(r"\[([^\[\]]*)\]")
+    _SITE_METADATA_PATTERN = re.compile(r"(?:^|[|｜])\s*(?:(?:导演|主演|演员|编剧|类型)\s*[:：]|ARDTU\b)")
+
+    @classmethod
+    def _sanitize_filename_input(cls, filename: str) -> str:
+        """移除已知制作组标签和站点演职员后缀，保留括号中的片名、年份与技术信息。"""
+        text = cls._RELEASE_GROUP_PATTERN.sub("", str(filename or "").strip())
+
+        def clean_bracket(match: re.Match) -> str:
+            """只截去站点元数据起始位置之后的内容，避免丢失中文片名或别名。"""
+            content = match.group(1)
+            metadata = cls._SITE_METADATA_PATTERN.search(content)
+            if metadata is None:
+                return match.group(0)
+            title = content[:metadata.start()].strip(" |｜")
+            return f"[{title}]" if title else ""
+
+        return cls._BRACKET_PATTERN.sub(clean_bracket, text).strip()
+
+    @staticmethod
+    def _response_is_refusal(response: Any) -> bool:
+        """仅在响应显式声明拒答或安全拦截时判定为拒答，不从空文本推断原因。"""
+        extra = getattr(response, "additional_kwargs", None) or {}
+        metadata = getattr(response, "response_metadata", None) or {}
+        finish_reason = metadata.get("finish_reason")
+        reason = str(getattr(finish_reason, "name", finish_reason) or "").upper()
+        feedback = metadata.get("prompt_feedback") or {}
+        block_reason = feedback.get("block_reason")
+        blocked = str(getattr(block_reason, "name", block_reason) or "").upper() not in {
+            "", "0", "BLOCK_REASON_UNSPECIFIED",
+        }
+        return bool(
+            extra.get("refusal")
+            or reason in {"CONTENT_FILTER", "SAFETY"}
+            or blocked
+            or any(
+                isinstance(block, dict) and block.get("type") == "refusal"
+                for block in (response.content if isinstance(getattr(response, "content", None), list) else [])
+            )
+        )
 
     def __init__(
             self,
@@ -105,7 +146,11 @@ class OpenAi:
         从 LangChain AIMessage 中提取 token 用量。
         """
         usage_metadata = getattr(response, "usage_metadata", None)
-        response_metadata = getattr(response, "response_metadata", None) or {}
+        response_metadata = (
+            getattr(response, "response_metadata", None)
+            or getattr(response, "llm_output", None)
+            or {}
+        )
         token_usage = (
                 response_metadata.get("token_usage")
                 or response_metadata.get("usage")
@@ -237,14 +282,37 @@ class OpenAi:
         result = ""
         try:
             llm = self._get_llm()
-            completion = llm.invoke(
-                [
+            # generate 保留候选列表；invoke 会在空 choices 时直接索引并抛出 IndexError。
+            generated = llm.generate(
+                [[
                     SystemMessage(content=prompt or self._prompt),
-                    HumanMessage(content=str(filename or "")),
-                ]
+                    HumanMessage(content=self._sanitize_filename_input(filename)),
+                ]]
             )
-            self._last_usage = self._extract_usage(completion)
+            self._last_usage = self._extract_usage(generated)
+            if not generated.generations or not generated.generations[0]:
+                return {
+                    "content": "",
+                    "errorCode": "empty_response",
+                    "errorMsg": "模型未返回候选结果（空 choices），可能为安全审查拒答或上游响应异常",
+                }
+            completion = generated.generations[0][0].message
+            completion_usage = self._extract_usage(completion)
+            if any(completion_usage.values()):
+                self._last_usage = completion_usage
+            if self._response_is_refusal(completion):
+                return {
+                    "content": "",
+                    "errorCode": "model_refusal",
+                    "errorMsg": "模型拒答或触发安全审查，未返回识别结果",
+                }
             result = self._extract_response_text(completion)
+            if not result:
+                return {
+                    "content": "",
+                    "errorCode": "empty_response",
+                    "errorMsg": "模型未返回有效文本，可能为安全审查拒答或上游响应异常",
+                }
             json_text = self._extract_json_text(result)
             data = json.loads(json_text)
             if not isinstance(data, dict):

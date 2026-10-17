@@ -1,0 +1,9 @@
+
+.page-forward[data-v-a063b0c7] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 180px;
+  color: rgba(var(--v-theme-on-surface), .62);
+}

@@ -1,0 +1,284 @@
+[
+  {
+    "name": "我堡",
+    "message": "签到失败，未识别到登录状态；模拟登录失败，Cookie已失效",
+    "success": false,
+    "logged_in": false
+  },
+  {
+    "name": "藏宝阁",
+    "message": "签到失败，未识别到登录状态；模拟登录失败，Cookie已失效",
+    "success": false,
+    "logged_in": false
+  },
+  {
+    "name": "高清杜比",
+    "message": "签到失败，未配置站点地址或Cookie；模拟登录失败，未配置站点地址或Cookie",
+    "success": false,
+    "logged_in": false
+  },
+  {
+    "name": "冬樱",
+    "message": "签到失败，未识别到登录状态；模拟登录失败，Cookie已失效",
+    "success": false,
+    "logged_in": false
+  },
+  {
+    "name": "雨",
+    "message": "签到失败，无法打开网站！；模拟登录失败，无法打开网站！",
+    "success": false,
+    "logged_in": false
+  },
+  {
+    "name": "烧包乐园",
+    "message": "签到失败，未识别到登录状态；模拟登录失败，未识别到登录状态",
+    "success": false,
+    "logged_in": false
+  },
+  {
+    "name": "1PTBA",
+    "message": "签到失败，未识别到登录状态；模拟登录失败，Cookie已失效",
+    "success": false,
+    "logged_in": false
+  },
+  {
+    "name": "铂金学院",
+    "message": "签到失败，状态码：404！；模拟登录失败，未识别到登录状态",
+    "success": false,
+    "logged_in": false
+  },
+  {
+    "name": "AGSVPT",
+    "message": "签到失败，未识别到登录状态；模拟登录失败，Cookie已失效",
+    "success": false,
+    "logged_in": false
+  },
+  {
+    "name": "观众",
+    "message": "登录成功，签到未确认",
+    "success": false,
+    "logged_in": true
+  },
+  {
+    "name": "春天",
+    "message": "登录成功，签到未确认",
+    "success": false,
+    "logged_in": true
+  },
+  {
+    "name": "天空",
+    "message": "登录成功，签到未确认",
+    "success": false,
+    "logged_in": true
+  },
+  {
+    "name": "麒麟",
+    "message": "登录成功，签到未确认",
+    "success": false,
+    "logged_in": true
+  },
+  {
+    "name": "天雪",
+    "message": "登录成功，签到未确认",
+    "success": false,
+    "logged_in": true
+  },
+  {
+    "name": "莫妮卡",
+    "message": "登录成功，签到未确认",
+    "success": false,
+    "logged_in": true
+  },
+  {
+    "name": "PlayLet",
+    "message": "登录成功，签到未确认",
+    "success": false,
+    "logged_in": true
+  },
+  {
+    "name": "思齐",
+    "message": "登录成功，签到未确认",
+    "success": false,
+    "logged_in": true
+  },
+  {
+    "name": "星空",
+    "message": "登录成功，签到未确认",
+    "success": false,
+    "logged_in": true
+  },
+  {
+    "name": "自由农场",
+    "message": "登录成功，签到未确认",
+    "success": false,
+    "logged_in": true
+  },
+  {
+    "name": "憨憨",
+    "message": "签到成功",
+    "success": true,
+    "logged_in": true
+  },
+  {
+    "name": "听听歌",
+    "message": "签到成功",
+    "success": true,
+    "logged_in": true
+  },
+  {
+    "name": "家园",
+    "message": "签到成功",
+    "success": true,
+    "logged_in": true
+  },
+  {
+    "name": "学校",
+    "message": "签到成功",
+    "success": true,
+    "logged_in": true
+  },
+  {
+    "name": "青蛙",
+    "message": "签到成功",
+    "success": true,
+    "logged_in": true
+  },
+  {
+    "name": "CARPT",
+    "message": "签到成功",
+    "success": true,
+    "logged_in": true
+  },
+  {
+    "name": "高清视界",
+    "message": "签到成功",
+    "success": true,
+    "logged_in": true
+  },
+  {
+    "name": "蝶粉",
+    "message": "签到成功",
+    "success": true,
+    "logged_in": true
+  },
+  {
+    "name": "聆音",
+    "message": "签到成功",
+    "success": true,
+    "logged_in": true
+  },
+  {
+    "name": "咖啡",
+    "message": "签到成功",
+    "success": true,
+    "logged_in": true
+  },
+  {
+    "name": "库非",
+    "message": "签到成功",
+    "success": true,
+    "logged_in": true
+  },
+  {
+    "name": "Rousi Pro",
+    "message": "签到成功",
+    "success": true,
+    "logged_in": true
+  },
+  {
+    "name": "PT时间",
+    "message": "签到成功",
+    "success": true,
+    "logged_in": true
+  },
+  {
+    "name": "海胆之家",
+    "message": "签到成功",
+    "success": true,
+    "logged_in": true
+  },
+  {
+    "name": "UBits",
+    "message": "签到成功",
+    "success": true,
+    "logged_in": true
+  },
+  {
+    "name": "PTLGS",
+    "message": "签到成功",
+    "success": true,
+    "logged_in": true
+  },
+  {
+    "name": "浦园PT",
+    "message": "签到成功",
+    "success": true,
+    "logged_in": true
+  },
+  {
+    "name": "财神",
+    "message": "签到成功",
+    "success": true,
+    "logged_in": true
+  },
+  {
+    "name": "音乐乌托邦",
+    "message": "签到成功",
+    "success": true,
+    "logged_in": true
+  },
+  {
+    "name": "我的PT",
+    "message": "签到成功",
+    "success": true,
+    "logged_in": true
+  },
+  {
+    "name": "红豆饭",
+    "message": "签到成功",
+    "success": true,
+    "logged_in": true
+  },
+  {
+    "name": "大青虫",
+    "message": "签到成功",
+    "success": true,
+    "logged_in": true
+  },
+  {
+    "name": "彩虹岛",
+    "message": "签到成功",
+    "success": true,
+    "logged_in": true
+  },
+  {
+    "name": "下水道",
+    "message": "签到成功",
+    "success": true,
+    "logged_in": true
+  },
+  {
+    "name": "NovaHD",
+    "message": "签到成功",
+    "success": true,
+    "logged_in": true
+  },
+  {
+    "name": "蟹黄堡",
+    "message": "签到成功",
+    "success": true,
+    "logged_in": true
+  },
+  {
+    "name": "LaJiDui",
+    "message": "签到成功",
+    "success": true,
+    "logged_in": true
+  },
+  {
+    "name": "March",
+    "message": "签到成功",
+    "success": true,
+    "logged_in": true
+  }
+]

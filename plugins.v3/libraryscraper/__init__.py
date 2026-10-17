@@ -20,7 +20,19 @@ from app.sdk.media import resolve_media_identity
 from app.sdk.utilities import SystemUtils
 
 
+class _LibraryScrapingChain(ScrapingChain):
+    """为媒体库刮削的递归调用保留 Jellyfin 预览目录排除规则。"""
+
+    def scrape_metadata(self, fileitem, *args, **kwargs):
+        """在每次递归写入前检查目录，防止带季号的缓存被当作剧集目录。"""
+        if fileitem and LibraryScraper._LibraryScraper__is_trickplay_path(Path(fileitem.path)):
+            return False, "跳过 Jellyfin 预览缓存目录"
+        return super().scrape_metadata(fileitem, *args, **kwargs)
+
+
 class LibraryScraper(_PluginBase):
+    """定时补齐媒体库元数据，跳过媒体服务器生成的预览缓存。"""
+
     # 插件名称
     plugin_name = "媒体库刮削"
     # 插件描述
@@ -28,7 +40,7 @@ class LibraryScraper(_PluginBase):
     # 插件图标
     plugin_icon = "scraper.png"
     # 插件版本
-    plugin_version = "3.1.1"
+    plugin_version = "3.1.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -57,6 +69,7 @@ class LibraryScraper(_PluginBase):
     _target_file = "file"
 
     def init_plugin(self, config: dict = None):
+        """读取配置并重建一次性刮削任务。"""
 
         # 读取配置
         if config:
@@ -95,13 +108,16 @@ class LibraryScraper(_PluginBase):
                     self._scheduler.start()
 
     def get_state(self) -> bool:
+        """返回定时刮削服务的启用状态。"""
         return self._enabled
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
+        """本插件不提供消息命令。"""
         pass
 
     def get_api(self) -> List[Dict[str, Any]]:
+        """本插件不提供独立 API。"""
         pass
 
     def get_service(self) -> List[Dict[str, Any]]:
@@ -294,6 +310,7 @@ class LibraryScraper(_PluginBase):
         }
 
     def get_page(self) -> List[dict]:
+        """本插件不提供详情页面。"""
         pass
 
     def __libraryscraper(self):
@@ -331,6 +348,8 @@ class LibraryScraper(_PluginBase):
                 if self._event.is_set():
                     logger.info(f"媒体库刮削服务停止")
                     return
+                if self.__is_trickplay_path(file_path):
+                    continue
                 # 排除目录
                 exclude_flag = False
                 for exclude_path in exclude_paths:
@@ -382,6 +401,13 @@ class LibraryScraper(_PluginBase):
             logger.info(f"未发现需要刮削的目录")
 
     @staticmethod
+    def __is_trickplay_path(path: Path) -> bool:
+        """按目录路径分量排除 Jellyfin 预览缓存及其子目录，保留同名媒体文件。"""
+        return any(parent.name.lower().endswith(".trickplay") for parent in path.parents) or (
+            path.name.lower().endswith(".trickplay") and path.is_dir()
+        )
+
+    @staticmethod
     def __get_scrape_item(
             file_path: Path,
             scraper_path: Path,
@@ -394,6 +420,9 @@ class LibraryScraper(_PluginBase):
         分类目录通常位于扫描根目录下方，必须用相对路径计算，否则会被误当成媒体目录。
         """
         if not file_path or not scraper_path or not mtype:
+            return None
+
+        if LibraryScraper.__is_trickplay_path(file_path):
             return None
 
         rename_format = settings.TV_RENAME_FORMAT if mtype == MediaType.TV else settings.MOVIE_RENAME_FORMAT
@@ -463,6 +492,9 @@ class LibraryScraper(_PluginBase):
         """
         刮削一个媒体目录或媒体文件
         """
+        if self.__is_trickplay_path(path):
+            return
+
         media_source, media_id = resolve_media_identity(
             media_source=media_source,
             media_id=media_id,
@@ -518,7 +550,7 @@ class LibraryScraper(_PluginBase):
         item_path = str(path).replace("\\", "/")
         if target_type == self._target_dir:
             item_path = f"{item_path}/"
-        ScrapingChain().scrape_metadata(
+        _LibraryScrapingChain().scrape_metadata(
             fileitem=schemas.FileItem(
                 storage="local",
                 type=target_type,
@@ -546,6 +578,8 @@ class LibraryScraper(_PluginBase):
             if self._event.is_set():
                 logger.info(f"媒体库刮削服务停止")
                 return
+            if self.__is_trickplay_path(child_file):
+                continue
             child_mtype = mtype
             child_meta = MetaInfoPath(child_file)
             if not child_mtype:
