@@ -1325,7 +1325,7 @@ class PackagingTests(unittest.TestCase):
         self.assertIn('fill="#ffc83d"', icon)
         self.assertEqual(meta["system_version"], ">=2.12.0")
         self.assertIsNot(meta.get("v3"), False)
-        self.assertNotIn("release", meta)
+        self.assertIs(meta.get("release"), True)
 
     def test_plugin_source_does_not_read_downloaders_or_pt_sites(self):
         source = (PLUGIN / "__init__.py").read_text(encoding="utf-8")
