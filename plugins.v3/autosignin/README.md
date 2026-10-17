@@ -44,4 +44,6 @@ HTTP 200、签到按钮消失、跳回签到页、脚本或隐藏模板中的文
 
 PTZONE（ptzone.xyz）按配置地址向 `attendance.php` 提交 POST 签到，保留 Cookie、UA、代理和超时配置；仅在返回页面同时确认登录和签到完成时记为成功。
 
+AGSVPT（agsvpt.com）使用专用签到处理器，先读取 `attendance.php`，出现“立即签到”按钮时提交 POST，并通过签到成功或奖励文案确认结果。
+
 馒头（m-team）没有独立签到接口，通过前端 `updateLastBrowse` 接口生成签名并更新访问时间保号：需要在站点配置的请求头（Authorization/Token）中填写浏览器登录态，登录态过期后需重新登录站点更新。
