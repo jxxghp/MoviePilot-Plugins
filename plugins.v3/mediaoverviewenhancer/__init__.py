@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.plugins import _PluginBase
+from app.sdk.plugin import _PluginBase
 from app.schemas.types import EventType, MessageType
 from app.sdk.events import Event, eventmanager
 from app.sdk.logging import logger
@@ -26,7 +26,7 @@ class MediaOverviewEnhancer(_PluginBase):
         "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/"
         "src/assets/images/misc/edit.png"
     )
-    plugin_version = "1.2.0"
+    plugin_version = "1.2.1"
     plugin_label = "元数据,媒体库,AI"
     plugin_author = "miguelito39721"
     plugin_config_prefix = "mediaoverviewenhancer_"
@@ -40,6 +40,7 @@ class MediaOverviewEnhancer(_PluginBase):
 
     def init_plugin(self, config: dict = None) -> None:
         """根据插件配置初始化运行状态与引擎。"""
+        self.stop_service()
         self._config = normalize_config(config)
         self._enabled = bool(self._config.get("enabled"))
         try:

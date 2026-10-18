@@ -16,13 +16,7 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 from app.sdk.logging import logger
 from app.sdk.network import RequestUtils
 
-try:  # 新版宿主把 LLMHelper 放在 app.agent.llm
-    from app.agent.llm import LLMHelper
-except Exception:  # pragma: no cover - 旧版宿主回退
-    try:
-        from app.helper.llm import LLMHelper
-    except Exception:  # pragma: no cover
-        LLMHelper = None  # type: ignore[assignment]
+from app.agent.llm.helper import LLMHelper
 
 # 三种处理目标：电影、剧集分集、MV（音乐视频）
 MOVIE = "movie"
@@ -298,7 +292,9 @@ class EmbyClient:
         targets: List[Optional[str]] = []
         for library in self.list_libraries():
             collection_type = str(library.get("CollectionType") or "").lower()
-            if collection_type in {"music", "books", "boxsets", "homevideos"}:
+            if collection_type in {"music", "books", "boxsets"}:
+                continue
+            if collection_type == "homevideos" and not names:
                 continue
             library_name = str(library.get("Name") or "")
             if names and library_name not in names:
@@ -380,6 +376,7 @@ class EmbyClient:
         item_types: str = "Movie,Series",
         limit: int = 8,
         year: Optional[str] = None,
+        parent: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """按标题搜索条目（用于入库后自动补全）。"""
         params: Dict[str, Any] = {
@@ -392,6 +389,8 @@ class EmbyClient:
         }
         if year:
             params["Years"] = str(year)
+        if parent:
+            params["ParentId"] = parent
         data = self._get("Items", params)
         return [item for item in (data or {}).get("Items", []) if isinstance(item, dict)]
 
@@ -463,8 +462,7 @@ class EmbyClient:
         if lock:
             if "Overview" not in locked_fields:
                 locked_fields.append("Overview")
-        else:
-            locked_fields = [value for value in locked_fields if value != "Overview"]
+        # 关闭自动锁定只表示不新增锁，不解除用户已有的字段锁。
         payload["LockedFields"] = locked_fields
         response = self._request.post_res(
             url=self._url(f"Items/{item_id}"),
@@ -675,12 +673,14 @@ class LLMTextWriter:
 
     async def _ainvoke(self, system_prompt: str, user_prompt: str) -> str:
         """异步调用系统 LLM 并返回纯文本。"""
-        from langchain_core.prompts import ChatPromptTemplate
+        from langchain_core.messages import HumanMessage, SystemMessage
 
         llm = await LLMHelper.get_llm(streaming=False)
         try:
-            chain = ChatPromptTemplate.from_messages([("system", system_prompt), ("human", user_prompt)]) | llm
-            response = await chain.ainvoke({})
+            # 元数据中的花括号是正文，不应被当作模板占位符解析。
+            response = await llm.ainvoke([
+                SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)
+            ])
             content = getattr(response, "content", response)
             return clean_text(LLMHelper.extract_text_content(content, fallback_to_string=True))
         finally:
@@ -875,18 +875,20 @@ class OverviewEnhancer:
             default["logs"] = []
         return default
 
-    def _save_state(self) -> None:
-        """把内存状态写回本地文件。"""
+    def _save_state(self, allow_stopped: bool = False) -> None:
+        """串行保存快照；旧引擎停止后仅允许 stop 保存最后一次状态。"""
         with self._lock:
+            if self._stop_pending.is_set() and not allow_stopped:
+                return
             self._state["records"] = dict(list(self._state.get("records", {}).items())[-20000:])
             self._state["logs"] = list(self._state.get("logs", []))[-300:]
             payload = dict(self._state)
-        try:
-            self._state_file.write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
-        except Exception as err:  # noqa: BLE001
-            logger.warning(f"影视简介增强：状态文件写入失败 {err}")
+            try:
+                self._state_file.write_text(
+                    json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+            except Exception as err:  # noqa: BLE001
+                logger.warning(f"影视简介增强：状态文件写入失败 {err}")
 
     def _log(self, message: str, level: str = "info") -> None:
         """写入运行日志（同时输出到宿主日志）。"""
@@ -1262,33 +1264,15 @@ class OverviewEnhancer:
                             client,
                             list(
                                 client.iter_items(
-                                    "Movie", [parent], max_items=scan_limit, extra_fields="Path"
+                                    "Movie,MusicVideo,Video", [parent], max_items=scan_limit, extra_fields="Path"
                                 )
                             ),
                             force_flag,
                         )
+                        if title:
+                            mv_jobs = [job for job in mv_jobs if title.casefold() in job["title"].casefold()]
                         stats["mv"] += len(mv_jobs)
                         jobs.extend(mv_jobs)
-                continue
-            if title:
-                if self._config.get("movie_enabled") and media_type in {"all", "movie"}:
-                    movie_jobs = self._build_movie_jobs(
-                        client, client.search_items(title, "Movie"), force_flag
-                    )
-                    stats["movies"] += len(movie_jobs)
-                    jobs.extend(movie_jobs)
-                if self._config.get("episode_enabled") and media_type in {"all", "tv"}:
-                    episode_items: List[Dict[str, Any]] = []
-                    for series in client.search_items(title, "Series"):
-                        series_id = str(series.get("Id") or "")
-                        if not series_id:
-                            continue
-                        episode_items.extend(
-                            list(client.iter_items("Episode", [series_id], max_items=scan_limit))
-                        )
-                    episode_jobs = self._build_episode_jobs(client, episode_items, force_flag)
-                    stats["episodes"] += len(episode_jobs)
-                    jobs.extend(episode_jobs)
                 continue
             if libraries:
                 parents = client.resolve_library_ids(libraries)
@@ -1297,6 +1281,34 @@ class OverviewEnhancer:
                     continue
             else:
                 parents = client.resolve_library_ids([]) or [None]
+            if title:
+                if self._config.get("movie_enabled") and media_type in {"all", "movie"}:
+                    for parent in parents:
+                        movie_jobs = self._build_movie_jobs(
+                            client, client.search_items(title, "Movie", parent=parent),
+                            force_flag, require_provider=True,
+                        )
+                        stats["movies"] += len(movie_jobs)
+                        jobs.extend(movie_jobs)
+                if self._config.get("episode_enabled") and media_type in {"all", "tv"}:
+                    episode_items: List[Dict[str, Any]] = []
+                    series_items = [
+                        series for parent in parents
+                        for series in client.search_items(title, "Series", parent=parent)
+                    ]
+                    for series in series_items:
+                        series_id = str(series.get("Id") or "")
+                        if not series_id:
+                            continue
+                        episode_items.extend(
+                            list(client.iter_items("Episode", [series_id], max_items=scan_limit))
+                        )
+                    episode_jobs = self._build_episode_jobs(
+                        client, episode_items, force_flag, require_provider=True
+                    )
+                    stats["episodes"] += len(episode_jobs)
+                    jobs.extend(episode_jobs)
+                continue
             if self._config.get("movie_enabled") and media_type in {"all", "movie"}:
                 for parent in parents:
                     movie_jobs = self._build_movie_jobs(
@@ -1321,7 +1333,8 @@ class OverviewEnhancer:
                     jobs.extend(episode_jobs)
         stats["skipped_no_provider"] = self._skipped_no_provider
         stats["title_matched"] = self._title_matched
-        max_items = int(limit or self._config.get("max_items_per_run") or 200)
+        configured_max = int(self._config.get("max_items_per_run") or 200)
+        max_items = _bounded_int(limit, configured_max, 1, configured_max)
         return jobs[:max_items], errors, stats
 
     # ------------------------------------------------------------------ 简介决策
@@ -1440,7 +1453,7 @@ class OverviewEnhancer:
 
         # expand：以 TMDB 中文简介为基础扩写，缺中文时先翻译英文，再考虑 AI 生成
         if visible_length(zh_overview) < 20:
-            if visible_length(en_overview) >= 20:
+            if visible_length(en_overview) >= 20 and self._config.get("translate_foreign"):
                 if not allow_llm:
                     return {"action": "write", "text": "", "source": SOURCE_TRANSLATE, "message": "将翻译英文简介", "detail": zh_detail}
                 text = self._llm.generate(
@@ -1714,30 +1727,33 @@ class OverviewEnhancer:
 
     def start_run(self, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """启动一次后台执行任务（试跑请调用 preview）。"""
-        if self._run and self._run.get("state") == "running":
-            return {"started": False, "message": "已有任务正在执行"}
-        payload = payload or {}
-        self._cancel.clear()
-        self._run = {
-            "state": "running",
-            "trigger": str(payload.get("trigger") or "manual"),
-            "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "total": 0,
-            "done": 0,
-            "updated": 0,
-            "skipped": 0,
-            "failed": 0,
-            "current": "",
-            "message": "正在扫描媒体库",
-        }
-        self._thread = threading.Thread(
-            target=self._run_worker,
-            args=(payload,),
-            name="MediaOverviewEnhancerRun",
-            daemon=True,
-        )
-        self._thread.start()
-        return {"started": True, "message": "任务已启动"}
+        with self._lock:
+            if self._stop_pending.is_set() or not self._config.get("enabled"):
+                return {"started": False, "message": "插件已停止或未启用"}
+            if self._thread is not None and self._thread.is_alive():
+                return {"started": False, "message": "已有任务正在执行"}
+            payload = payload or {}
+            self._cancel.clear()
+            self._run = {
+                "state": "running",
+                "trigger": str(payload.get("trigger") or "manual"),
+                "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "total": 0,
+                "done": 0,
+                "updated": 0,
+                "skipped": 0,
+                "failed": 0,
+                "current": "",
+                "message": "正在扫描媒体库",
+            }
+            self._thread = threading.Thread(
+                target=self._run_worker,
+                args=(payload,),
+                name="MediaOverviewEnhancerRun",
+                daemon=True,
+            )
+            self._thread.start()
+            return {"started": True, "message": "任务已启动"}
 
     def cancel_run(self) -> Dict[str, Any]:
         """请求停止当前任务。"""
@@ -1786,9 +1802,6 @@ class OverviewEnhancer:
                 futures = {pool.submit(self._process_job, job): job for job in jobs}
                 for future in as_completed(futures):
                     job = futures[future]
-                    if self._cancel.is_set():
-                        self._log("任务被手动停止", "warning")
-                        break
                     try:
                         result = future.result()
                     except Exception as err:  # noqa: BLE001
@@ -1831,6 +1844,8 @@ class OverviewEnhancer:
 
     def _finish_run(self, message: str, stats: Dict[str, Any]) -> None:
         """结束任务并保存状态、发送通知。"""
+        if self._stop_pending.is_set():
+            return
         with self._lock:
             if self._run is not None:
                 self._run.update(
@@ -1852,7 +1867,7 @@ class OverviewEnhancer:
             }
         self._save_state()
         self._log(message)
-        if self._notify and summary:
+        if self._notify and summary and not self._stop_pending.is_set():
             try:
                 self._notify(
                     "影视简介增强",
@@ -1876,6 +1891,8 @@ class OverviewEnhancer:
             return {"status": "skipped", "message": "生成结果过短"}
         if text_signature(text) == text_signature(job.get("current")):
             return {"status": "skipped", "message": "内容与现有简介一致"}
+        if self._cancel.is_set():
+            return {"status": "skipped", "message": "任务已取消"}
         ok, message = client.update_overview(
             job["item_id"], text, lock=bool(self._config.get("lock_overview"))
         )
@@ -1887,54 +1904,47 @@ class OverviewEnhancer:
 
     def queue_transfer(self, title: str, year: str = "", media_type: str = "") -> Dict[str, Any]:
         """记录入库事件，稍后延迟补全该媒体简介。"""
-        if not self._config.get("auto_on_transfer") or not title:
-            return {"queued": False, "message": "未开启入库后自动补全"}
+        if (not self._config.get("enabled") or self._stop_pending.is_set()
+                or not self._config.get("auto_on_transfer") or not title):
+            return {"queued": False, "message": "未开启入库后自动补全或插件已停止"}
         with self._lock:
-            self._pending.append({"title": title, "year": str(year or ""), "type": media_type or ""})
+            self._pending.append({
+                "title": title, "year": str(year or ""), "type": media_type or "",
+                "ready_at": time.monotonic() + int(self._config.get("post_transfer_delay") or 0),
+            })
             self._pending = self._pending[-20:]
-        if self._pending_worker is None or not self._pending_worker.is_alive():
-            self._stop_pending.clear()
-            self._pending_worker = threading.Thread(
-                target=self._pending_loop,
-                name="MediaOverviewEnhancerPending",
-                daemon=True,
-            )
-            self._pending_worker.start()
+            if self._pending_worker is None or not self._pending_worker.is_alive():
+                self._pending_worker = threading.Thread(
+                    target=self._pending_loop, name="MediaOverviewEnhancerPending", daemon=True
+                )
+                self._pending_worker.start()
         return {"queued": True, "message": f"已登记 {title}，稍后自动补全"}
 
     def _pending_loop(self) -> None:
-        """延迟处理入库事件队列（合并短时间内的多次入库）。"""
-        delay = int(self._config.get("post_transfer_delay") or 0)
-        idle_rounds = 0
-        while not self._stop_pending.is_set():
-            time.sleep(max(5, min(delay, 300)) if delay else 5)
+        """按每次入库的完整延迟等待；忙碌时保留队列，停止时立即唤醒。"""
+        while not self._stop_pending.wait(1):
             with self._lock:
-                batch = self._pending[:]
-                self._pending = []
-            if not batch:
-                idle_rounds += 1
-                if idle_rounds >= 12:
-                    return
-                continue
-            idle_rounds = 0
-            for entry in batch:
-                if self._stop_pending.is_set():
-                    return
-                if self._run and self._run.get("state") == "running":
-                    self._log("已有任务在运行，跳过本次入库触发", "warning")
+                if not self._pending or self._pending[0]["ready_at"] > time.monotonic():
                     continue
-                title = str(entry.get("title") or "")
-                if not title:
+                if self._thread is not None and self._thread.is_alive():
                     continue
-                self._log(f"入库事件触发补全：{title}")
-                self.start_run({"trigger": "transfer", "title": title, "media_type": "all"})
-                time.sleep(1)
+                entry = self._pending.pop(0)
+                result = self.start_run({
+                    "trigger": "transfer", "title": entry["title"], "media_type": "all"
+                })
+                if not result.get("started"):
+                    self._pending.insert(0, entry)
 
     def stop(self) -> None:
-        """停止后台线程并保存状态。"""
+        """停止接收任务、唤醒延迟线程并阻止生成中的条目继续写回。"""
         self._stop_pending.set()
         self._cancel.set()
-        self._save_state()
+        with self._lock:
+            self._pending.clear()
+        for thread in (self._pending_worker, self._thread):
+            if thread is not None and thread is not threading.current_thread():
+                thread.join(timeout=5)
+        self._save_state(allow_stopped=True)
 
     def handle_transfer_event(self, event_data: Any) -> Dict[str, Any]:
         """解析整理完成事件并登记待补全条目。"""
