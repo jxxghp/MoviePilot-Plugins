@@ -1066,5 +1066,21 @@
       "v3.0.1": "不值一提",
       "v3.0.0": "不值一提"
     }
+  },
+  "MediaOverviewEnhancer": {
+    "name": "影视简介增强",
+    "description": "把电影简介写得更详细，并让剧集每集都有独立简介：TMDB 中文简介优先，缺失时翻译英文简介或由 AI 依剧目上下文生成；MV 库则依据曲目信息由 AI 生成中文简介，结果写回 Emby 并锁定字段。",
+    "labels": "元数据,媒体库,AI",
+    "version": "1.2.0",
+    "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/edit.png",
+    "author": "miguelito39721",
+    "level": 1,
+    "release": true,
+    "system_version": ">=3.0.0",
+    "history": {
+      "v1.2.0": "新增 MV（音乐视频）简介：MV 无 TMDB 条目，改为依据文件名解析出的艺人/曲名/年份/版本标注由 AI 生成中文简介，并剔除文案里的画质、编码等技术词；详情页新增「仅 MV」处理对象，配置页新增「MV 简介」组（开关 / MV 媒体库 / 最小字数 / 目标字数）；「全部」不包含 MV 以避免一次性产生大量大模型调用",
+      "v1.1.0": "修复 Emby 写入会清空名称/分集号的问题（改为整份条目回写 + 写入后回读校验）；新增「素材不足或同季重复时改用 AI 生成」「剧集无 TMDB 标识时按标题搜索兜底」开关；候选收集改为覆盖整库，修复大库尾部条目漏扫",
+      "v1.0.0": "初始版本：电影简介扩写与分集独立简介写回 Emby，支持 TMDB 中文优先、英文翻译、AI 生成，入库后自动 + 手动批量 + 定时补漏，联邦 UI 界面"
+    }
   }
 }
