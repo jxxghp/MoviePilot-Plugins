@@ -392,8 +392,9 @@ def test_build_html_media_uses_configured_template() -> None:
         link="https://mp.example.com/#/history",
         msg_type="整理入库",
     )
-    # 媒体模板特征
-    assert "min-height:520px" in html
+    # 媒体模板特征：海报按原始比例显示，不裁切
+    assert "height:auto" in html
+    assert "object-fit:cover" not in html
     assert "https://tmdb.example.com/t/p/w500/poster.jpg" in html
     assert "3体" in html
 
@@ -428,7 +429,9 @@ def test_build_html_poster_hero_template() -> None:
         msg_type="整理入库",
         template="poster_hero",
     )
-    assert "object-fit:cover" in html
+    # 海报按原始比例显示，不裁切
+    assert "height:auto" in html
+    assert "object-fit:cover" not in html
     assert "类型：电视剧" in html
     assert "类别：欧美剧" in html
     assert "18.89G" in html
@@ -447,7 +450,9 @@ def test_build_html_poster_full_template() -> None:
         template="poster_full",
     )
     assert "position:absolute" in html
-    assert "min-height:520px" in html
+    # 海报按原始比例显示，不裁切
+    assert "height:auto" in html
+    assert "object-fit:cover" not in html
     assert "类型：电视剧" in html
     assert "18.89G" in html
     assert "查看详情" in html
@@ -474,6 +479,37 @@ def test_parse_text_fields() -> None:
     fields3 = plugin._parse_text_fields("文件名：Movie, Part 1.mkv，大小：5.26G")
     assert any(value == "Movie, Part 1.mkv" for _, value in fields3)
     assert ("大小", "5.26G") in fields3
+
+
+def test_parse_text_fields_keeps_time_colon() -> None:
+    """发布时间中的时间冒号不应被误识别为字段边界。"""
+    plugin = _make_plugin()
+    text = (
+        "站点：NovaHD\n质量：WEBRip 1080p\n大小：3.0G\n"
+        "发布时间：2025-12-18 13:44:06\n做种数：5\n促销：50%"
+    )
+    fields = plugin._parse_text_fields(text)
+    assert ("发布时间", "2025-12-18 13:44:06") in fields
+    assert ("做种数", "5") in fields
+    assert ("促销", "50%") in fields
+    # 时间片段不应被拆成独立字段
+    names = [name for name, _ in fields]
+    assert "2025-12-18 13" not in names
+    assert "44" not in names
+
+
+def test_parse_text_fields_keeps_url_and_path() -> None:
+    """URL 与 Windows 路径中的冒号不应被误识别为字段边界。"""
+    plugin = _make_plugin()
+    text = (
+        "链接：https://example.com/path\n"
+        "路径：C:\\Users\\test\n"
+        "描述：类型: 悬疑 | 导演: 清水崇"
+    )
+    fields = plugin._parse_text_fields(text)
+    assert ("链接", "https://example.com/path") in fields
+    assert ("路径", "C:\\Users\\test") in fields
+    assert ("描述", "类型: 悬疑 | 导演: 清水崇") in fields
 
 
 def test_download_image_returns_none_for_empty_url() -> None:
@@ -598,34 +634,3 @@ def test_resolve_poster_image_cached_none_falls_back() -> None:
     )
 
     assert result == "https://tmdb.example.com/backdrop.jpg"
-
-
-def test_parse_text_fields_keeps_time_colon() -> None:
-    """发布时间中的时间冒号不应被误识别为字段边界。"""
-    plugin = _make_plugin()
-    text = (
-        "站点：NovaHD\n质量：WEBRip 1080p\n大小：3.0G\n"
-        "发布时间：2025-12-18 13:44:06\n做种数：5\n促销：50%"
-    )
-    fields = plugin._parse_text_fields(text)
-    assert ("发布时间", "2025-12-18 13:44:06") in fields
-    assert ("做种数", "5") in fields
-    assert ("促销", "50%") in fields
-    # 时间片段不应被拆成独立字段
-    names = [name for name, _ in fields]
-    assert "2025-12-18 13" not in names
-    assert "44" not in names
-
-
-def test_parse_text_fields_keeps_url_and_path() -> None:
-    """URL 与 Windows 路径中的冒号不应被误识别为字段边界。"""
-    plugin = _make_plugin()
-    text = (
-        "链接：https://example.com/path\n"
-        "路径：C:\\Users\\test\n"
-        "描述：类型: 悬疑 | 导演: 清水崇"
-    )
-    fields = plugin._parse_text_fields(text)
-    assert ("链接", "https://example.com/path") in fields
-    assert ("路径", "C:\\Users\\test") in fields
-    assert ("描述", "类型: 悬疑 | 导演: 清水崇") in fields
