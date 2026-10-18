@@ -31,7 +31,7 @@ class EmailMsg(_PluginBase):
     # 插件图标
     plugin_icon = "Email_A.png"
     # 插件版本
-    plugin_version = "1.3.3"
+    plugin_version = "1.3.4"
     # 插件作者
     plugin_author = "LLL001a"
     # 作者主页
@@ -485,7 +485,9 @@ class EmailMsg(_PluginBase):
         """解析通知正文为 (字段名, 值) 列表。
 
         支持逗号、换行分隔的「字段名：值」格式，也兼容无字段名的纯文本。
-        字段值内的逗号、分号等标点会被保留，避免正文失真。
+        字段值内的逗号、分号、冒号（如时间 13:44:06、URL、Windows 路径）会被保留，
+        避免正文失真。
+
         :param text: 通知正文
         :return: (字段名, 值) 元组列表
         """
@@ -493,8 +495,13 @@ class EmailMsg(_PluginBase):
             return []
         import re as _re
         fields = []
-        # 匹配「字段名：」位置（字段名不含冒号、逗号、分号、换行）
-        field_re = _re.compile(r"([^：:，,;；\n]{1,20})[：:]")
+        # 字段名必须以中文/字母开头，允许中文/字母/数字/_/-/&，长度 1-10，
+        # 且必须位于行首或分隔符后；这样时间（13:44:06）、URL（https://）、
+        # Windows 路径（C:\）等值内的冒号不会被误识别为字段边界。
+        field_re = _re.compile(
+            r"(?:^|[\n，,;；])\s*"
+            r"([\u4e00-\u9fa5a-zA-Z][\u4e00-\u9fa5a-zA-Z0-9_\-&]{0,9})[：:]"
+        )
         matches = list(field_re.finditer(text))
         if not matches:
             # 无字段名结构，按换行拆分保留纯文本

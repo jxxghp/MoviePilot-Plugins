@@ -14,7 +14,7 @@ def test_plugin_metadata() -> None:
     """插件元数据应与市场索引保持一致。"""
     plugin = _make_plugin()
     assert plugin.plugin_name == "邮箱通知"
-    assert plugin.plugin_version == "1.3.3"
+    assert plugin.plugin_version == "1.3.4"
     assert plugin.plugin_config_prefix == "emailmsg_"
 
 
@@ -598,3 +598,33 @@ def test_resolve_poster_image_cached_none_falls_back() -> None:
     )
 
     assert result == "https://tmdb.example.com/backdrop.jpg"
+
+
+def test_parse_text_fields_keeps_time_colon() -> None:
+    """发布时间中的时间冒号不应被误识别为字段边界。"""
+    plugin = _make_plugin()
+    text = (
+        "站点：NovaHD\n质量：WEBRip 1080p\n大小：3.0G\n"
+        "发布时间：2025-12-18 13:44:06\n做种数：5\n促销：50%"
+    )
+    fields = plugin._parse_text_fields(text)
+    assert ("发布时间", "2025-12-18 13:44:06") in fields
+    assert ("做种数", "5") in fields
+    assert ("促销", "50%") in fields
+    names = [name for name, _ in fields]
+    assert "2025-12-18 13" not in names
+    assert "44" not in names
+
+
+def test_parse_text_fields_keeps_url_and_path() -> None:
+    """URL 与 Windows 路径中的冒号不应被误识别为字段边界。"""
+    plugin = _make_plugin()
+    text = (
+        "链接：https://example.com/path\n"
+        "路径：C:\\Users\\test\n"
+        "描述：类型: 悬疑 | 导演: 清水崇"
+    )
+    fields = plugin._parse_text_fields(text)
+    assert ("链接", "https://example.com/path") in fields
+    assert ("路径", "C:\\Users\\test") in fields
+    assert ("描述", "类型: 悬疑 | 导演: 清水崇") in fields
