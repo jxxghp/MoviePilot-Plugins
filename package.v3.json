@@ -1019,7 +1019,7 @@
     "description": "通过NapCat（OneBot11）接口完整接管QQ渠道：发送MoviePilot全部消息通知，支持用户绑定QQ通知目标定向推送，并接收QQ消息作为远程命令控制MoviePilot。",
     "labels": "消息通知,QQ,远程命令",
     "version": "1.5.0",
-    "icon": "https://avatars.githubusercontent.com/NapNeko?v=4",
+    "icon": "QQ.png",
     "author": "gy520187",
     "level": 1,
     "system_version": ">=3.0.0",
