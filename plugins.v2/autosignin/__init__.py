@@ -37,7 +37,7 @@ class AutoSignIn(_PluginBase):
     # 插件图标
     plugin_icon = "signin.png"
     # 插件版本
-    plugin_version = "2.9.11"
+    plugin_version = "2.9.15"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -53,6 +53,12 @@ class AutoSignIn(_PluginBase):
     _ALL_SITES = "all"
     # 含当天的历史保留天数，与详情页读取范围保持一致。
     _HISTORY_DAYS = 14
+    # 保存空周期下当天的随机时间，重载插件时复用同一组时间。
+    _RANDOM_SCHEDULE_KEY = "random_schedule"
+    # 空周期默认随机计划的时间窗口和执行次数。
+    _RANDOM_EXECUTIONS = 2
+    _RANDOM_BEGIN_HOUR = 9
+    _RANDOM_END_HOUR = 23
 
     # 定时器
     _scheduler: Optional[BackgroundScheduler] = None
@@ -244,15 +250,11 @@ class AutoSignIn(_PluginBase):
                 logger.error(f"定时任务配置错误：{str(err)}")
         elif self._enabled:
             # 随机时间
-            triggers = TimerUtils.random_scheduler(num_executions=2,
-                                                   begin_hour=9,
-                                                   end_hour=23,
-                                                   max_interval=6 * 60,
-                                                   min_interval=2 * 60)
+            triggers = self._get_random_schedule()
             ret_jobs = []
             for trigger in triggers:
                 ret_jobs.append({
-                    "id": f"AutoSignIn|{trigger.hour}:{trigger.minute}",
+                    "id": f"AutoSignIn_{trigger.hour:02d}_{trigger.minute:02d}",
                     "name": "站点自动签到服务",
                     "trigger": "cron",
                     "func": self.sign_in,
@@ -263,6 +265,77 @@ class AutoSignIn(_PluginBase):
                 })
             return ret_jobs
         return []
+
+    def _get_random_schedule(self) -> List[datetime]:
+        """读取当天已保存的随机计划，首次生成时避免所有时间都落在当前时刻之前。"""
+        timezone = pytz.timezone(settings.TZ)
+        now = datetime.now(timezone)
+        if now.tzinfo is None:
+            now = timezone.localize(now)
+        today = now.date().isoformat()
+        saved = self.get_data(self._RANDOM_SCHEDULE_KEY) or {}
+        if saved.get("date") == today:
+            triggers = self._parse_random_schedule(today, saved.get("times"))
+            if triggers:
+                return triggers
+
+        triggers = self._create_random_schedule(now)
+        self.save_data(
+            self._RANDOM_SCHEDULE_KEY,
+            {
+                "date": today,
+                "times": [{"hour": trigger.hour, "minute": trigger.minute} for trigger in triggers],
+            },
+        )
+        return triggers
+
+    @staticmethod
+    def _parse_random_schedule(date_text: str, raw_times: Any) -> List[datetime]:
+        """将持久化的小时分钟列表还原为当天的调度时间，忽略损坏的记录。"""
+        try:
+            year, month, day = (int(value) for value in date_text.split("-"))
+        except (AttributeError, TypeError, ValueError):
+            return []
+        triggers = []
+        for item in raw_times or []:
+            try:
+                hour = int(item["hour"])
+                minute = int(item["minute"])
+                if not (0 <= hour <= 23 and 0 <= minute <= 59):
+                    continue
+                triggers.append(datetime(year, month, day, hour, minute))
+            except (KeyError, TypeError, ValueError):
+                continue
+        return sorted(set(triggers))
+
+    def _create_random_schedule(self, now: datetime) -> List[datetime]:
+        """生成当天随机计划，并在较晚初始化时重新生成至少一个未来时间。"""
+        current = now.replace(tzinfo=None, second=0, microsecond=0)
+        triggers = TimerUtils.random_scheduler(
+            num_executions=self._RANDOM_EXECUTIONS,
+            begin_hour=self._RANDOM_BEGIN_HOUR,
+            end_hour=self._RANDOM_END_HOUR,
+            max_interval=6 * 60,
+            min_interval=2 * 60,
+        )
+        if any(trigger > current for trigger in triggers):
+            return sorted(triggers)
+
+        if current.hour < self._RANDOM_END_HOUR:
+            triggers = TimerUtils.random_scheduler(
+                num_executions=self._RANDOM_EXECUTIONS,
+                begin_hour=max(self._RANDOM_BEGIN_HOUR, current.hour),
+                end_hour=self._RANDOM_END_HOUR,
+                max_interval=6 * 60,
+                min_interval=2 * 60,
+            )
+            if any(trigger > current for trigger in triggers):
+                return sorted(triggers)
+
+            fallback = current + timedelta(minutes=1)
+            if fallback.hour <= self._RANDOM_END_HOUR:
+                return [fallback]
+        return sorted(triggers)
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """

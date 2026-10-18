@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="PT数据统计">
+  <defs>
+    <linearGradient id="background" x1="92" y1="72" x2="420" y2="446" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#335a74"/>
+      <stop offset="1" stop-color="#1e3b50"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#07131c" flood-opacity=".34"/>
+    </filter>
+  </defs>
+  <circle cx="256" cy="256" r="224" fill="url(#background)" filter="url(#shadow)"/>
+  <path d="M126 357h52V252h-52v105Zm88 0h52V196h-52v161Zm88 0h52V143h-52v214Z" fill="#fff"/>
+  <path d="m117 226 91-91 58 57 103-103v61h38V44h-106v38h61l-96 96-58-57-118 118 27 27Z" fill="#ffc83d"/>
+</svg>

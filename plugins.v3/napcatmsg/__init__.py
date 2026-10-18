@@ -18,6 +18,8 @@ from app.sdk.network import RequestUtils
 
 
 class NapCatMsg(_PluginBase):
+    """通过 OneBot11 转发 QQ 通知并接收 MoviePilot 交互命令。"""
+
     # 插件名称
     plugin_name = "QQ消息通知（NapCat）"
     # 插件描述
@@ -64,6 +66,7 @@ class NapCatMsg(_PluginBase):
     _QQ_GROUP_TARGET_KEYS = ("qq_group_openid", "qq_group")
 
     def init_plugin(self, config: dict = None):
+        """读取插件配置，并按一次性开关发送连通性测试通知。"""
         if config:
             self._enabled = config.get("enabled")
             self._onlyonce = config.get("onlyonce")
@@ -107,6 +110,7 @@ class NapCatMsg(_PluginBase):
             self._send("QQ消息通知测试", "NapCat消息通知插件已启用，收到本条消息即代表MoviePilot与NapCat对接成功。")
 
     def get_state(self) -> bool:
+        """根据服务地址、通知目标和交互开关判断插件是否启用。"""
         return bool(self._enabled and self._host and (
             self._parse_ids(self._send_users)
             or self._parse_ids(self._send_groups)
@@ -287,6 +291,7 @@ class NapCatMsg(_PluginBase):
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
+        """返回插件命令声明；交互命令统一由宿主消息链处理。"""
         return []
 
     def get_api(self) -> List[Dict[str, Any]]:
@@ -619,6 +624,7 @@ class NapCatMsg(_PluginBase):
          }
 
     def get_page(self) -> Optional[List[dict]]:
+        """插件不提供独立详情页。"""
         pass
 
     @staticmethod

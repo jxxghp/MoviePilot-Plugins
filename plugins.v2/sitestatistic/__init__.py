@@ -36,7 +36,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "1.9.6"
+    plugin_version = "1.9.7"
     # 插件作者
     plugin_author = "lightolly,jxxghp"
     # 作者主页
@@ -487,7 +487,7 @@ class SiteStatistic(_PluginBase):
 
         def __sub_data(d1: dict, d2: dict) -> dict:
             """
-            计算两个字典相同Key值的差值（如果值为数字），返回新字典
+            计算同名数字字段差值；上传和下载各自要求有效且大于零的历史基线。
             """
             if not d1:
                 return {}
@@ -495,17 +495,11 @@ class SiteStatistic(_PluginBase):
                 # 如果没有昨天数据，返回空字典，表示无增量数据
                 return {}
             
-            # 检查昨天的关键数据是否为0，如果是则不计算增量
-            # 因为昨天数据为0时，计算出来的是累计数据而非增量
-            for key in ['upload', 'download']:
-                if key in d2:
-                    yesterday_value = __to_numeric(d2.get(key))
-                    # 如果昨天数据为0，不计算增量
-                    if yesterday_value == 0:
-                        return {}
-            
+            # 上传和下载分别校验历史基线，避免零下载量阻断有效上传增量。
+            # 历史流量必须大于 0，防止将首次有效累计读数误计为增量。
             d = {k: __to_numeric(d1.get(k)) - __to_numeric(d2.get(k)) for k in d1
-                 if k in d2 and __is_digit(d1.get(k)) and __is_digit(d2.get(k))}
+                 if k in d2 and __is_digit(d1.get(k)) and __is_digit(d2.get(k))
+                 and (k not in ('upload', 'download') or __to_numeric(d2.get(k)) > 0)}
             # 把小于0的数据变成0
             for k, v in d.items():
                 if str(v).isdigit() and int(v) < 0:

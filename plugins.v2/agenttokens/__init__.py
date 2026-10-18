@@ -1,4 +1,6 @@
+import math
 import threading
+import time
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -17,14 +19,14 @@ class AgentTokens(_PluginBase):
     """
     Agent Tokens 管理插件。
 
-    通过 Agent LLM 供应商链式事件按优先级选择仍有 token 余量的供应商，
-    并通过 Agent Tokens 用量广播事件回写实际消耗。
+    通过 Agent LLM 供应商链式事件按优先级选择有余量且未处于失败冷却的记录，
+    并通过 Agent Tokens 用量广播事件回写实际消耗和可选的连续失败状态。
     """
 
     plugin_name = "Agent Tokens 管理"
-    plugin_desc = "管理多平台免费 Token 配额，支持定向选择及按优先级切换 Agent LLM 供应商。"
+    plugin_desc = "管理多平台 Token 配额，支持优先级选择、连续失败冷却和自动恢复。"
     plugin_icon = "agentresourceofficer.png"
-    plugin_version = "1.1.3"
+    plugin_version = "1.2.0"
     plugin_author = "jxxghp"
     author_url = "https://github.com/jxxghp"
     plugin_config_prefix = "agenttokens_"
@@ -255,6 +257,13 @@ class AgentTokens(_PluginBase):
             "token_limit": token_limit,
             "used_tokens": used_tokens,
             "priority": priority,
+            "failure_cooldown_enabled": cls._to_bool(provider.get("failure_cooldown_enabled", False)),
+            "failure_threshold": max(1, cls._to_int(provider.get("failure_threshold"), 3)),
+            "cooldown_seconds": max(1, cls._to_int(provider.get("cooldown_seconds"), 60)),
+            "cooldown_exponential": cls._to_bool(provider.get("cooldown_exponential", False)),
+            "cooldown_max_seconds": max(
+                1, cls._to_int(provider.get("cooldown_max_seconds"), 3600)
+            ),
         }
 
     @classmethod
@@ -311,7 +320,7 @@ class AgentTokens(_PluginBase):
 
     def _provider_usage(self, provider: dict, usage: Optional[Dict[str, dict]] = None) -> dict:
         """
-        汇总供应商的手工初始用量和 Agent 实际记录用量。
+        汇总供应商用量与失败冷却状态；到期或策略关闭后即时恢复可用判定。
         """
         usage = usage if usage is not None else self._load_usage()
         provider_usage = usage.get(provider["id"], {}) or {}
@@ -323,7 +332,17 @@ class AgentTokens(_PluginBase):
         percent = 0
         if token_limit > 0:
             percent = min(round(total_used * 100 / token_limit, 2), 100)
+        cooldown_until = self._to_int(provider_usage.get("cooldown_until"), 0)
+        cooldown_remaining = (
+            max(0, math.ceil(cooldown_until - time.time()))
+            if provider.get("failure_cooldown_enabled") else 0
+        )
         return {
+            "consecutive_failures": self._to_int(provider_usage.get("consecutive_failures"), 0),
+            "cooling_down": cooldown_remaining > 0,
+            "cooldown_until": cooldown_until,
+            "cooldown_remaining_seconds": cooldown_remaining,
+            "cooldown_reason": provider_usage.get("cooldown_reason"),
             "input_tokens": self._to_int(provider_usage.get("input_tokens"), 0),
             "output_tokens": self._to_int(provider_usage.get("output_tokens"), 0),
             "recorded_tokens": recorded_total,
@@ -365,6 +384,7 @@ class AgentTokens(_PluginBase):
         available_rows = [
             row for row in enabled_rows
             if not row["usage"].get("exhausted")
+            and not row["usage"].get("cooling_down")
             and row.get("api_key")
             and row.get("model")
             and row.get("base_url")
@@ -418,7 +438,7 @@ class AgentTokens(_PluginBase):
         usage: Dict[str, dict],
     ) -> Optional[str]:
         """
-        校验供应商启用状态、连接配置和剩余额度，返回不可用原因。
+        校验供应商启用状态、连接配置、剩余额度及失败冷却，返回不可用原因。
         """
         if not provider:
             return "供应商不存在"
@@ -430,8 +450,11 @@ class AgentTokens(_PluginBase):
             return "供应商缺少 API Key"
         if not provider.get("model"):
             return "供应商缺少模型"
-        if self._provider_usage(provider, usage)["exhausted"]:
+        provider_usage = self._provider_usage(provider, usage)
+        if provider_usage["exhausted"]:
             return "供应商 Token 额度已耗尽"
+        if provider_usage["cooling_down"]:
+            return f"供应商失败冷却中，剩余 {provider_usage['cooldown_remaining_seconds']} 秒"
         return None
 
     def _select_provider(
@@ -519,10 +542,11 @@ class AgentTokens(_PluginBase):
         metadata = self._event_metadata(event.event_data)
         requested_provider_id = self._requested_provider_id(event.event_data, metadata)
         allow_failover = self._allow_provider_failover(event.event_data, metadata)
-        provider, requested_error = self._select_provider(
-            requested_provider_id=requested_provider_id,
-            allow_failover=allow_failover,
-        )
+        with self._usage_lock:
+            provider, requested_error = self._select_provider(
+                requested_provider_id=requested_provider_id,
+                allow_failover=allow_failover,
+            )
         if not provider:
             metadata["provider_selection_status"] = "unavailable"
             metadata["provider_selection_error"] = requested_error or "没有可用供应商"
@@ -567,10 +591,45 @@ class AgentTokens(_PluginBase):
         self._event_set(event.event_data, "source", self.__class__.__name__)
         self._event_set(event.event_data, "metadata", metadata)
 
+    def _update_failure_cooldown(self, provider: dict, record: dict, success: bool, error: str) -> None:
+        """按连续执行结果维护持久冷却；并发在途失败不延长冷却，成功清空退避。"""
+        if success:
+            if record.get("cooldown_until"):
+                logger.info(f"Agent Tokens 供应商 [{provider['name']}] 调用成功，已清除失败冷却")
+            record.update(consecutive_failures=0, cooldown_until=0, cooldown_duration=0, cooldown_reason=None)
+            return
+        if not provider.get("failure_cooldown_enabled"):
+            record["consecutive_failures"] = 0
+            return
+        # 用户取消不是供应商失败，不能推进连续失败计数或退避级别。
+        if error == "任务已取消":
+            return
+        now = time.time()
+        if self._to_int(record.get("cooldown_until"), 0) > now:
+            return
+        failures = self._to_int(record.get("consecutive_failures"), 0) + 1
+        record["consecutive_failures"] = failures
+        if failures < provider["failure_threshold"]:
+            return
+        duration = provider["cooldown_seconds"]
+        if provider.get("cooldown_exponential"):
+            duration = max(duration, self._to_int(record.get("cooldown_duration"), 0) * 2)
+        duration = min(duration, provider["cooldown_max_seconds"])
+        record.update(
+            consecutive_failures=0,
+            cooldown_until=math.ceil(now + duration),
+            cooldown_duration=duration,
+            cooldown_reason=error or "Agent 执行失败（无错误详情）",
+        )
+        logger.warning(
+            f"Agent Tokens 供应商 [{provider['name']}] 连续失败 {failures} 次，"
+            f"冷却 {duration} 秒，后续按优先级选择其他可用记录；原因：{record['cooldown_reason']}"
+        )
+
     @eventmanager.register(EventType.AgentTokensUsage)
     def record_tokens_usage(self, event: Event):
         """
-        响应 Agent Tokens 用量广播事件，累计记录到对应供应商。
+        响应 Agent Tokens 用量广播事件，原子保存对应供应商的用量和连续失败冷却。
         """
         if not self.get_state() or not event or not event.event_data:
             return
@@ -597,12 +656,16 @@ class AgentTokens(_PluginBase):
                 record.get("model_call_count"), 0
             ) + max(self._to_int(self._event_get(event.event_data, "model_call_count"), 0), 0)
             record["runs"] = self._to_int(record.get("runs"), 0) + 1
-            if bool(self._event_get(event.event_data, "success", False)):
+            success = self._to_bool(self._event_get(event.event_data, "success", False))
+            if success:
                 record["success_count"] = self._to_int(record.get("success_count"), 0) + 1
                 record["last_error"] = None
             else:
                 record["failure_count"] = self._to_int(record.get("failure_count"), 0) + 1
                 record["last_error"] = self._clean_text(self._event_get(event.event_data, "error"))
+            provider = self._find_provider(provider_id)
+            if provider:
+                self._update_failure_cooldown(provider, record, success, record.get("last_error") or "")
             record["last_model"] = self._clean_text(self._event_get(event.event_data, "model"))
             record["last_used_at"] = (
                 self._clean_text(self._event_get(event.event_data, "finished_at"))

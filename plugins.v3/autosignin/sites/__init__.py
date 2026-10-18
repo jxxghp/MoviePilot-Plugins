@@ -1,0 +1,113 @@
+# -*- coding: utf-8 -*-
+import re
+from abc import ABCMeta, abstractmethod
+from typing import Tuple
+
+import chardet
+from lxml import etree
+from ruamel.yaml import CommentedMap
+
+from app.sdk.config import settings
+from app.adapters.network.browser import PlaywrightHelper
+from app.sdk.logging import logger
+from app.plugins.autosignin.result import visible_html
+from app.sdk.network import RequestUtils
+from app.sdk.utilities import StringUtils
+
+
+class _ISiteSigninHandler(metaclass=ABCMeta):
+    """
+    实现站点签到的基类，所有站点签到类都需要继承此类，并实现match和signin方法
+    实现类放置到sitesignin目录下将会自动加载
+    """
+    # 匹配的站点Url，每一个实现类都需要设置为自己的站点Url
+    site_url = ""
+    # 签到入口若已经执行登录保号，失败后不能再调用相同接口作为登录回退。
+    signin_is_login: bool = False
+
+    @abstractmethod
+    def match(self, url: str) -> bool:
+        """
+        根据站点Url判断是否匹配当前站点签到类，大部分情况使用默认实现即可
+        :param url: 站点Url
+        :return: 是否匹配，如匹配则会调用该类的signin方法
+        """
+        if StringUtils.url_equal(url, self.site_url):
+            return True
+        return False
+
+    @abstractmethod
+    def signin(self, site_info: CommentedMap) -> Tuple[bool, str]:
+        """
+        执行签到操作
+        :param site_info: 站点信息，含有站点Url、站点Cookie、UA等信息
+        :return: True|False,签到结果信息
+        """
+        pass
+
+    @staticmethod
+    def get_page_source(url: str, cookie: str, ua: str, proxy: bool, render: bool,
+                        token: str = None, timeout: int = None) -> str:
+        """
+        获取页面源码
+        :param url: Url地址
+        :param cookie: Cookie
+        :param ua: UA
+        :param proxy: 是否使用代理
+        :param render: 是否渲染
+        :param token: JWT Token
+        :param timeout: 请求超时时间，单位秒
+        :return: 页面源码，错误信息
+        """
+        if render:
+            return PlaywrightHelper().get_page_source(url=url,
+                                                      cookies=cookie,
+                                                      ua=ua,
+                                                      proxies=settings.PROXY_SERVER if proxy else None,
+                                                      timeout=timeout or 60)
+        else:
+            if token:
+                headers = {
+                    "Authorization": token,
+                    "User-Agent": ua
+                }
+            else:
+                headers = {
+                    "User-Agent": ua,
+                    "Cookie": cookie
+                }
+            res = RequestUtils(headers=headers,
+                               proxies=settings.PROXY if proxy else None,
+                               timeout=timeout or 20).get_res(url=url)
+            if res is not None and res.status_code == 200:
+                # 使用chardet检测字符编码
+                raw_data = res.content
+                if raw_data:
+                    try:
+                        result = chardet.detect(raw_data)
+                        encoding = result['encoding']
+                        # 解码为字符串
+                        return raw_data.decode(encoding)
+                    except Exception as e:
+                        logger.error(f"chardet解码失败：{str(e)}")
+                        return res.text
+                else:
+                    return res.text
+            return ""
+
+    @staticmethod
+    def sign_in_result(html_res: str, regexs: list) -> bool:
+        """
+        仅匹配可见页面中的签到结果，脚本和隐藏模板里的文案不代表已执行。
+        """
+        html_text = re.sub(r"#\d+", "", re.sub(r"\d+px", "", visible_html(html_res)))
+        document = etree.HTML(html_text)
+        text = "".join(document.itertext()) if document is not None else ""
+        if re.search(r"(?:签到|簽到)(?:失败|失敗|未成功)|(?:未|没有|沒有)(?:签到|簽到)成功", text):
+            return False
+        for regex in regexs:
+            # 纯文案只查正文，不能命中 onclick/title 等属性里的成功提示。
+            target = html_text if "<" in regex or "value=" in regex else text
+            if re.search(str(regex), target):
+                return True
+        return False

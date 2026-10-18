@@ -6,6 +6,7 @@ import importlib.util
 import json
 import logging
 import os
+import subprocess
 import sys
 import time
 import types
@@ -32,6 +33,7 @@ def wait_for(count, timeout=2.0):
 # ---------- 构造假 MoviePilot V3 宿主模块 ----------
 
 def make_fake_app():
+    """构造隔离的宿主模块及请求记录器，避免调用真实 QQ 服务。"""
     app = types.ModuleType("app")
     sdk = types.ModuleType("app.sdk")
 
@@ -39,10 +41,13 @@ def make_fake_app():
     sdk_plugin = types.ModuleType("app.sdk.plugin")
 
     class _PluginBase:
+        """提供配置读写的最小宿主替身。"""
         def update_config(self, config):
+            """记录插件持久化的配置。"""
             saved_config.update(config)
 
         def get_config(self):
+            """返回已记录配置的副本。"""
             return dict(saved_config)
 
     sdk_plugin._PluginBase = _PluginBase
@@ -51,13 +56,18 @@ def make_fake_app():
     sdk_events = types.ModuleType("app.sdk.events")
 
     class Event:
+        """保存事件类型与事件数据的测试替身。"""
         def __init__(self, event_type=None, event_data=None):
+            """初始化该测试替身使用的数据。"""
             self.event_type = event_type
             self.event_data = event_data
 
     class EventManager:
+        """提供不改变回调的事件注册替身。"""
         def register(self, event_type):
+            """返回模拟事件注册装饰器。"""
             def decorator(func):
+                """保留原回调以便直接测试。"""
                 return func
             return decorator
 
@@ -73,20 +83,26 @@ def make_fake_app():
     sdk_network = types.ModuleType("app.sdk.network")
 
     class FakeResponse:
+        """模拟 OneBot11 HTTP 响应。"""
         def __init__(self, status_code=200, payload=None):
+            """初始化该测试替身使用的数据。"""
             self.status_code = status_code
             self.reason = "OK"
             self._payload = payload if payload is not None else {"status": "ok", "retcode": 0}
 
         def json(self):
+            """返回预设的 JSON 数据。"""
             return self._payload
 
     class RequestUtils:
+        """记录发送请求并返回预设响应。"""
         def __init__(self, headers=None, content_type=None, **kwargs):
+            """初始化该测试替身使用的数据。"""
             self.headers = headers or {}
             self.content_type = content_type
 
         def post_res(self, url, json=None, **kwargs):
+            """记录请求参数并模拟成功响应。"""
             captured_requests.append({
                 "url": url,
                 "headers": {**self.headers, "Content-Type": self.content_type},
@@ -101,7 +117,9 @@ def make_fake_app():
     app_chain_message = types.ModuleType("app.chain.message")
 
     class MessageChain:
+        """记录插件提交给宿主的交互消息。"""
         def handle_message(self, **kwargs):
+            """模拟宿主处理交互消息的结果。"""
             handled_messages.append(kwargs)
 
     app_chain_message.MessageChain = MessageChain
@@ -111,7 +129,9 @@ def make_fake_app():
     fastapi_mod = types.ModuleType("fastapi")
 
     class Request:
+        """提供异步 JSON 与原始请求体的回调请求替身。"""
         def __init__(self, headers=None, query_params=None, body=None):
+            """初始化该测试替身使用的数据。"""
             self.headers = headers or {}
             self.query_params = query_params or {}
             if isinstance(body, (dict, list)):
@@ -122,9 +142,11 @@ def make_fake_app():
                 self._body = body or b""
 
         async def json(self):
+            """返回预设的 JSON 数据。"""
             return json.loads(self._body)
 
         async def body(self):
+            """返回用于签名校验的原始请求体。"""
             return self._body
 
     fastapi_mod.Request = Request
@@ -134,10 +156,12 @@ def make_fake_app():
     types_mod = types.ModuleType("app.schemas.types")
 
     class EventType(Enum):
+        """定义测试使用的宿主事件类型。"""
         NoticeMessage = "notice.message"
         PluginAction = "plugin.action"
 
     class MessageType(Enum):
+        """定义测试使用的通知分类。"""
         Download = "资源下载"
         Organize = "整理入库"
         Subscribe = "订阅"
@@ -149,6 +173,7 @@ def make_fake_app():
         Other = "其它"
 
     class NotificationChannel(Enum):
+        """定义测试使用的通知渠道。"""
         Wechat = "WeChat"
         Telegram = "Telegram"
         Slack = "Slack"
@@ -195,6 +220,7 @@ def make_fake_app():
 
 
 def load_plugin():
+    """从待测源码路径加载 NapCatMsg 插件。"""
     spec = importlib.util.spec_from_file_location("napcatmsg_v3", PLUGIN_PATH)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -202,6 +228,7 @@ def load_plugin():
 
 
 def main():
+    """验证通知路由、上报鉴权、群会话和候选列表转发。"""
     EventType, MessageType, NotificationChannel, Event, Request = make_fake_app()
     module = load_plugin()
     plugin = module.NapCatMsg()
@@ -475,7 +502,9 @@ def main():
     captured_requests.clear()
 
     class _BoomChain:
+        """模拟宿主消息链执行异常。"""
         def handle_message(self, **kwargs):
+            """模拟宿主处理交互消息的结果。"""
             raise RuntimeError("boom")
 
     original_chain = module.MessageChain
@@ -556,9 +585,11 @@ def main():
     module.NapCatMsg._group_session_map.clear()
 
     class _FakeMessage:
+        """构造带通知目标和会话上下文的消息。"""
         def __init__(self, channel=None, userid=None, title=None, text=None,
                      image=None, targets=None, original_chat_id=None,
                      private_delivery=False):
+            """初始化该测试替身使用的数据。"""
             self.channel = channel
             self.userid = userid
             self.title = title
@@ -719,20 +750,26 @@ def main():
     # 15. get_module：媒体/种子候选列表经模块分发转发QQ私聊
 
     class _FakeMedia:
+        """构造媒体候选列表项。"""
         def __init__(self, title, year=None, vote_average=None):
+            """初始化该测试替身使用的数据。"""
             self.title = title
             self.year = year
             self.vote_average = vote_average
 
     class _FakeTorrentInfo:
+        """构造种子候选列表项。"""
         def __init__(self, title, site_name=None, size=0, seeders=0):
+            """初始化该测试替身使用的数据。"""
             self.title = title
             self.site_name = site_name
             self.size = size
             self.seeders = seeders
 
     class _FakeContext:
+        """封装种子信息作为搜索上下文。"""
         def __init__(self, torrent_info):
+            """初始化该测试替身使用的数据。"""
             self.torrent_info = torrent_info
 
     captured_requests.clear()
@@ -788,6 +825,11 @@ def main():
     print("[PASS] get_module 候选列表转发QQ私聊正确")
 
     print("\n全部测试通过")
+
+
+def test_napcatmsg_smoke():
+    """在独立进程运行完整 smoke 测试，避免假宿主污染其他插件测试。"""
+    subprocess.run([sys.executable, __file__], check=True, timeout=30)
 
 
 if __name__ == "__main__":

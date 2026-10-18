@@ -132,6 +132,59 @@ function commitProvider() {
               variant="outlined"
             />
           </VCol>
+          <VCol cols="12">
+            <VSwitch
+              v-model="provider.failure_cooldown_enabled"
+              color="primary"
+              label="连续失败自动冷却"
+              hint="默认关闭；连续执行失败达到阈值后，后续 Agent 轮次按优先级使用其他可用供应商"
+              persistent-hint
+            />
+          </VCol>
+          <template v-if="provider.failure_cooldown_enabled">
+            <VCol cols="12" md="6">
+              <VTextField
+                v-model.number="provider.failure_threshold"
+                label="连续失败次数"
+                hint="成功后清零；用户取消不计入失败"
+                persistent-hint
+                type="number"
+                min="1"
+                variant="outlined"
+              />
+            </VCol>
+            <VCol cols="12" md="6">
+              <VTextField
+                v-model.number="provider.cooldown_seconds"
+                label="初始冷却时长（秒）"
+                hint="冷却到期后自动恢复参与选号"
+                persistent-hint
+                type="number"
+                min="1"
+                variant="outlined"
+              />
+            </VCol>
+            <VCol cols="12">
+              <VSwitch
+                v-model="provider.cooldown_exponential"
+                color="primary"
+                label="指数退避"
+                hint="恢复后再次达到失败阈值，冷却时长翻倍；调用成功后恢复初始时长"
+                persistent-hint
+              />
+            </VCol>
+            <VCol cols="12">
+              <VTextField
+                v-model.number="provider.cooldown_max_seconds"
+                label="冷却时长上限（秒）"
+                hint="固定冷却和指数退避均不超过此值"
+                persistent-hint
+                type="number"
+                min="1"
+                variant="outlined"
+              />
+            </VCol>
+          </template>
         </VRow>
       </VCardText>
       <VCardActions>

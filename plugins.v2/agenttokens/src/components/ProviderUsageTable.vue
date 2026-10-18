@@ -1,4 +1,5 @@
 <script setup>
+import { onMounted, onUnmounted, ref } from 'vue'
 import { formatTokens } from '../provider'
 
 defineProps({
@@ -9,11 +10,26 @@ defineProps({
 })
 
 const emit = defineEmits(['reset'])
+const now = ref(Date.now())
+let clockTimer
+
+// 使用本地时钟更新冷却倒计时；卸载时清理计时器。
+onMounted(() => {
+  clockTimer = setInterval(() => { now.value = Date.now() }, 1000)
+})
+onUnmounted(() => clearInterval(clockTimer))
+
+// 到期后立即显示可用状态，无需等待下一次拉取状态。
+function cooldownRemaining(row) {
+  if (!row.failure_cooldown_enabled) return 0
+  return Math.max(0, Math.ceil(Number(row.usage?.cooldown_until || 0) - now.value / 1000))
+}
 
 // 根据供应商状态返回 Vuetify 颜色。
 function rowStatusColor(row) {
   if (!row.enabled) return 'default'
   if (row.usage?.exhausted) return 'error'
+  if (cooldownRemaining(row)) return 'warning'
   if (!row.api_key || !row.base_url || !row.model) return 'warning'
   return 'success'
 }
@@ -22,6 +38,7 @@ function rowStatusColor(row) {
 function rowStatusText(row) {
   if (!row.enabled) return '停用'
   if (row.usage?.exhausted) return '耗尽'
+  if (cooldownRemaining(row)) return `冷却 ${cooldownRemaining(row)} 秒`
   if (!row.api_key || !row.base_url || !row.model) return '缺配置'
   return '可用'
 }
@@ -59,8 +76,14 @@ function rowStatusText(row) {
               rounded
             />
           </td>
-          <td>
+          <td class="status-cell">
             <VChip size="small" :color="rowStatusColor(row)" variant="tonal">{{ rowStatusText(row) }}</VChip>
+            <div v-if="cooldownRemaining(row)" class="text-caption text-medium-emphasis mt-1">
+              {{ row.usage?.cooldown_reason }}
+            </div>
+            <div v-else-if="row.failure_cooldown_enabled" class="text-caption text-medium-emphasis mt-1">
+              连续失败 {{ row.usage?.consecutive_failures || 0 }} / {{ row.failure_threshold }}
+            </div>
           </td>
           <td class="text-right">
             <VBtn icon="mdi-backup-restore" size="small" variant="text" @click="emit('reset', row.id, index)" />
@@ -81,6 +104,12 @@ function rowStatusText(row) {
 
 .provider-table-shell :deep(table) {
   min-width: 760px;
+}
+
+.status-cell {
+  min-width: 140px;
+  max-width: 280px;
+  overflow-wrap: anywhere;
 }
 
 .progress-cell {
