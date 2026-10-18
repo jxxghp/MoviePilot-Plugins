@@ -639,13 +639,13 @@ class EmailMsg(_PluginBase):
                               safe_type: str) -> str:
         """流光夜幕模板：深色背景 + 渐变光晕，横屏海报 + 字段名值靠左列表。"""
         import html as html_lib
-        # 海报区域
+        # 海报区域：按原始比例显示（不裁切、不压缩）
         poster_html = ""
         if image:
             poster_html = (
                 '<div style="text-align:center;margin:0 0 22px 0;">'
                 f'<img src="{html_lib.escape(image)}" alt="海报" '
-                'style="max-width:100%;max-height:300px;border-radius:14px;'
+                'style="max-width:100%;height:auto;border-radius:14px;'
                 'box-shadow:0 6px 24px rgba(0,0,0,0.5);display:block;margin:0 auto;'
                 'border:1px solid rgba(255,255,255,0.1);"/>'
                 '</div>'
@@ -712,13 +712,13 @@ class EmailMsg(_PluginBase):
                                 safe_type: str) -> str:
         """光影头图模板：横屏海报全宽顶图 + 标题叠加 + 字段由上至下排列。"""
         import html as html_lib
-        # 海报顶图
+        # 海报顶图：按原始比例显示（不裁切），容器高度由海报撑开
         poster_html = ""
         if image:
             poster_html = (
-                '<div style="position:relative;height:300px;overflow:hidden;">'
+                '<div style="position:relative;overflow:hidden;">'
                 f'<img src="{html_lib.escape(image)}" alt="海报" '
-                'style="width:100%;height:100%;object-fit:cover;display:block;"/>'
+                'style="width:100%;height:auto;display:block;"/>'
                 '<div style="position:absolute;bottom:0;left:0;right:0;height:130px;'
                 'background:linear-gradient(180deg,transparent,rgba(0,0,0,0.75));"></div>'
                 '<div style="position:absolute;bottom:20px;left:24px;right:24px;">'
@@ -819,31 +819,33 @@ class EmailMsg(_PluginBase):
                 'text-decoration:none;border-radius:26px;font-size:14px;'
                 'font-weight:700;box-shadow:0 4px 16px rgba(0,0,0,0.3);">查看详情</a>'
             )
-        # 海报背景：有 image 时用图片铺满，无 image 时用纯色背景
+        # 海报背景：有 image 时按原始比例铺满（不裁切），无 image 时用纯色背景
         if image:
+            # 海报作为流内元素撑开容器高度，保持原始宽高比，避免 object-fit:cover 裁切
             bg_html = (
                 f'<img src="{html_lib.escape(image)}" alt="海报" '
-                'style="width:100%;min-height:520px;object-fit:cover;display:block;'
-                'position:absolute;top:0;left:0;right:0;bottom:0;z-index:0;"/>'
+                'style="width:100%;height:auto;display:block;"/>'
             )
+            # 无海报时用固定高度纯色背景
+            min_height_style = ""
         else:
-            bg_html = (
-                '<div style="position:absolute;top:0;left:0;right:0;bottom:0;z-index:0;'
-                'background:linear-gradient(135deg,#1e293b,#334155);"></div>'
-            )
+            bg_html = ""
+            min_height_style = "min-height:520px;"
         return (
             '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"></head>'
             '<body style="margin:0;padding:0;background-color:#111827;font-family:'
             '\'Helvetica Neue\',Helvetica,Arial,\'PingFang SC\',\'Microsoft YaHei\',sans-serif;">'
             '<div style="max-width:600px;margin:24px auto;border-radius:20px;'
-            'overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.5);position:relative;">'
+            'overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.5);position:relative;'
+            f'{min_height_style}'
+            'background:linear-gradient(135deg,#1e293b,#334155);">'
             f'{bg_html}'
             '<div style="position:absolute;top:0;left:0;right:0;bottom:0;z-index:1;'
             'background:linear-gradient(180deg,rgba(0,0,0,0.4) 0%,rgba(0,0,0,0.15) 40%,'
             'rgba(0,0,0,0.85) 100%);"></div>'
-            '<div style="position:relative;z-index:2;min-height:520px;display:flex;'
-            'flex-direction:column;justify-content:space-between;padding:32px 28px 28px 28px;'
-            'box-sizing:border-box;">'
+            '<div style="position:absolute;top:0;left:0;right:0;bottom:0;z-index:2;'
+            'display:flex;flex-direction:column;justify-content:space-between;'
+            'padding:32px 28px 28px 28px;box-sizing:border-box;">'
             f'<div><span style="display:inline-block;padding:5px 14px;'
             'background:rgba(255,255,255,0.2);color:#ffffff;border-radius:20px;'
             'font-size:12px;font-weight:600;letter-spacing:0.5px;'
