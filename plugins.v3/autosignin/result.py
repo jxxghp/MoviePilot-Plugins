@@ -21,6 +21,18 @@ class SiteResult(NamedTuple):
         return self.success or self.logged_in
 
 
+def merge_failure_messages(*messages: str) -> str:
+    """移除动作前缀后去重失败原因，保留不同入口返回的全部实际原因。"""
+    reasons = []
+    for message in messages:
+        for part in re.split(r"[；;]", str(message or "")):
+            reason = re.sub(r"^(?:模拟登录|登录|签到)失败\s*[，,:：]?\s*", "", part.strip()).strip()
+            key = re.sub(r"\s+", " ", reason).rstrip("！!。.")
+            if key and all(key != existing[0] for existing in reasons):
+                reasons.append((key, reason))
+    return "；".join(reason for _, reason in reasons)
+
+
 def visible_html(source: str) -> str:
     """移除脚本、注释和显式隐藏内容，避免把模板中的成功提示当作实际结果。"""
     document = etree.HTML(source or "")
