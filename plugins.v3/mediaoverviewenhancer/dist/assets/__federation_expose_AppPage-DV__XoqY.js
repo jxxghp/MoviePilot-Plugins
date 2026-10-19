@@ -331,6 +331,18 @@ return (_ctx, _cache) => {
               ]),
               _: 1
             }),
+            (status.value.daily)
+              ? (_openBlock(), _createBlock(_component_VChip, {
+                  key: 0,
+                  size: "small",
+                  variant: "tonal"
+                }, {
+                  default: _withCtx(() => [
+                    _createTextVNode(" 今日成功 " + _toDisplayString(status.value.daily.updated || 0) + " / 失败 " + _toDisplayString(status.value.daily.failed || 0), 1)
+                  ]),
+                  _: 1
+                }))
+              : _createCommentVNode("", true),
             _createVNode(_component_VChip, {
               size: "small",
               variant: "tonal"
@@ -689,6 +701,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-75571117"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-74175de1"]]);
 
 export { AppPage as default };

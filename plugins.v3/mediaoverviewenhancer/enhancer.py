@@ -67,6 +67,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "concurrency": 2,
     "max_items_per_run": 200,
     "notify": True,
+    "notify_failure": True,
+    "notify_daily": False,
+    "notify_daily_time": "21:00",
     "show_sidebar_nav": True,
 }
 
@@ -98,6 +101,18 @@ def _bounded_int(value: Any, default: int, minimum: int, maximum: int) -> int:
     return max(minimum, min(maximum, number))
 
 
+def _normalize_hhmm(value: Any, default: str = "21:00") -> str:
+    """把配置值规整成 HH:MM 形式的每日通知时间。"""
+    match = re.match(r"^(\d{1,2}):(\d{1,2})(?::\d{1,2})?$", str(value or "").strip())
+    if not match:
+        return default
+    hour = _bounded_int(match.group(1), 21, 0, 23)
+    minute = _bounded_int(match.group(2), 0, 0, 59)
+    if int(match.group(1)) > 23 or int(match.group(2)) > 59:
+        return default
+    return f"{hour:02d}:{minute:02d}"
+
+
 def normalize_config(config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """把外部配置规整成引擎可用的完整配置。"""
     data: Dict[str, Any] = dict(DEFAULT_CONFIG)
@@ -120,6 +135,7 @@ def normalize_config(config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     data["mv_target_chars"] = _bounded_int(data.get("mv_target_chars"), 110, 40, 1000)
     data["concurrency"] = _bounded_int(data.get("concurrency"), 2, 1, 8)
     data["max_items_per_run"] = _bounded_int(data.get("max_items_per_run"), 200, 1, 5000)
+    data["notify_daily_time"] = _normalize_hhmm(data.get("notify_daily_time"))
     for key in (
         "enabled",
         "auto_on_transfer",
@@ -136,6 +152,8 @@ def normalize_config(config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "lock_overview",
         "force_rewrite",
         "notify",
+        "notify_failure",
+        "notify_daily",
         "show_sidebar_nav",
     ):
         data[key] = bool(data.get(key))
@@ -861,7 +879,13 @@ class OverviewEnhancer:
 
     def _load_state(self) -> Dict[str, Any]:
         """读取本地状态文件。"""
-        default: Dict[str, Any] = {"records": {}, "logs": [], "last_run": None, "stats": {}}
+        default: Dict[str, Any] = {
+            "records": {},
+            "logs": [],
+            "last_run": None,
+            "stats": {},
+            "daily": {},
+        }
         try:
             if self._state_file.exists():
                 data = json.loads(self._state_file.read_text(encoding="utf-8"))
@@ -873,6 +897,8 @@ class OverviewEnhancer:
             default["records"] = {}
         if not isinstance(default.get("logs"), list):
             default["logs"] = []
+        if not isinstance(default.get("daily"), dict):
+            default["daily"] = {}
         return default
 
     def _save_state(self, allow_stopped: bool = False) -> None:
@@ -933,6 +959,7 @@ class OverviewEnhancer:
             "processed_total": len(records),
             "stats": self._state.get("stats") or {},
             "last_run": self._state.get("last_run"),
+            "daily": self.daily_stats(),
             "running": bool(run and run.get("state") == "running"),
             "run": run,
             "logs": list(self._state.get("logs") or [])[-40:],
@@ -957,6 +984,42 @@ class OverviewEnhancer:
         self._save_state()
         self._log(f"已清空 {count} 条处理记录", "warning")
         return {"cleared": count}
+
+    def daily_stats(self) -> Dict[str, Any]:
+        """返回当天处理统计，跨天时自动清零。"""
+        with self._lock:
+            daily = self._state.get("daily")
+            today = datetime.now().strftime("%Y-%m-%d")
+            if not isinstance(daily, dict) or daily.get("date") != today:
+                daily = {"date": today, "updated": 0, "skipped": 0, "failed": 0, "runs": 0}
+                self._state["daily"] = daily
+            return {
+                "date": today,
+                "updated": int(daily.get("updated") or 0),
+                "skipped": int(daily.get("skipped") or 0),
+                "failed": int(daily.get("failed") or 0),
+                "runs": int(daily.get("runs") or 0),
+            }
+
+    def send_daily_summary(self) -> Dict[str, Any]:
+        """按配置发送当天处理结果汇总通知。"""
+        if not self._config.get("notify_daily"):
+            return {"sent": False, "message": "每日汇总通知未开启"}
+        stats = self.daily_stats()
+        if not (stats["updated"] or stats["skipped"] or stats["failed"] or stats["runs"]):
+            return {"sent": False, "message": "今天还没有处理记录"}
+        text = (
+            f"今日汇总：成功更新 {stats['updated']} 条，跳过 {stats['skipped']} 条，"
+            f"失败 {stats['failed']} 条（共 {stats['runs']} 轮任务）"
+        )
+        if self._notify is not None:
+            try:
+                self._notify("影视简介增强 · 每日汇总", text)
+            except Exception as err:  # noqa: BLE001
+                logger.warning(f"影视简介增强：每日汇总通知发送失败 {err}")
+                return {"sent": False, "message": str(err), "stats": stats}
+        self._log(text)
+        return {"sent": True, "message": text, "stats": stats}
 
     # ------------------------------------------------------------------ 媒体服务器
 
@@ -1832,6 +1895,7 @@ class OverviewEnhancer:
                 if job.get("kind") == EPISODE:
                     label = f"{label} S{job.get('season')}E{job.get('episode')}"
                 self._run["current"] = f"{label} · {status}"
+            self._bump_daily(status)
         if status == "updated":
             self._state.setdefault("records", {})[job["key"]] = {
                 "hash": text_signature(result.get("text")),
@@ -1841,6 +1905,16 @@ class OverviewEnhancer:
             }
         elif status == "failed":
             self._log(f"{job.get('title')} {job.get('item_id')} 处理失败：{result.get('message')}", "error")
+
+    def _bump_daily(self, status: str) -> None:
+        """按天累计处理结果，供每日汇总通知使用。"""
+        daily = self._state.get("daily")
+        today = datetime.now().strftime("%Y-%m-%d")
+        if not isinstance(daily, dict) or daily.get("date") != today:
+            daily = {"date": today, "updated": 0, "skipped": 0, "failed": 0, "runs": 0}
+            self._state["daily"] = daily
+        key = status if status in {"updated", "skipped", "failed"} else "skipped"
+        daily[key] = int(daily.get(key) or 0) + 1
 
     def _finish_run(self, message: str, stats: Dict[str, Any]) -> None:
         """结束任务并保存状态、发送通知。"""
@@ -1856,6 +1930,9 @@ class OverviewEnhancer:
                     }
                 )
                 summary = dict(self._run)
+                daily = self._state.get("daily")
+                if isinstance(daily, dict):
+                    daily["runs"] = int(daily.get("runs") or 0) + 1
             else:
                 summary = {}
             self._state["last_run"] = summary
@@ -1867,14 +1944,23 @@ class OverviewEnhancer:
             }
         self._save_state()
         self._log(message)
-        if self._notify and summary and not self._stop_pending.is_set():
+        if not summary or self._stop_pending.is_set():
+            return
+        servers = "、".join(summary.get("servers") or []) or "全部"
+        if self._config.get("notify") and self._notify is not None:
             try:
-                self._notify(
-                    "影视简介增强",
-                    f"{message}\n服务器：{'、'.join(summary.get('servers') or []) or '全部'}",
-                )
+                self._notify("影视简介增强", f"{message}\n服务器：{servers}")
             except Exception as err:  # noqa: BLE001
                 logger.warning(f"影视简介增强：通知发送失败 {err}")
+        failed = int(summary.get("failed") or 0)
+        if failed and self._config.get("notify_failure") and self._notify is not None:
+            try:
+                self._notify(
+                    "影视简介增强 · 有失败条目",
+                    f"本次有 {failed} 条处理失败，可在插件详情页查看日志。\n服务器：{servers}",
+                )
+            except Exception as err:  # noqa: BLE001
+                logger.warning(f"影视简介增强：失败提醒发送失败 {err}")
 
     def _process_job(self, job: Dict[str, Any]) -> Dict[str, Any]:
         """处理单条条目：生成简介并写回媒体服务器。"""

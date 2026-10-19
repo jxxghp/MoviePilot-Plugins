@@ -32,6 +32,9 @@ const DEFAULTS = {
   concurrency: 2,
   max_items_per_run: 200,
   notify: true,
+  notify_failure: true,
+  notify_daily: false,
+  notify_daily_time: '21:00',
   show_sidebar_nav: true,
 }
 
@@ -50,6 +53,7 @@ const librariesText = ref('')
 const mvLibrariesText = ref('mv')
 const serversModel = ref([])
 const localConfig = ref({ ...DEFAULTS })
+const dailyStats = ref(null)
 
 const base = computed(() => `plugin/${props.pluginId || 'MediaOverviewEnhancer'}`)
 const movieModeItems = [
@@ -78,6 +82,15 @@ function asList(value) {
     .split(/[,，\n]/)
     .map(item => item.trim())
     .filter(Boolean)
+}
+
+function normalizeHhmm(value) {
+  const match = String(value || '').trim().match(/^(\d{1,2}):(\d{1,2})/)
+  if (!match) return '21:00'
+  const hour = Number(match[1])
+  const minute = Number(match[2])
+  if (!Number.isFinite(hour) || !Number.isFinite(minute) || hour > 23 || minute > 59) return '21:00'
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
 }
 
 function unwrap(response) {
@@ -109,6 +122,15 @@ async function loadServerOptions() {
   }
 }
 
+async function loadDailyStats() {
+  try {
+    const data = unwrap(await props.api.get(`${base.value}/status`))
+    dailyStats.value = data?.daily || null
+  } catch (err) {
+    dailyStats.value = null
+  }
+}
+
 async function loadDefaults() {
   if (Object.keys(props.initialConfig || {}).length) return
   try {
@@ -136,6 +158,7 @@ function buildPayload() {
   payload.mv_target_chars = Number(payload.mv_target_chars) || 110
   payload.concurrency = Number(payload.concurrency) || 2
   payload.max_items_per_run = Number(payload.max_items_per_run) || 200
+  payload.notify_daily_time = normalizeHhmm(payload.notify_daily_time)
   return payload
 }
 
@@ -174,12 +197,18 @@ watch(
 onMounted(() => {
   loadDefaults()
   loadServerOptions()
+  loadDailyStats()
 })
 </script>
 
 <template>
   <VForm class="moe-config">
     <div class="moe-config__toolbar text-subtitle-1">影视简介增强设置</div>
+
+    <VAlert v-if="dailyStats" type="info" variant="tonal" density="compact" class="mx-4 mb-2">
+      今日处理：成功 {{ dailyStats.updated || 0 }} 条 · 跳过 {{ dailyStats.skipped || 0 }} 条 ·
+      失败 {{ dailyStats.failed || 0 }} 条（共 {{ dailyStats.runs || 0 }} 轮）
+    </VAlert>
 
     <section class="moe-config__section">
       <VSwitch v-model="localConfig.enabled" label="启用插件" color="primary" hide-details />
@@ -412,13 +441,51 @@ onMounted(() => {
           />
         </VCol>
       </VRow>
-      <VSwitch v-model="localConfig.notify" label="任务完成发送通知" color="primary" hide-details />
       <VSwitch
         v-model="localConfig.show_sidebar_nav"
         label="在主界面侧栏显示入口"
         color="primary"
         hide-details
       />
+    </section>
+
+    <section class="moe-config__section">
+      <div class="text-subtitle-2 mb-2">通知推送</div>
+      <VSwitch
+        v-model="localConfig.notify"
+        label="任务完成通知（含成功 / 跳过 / 失败统计）"
+        color="primary"
+        hide-details
+      />
+      <VSwitch
+        v-model="localConfig.notify_failure"
+        label="有失败条目时额外提醒"
+        color="primary"
+        hide-details
+      />
+      <VDivider class="my-2" />
+      <VSwitch
+        v-model="localConfig.notify_daily"
+        label="每日成功汇总通知"
+        color="primary"
+        hide-details
+      />
+      <VRow dense class="mt-2">
+        <VCol cols="12" md="6">
+          <VTextField
+            v-model="localConfig.notify_daily_time"
+            type="time"
+            label="每天发送时间"
+            density="comfortable"
+            :disabled="!localConfig.notify_daily"
+            persistent-hint
+            hint="例如 21:00，到点发送当天成功 / 跳过 / 失败条数"
+          />
+        </VCol>
+      </VRow>
+      <div class="text-caption text-medium-emphasis">
+        通知使用 MoviePilot 已配置的消息渠道；每日汇总统计当天 0 点起的处理结果。
+      </div>
     </section>
 
     <VAlert v-if="validationMessage" type="error" variant="tonal" density="compact" class="mx-4 mb-2">
