@@ -1,0 +1,7 @@
+
+.moe-toolbar[data-v-c6b7dd00] {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: rgb(var(--v-theme-surface));
+}
