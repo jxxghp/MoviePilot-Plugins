@@ -221,6 +221,9 @@ onUnmounted(() => {
           {{ status.llm_available ? 'LLM 可用' : 'LLM 不可用' }}
         </VChip>
         <VChip size="small" variant="tonal">已处理 {{ status.processed_total || 0 }} 条</VChip>
+        <VChip v-if="status.daily" size="small" variant="tonal">
+          今日成功 {{ status.daily.updated || 0 }} / 失败 {{ status.daily.failed || 0 }}
+        </VChip>
         <VChip size="small" variant="tonal">电影模式 {{ status.movie_mode || '-' }}</VChip>
         <VChip size="small" variant="tonal">分集模式 {{ status.episode_mode || '-' }}</VChip>
         <VChip size="small" variant="tonal">

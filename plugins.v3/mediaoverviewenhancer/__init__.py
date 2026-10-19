@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
+from apscheduler.triggers.cron import CronTrigger
+
 from app.sdk.plugin import _PluginBase
 from app.schemas.types import EventType, MessageType
 from app.sdk.events import Event, eventmanager
@@ -26,7 +28,7 @@ class MediaOverviewEnhancer(_PluginBase):
         "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/"
         "src/assets/images/misc/edit.png"
     )
-    plugin_version = "1.2.1"
+    plugin_version = "1.3.0"
     plugin_label = "元数据,媒体库,AI"
     plugin_author = "miguelito39721"
     plugin_config_prefix = "mediaoverviewenhancer_"
@@ -105,19 +107,39 @@ class MediaOverviewEnhancer(_PluginBase):
         ]
 
     def get_service(self) -> List[Dict[str, Any]]:
-        """注册定时补漏扫描服务。"""
-        hours = int(self._config.get("schedule_hours") or 0)
-        if not self.get_state() or hours <= 0:
+        """注册定时补漏扫描与每日汇总通知服务。"""
+        if not self.get_state():
             return []
-        return [
-            {
-                "id": f"{self.__class__.__name__}Scan",
-                "name": "影视简介补漏扫描",
-                "trigger": "interval",
-                "func": self._scheduled_scan,
-                "kwargs": {"hours": max(1, hours)},
-            }
-        ]
+        services: List[Dict[str, Any]] = []
+        hours = int(self._config.get("schedule_hours") or 0)
+        if hours > 0:
+            services.append(
+                {
+                    "id": f"{self.__class__.__name__}Scan",
+                    "name": "影视简介补漏扫描",
+                    "trigger": "interval",
+                    "func": self._scheduled_scan,
+                    "kwargs": {"hours": max(1, hours)},
+                }
+            )
+        if self._config.get("notify_daily"):
+            time_text = str(self._config.get("notify_daily_time") or "21:00")
+            try:
+                hour, minute = (int(part) for part in time_text.split(":")[:2])
+            except (TypeError, ValueError):
+                hour, minute = 21, 0
+            hour = max(0, min(23, hour))
+            minute = max(0, min(59, minute))
+            services.append(
+                {
+                    "id": f"{self.__class__.__name__}DailyNotify",
+                    "name": "影视简介增强每日汇总通知",
+                    "trigger": CronTrigger.from_crontab(f"{minute} {hour} * * *"),
+                    "func": self._daily_notify,
+                    "kwargs": {},
+                }
+            )
+        return services
 
     def stop_service(self) -> None:
         """停止后台任务并释放资源。"""
@@ -144,10 +166,16 @@ class MediaOverviewEnhancer(_PluginBase):
             return
         self._engine.start_run({"trigger": "schedule", "media_type": "all"})
 
-    def _send_notify(self, title: str, text: str) -> None:
-        """发送插件通知。"""
-        if not self._config.get("notify"):
+    def _daily_notify(self) -> None:
+        """每日汇总通知入口。"""
+        if self._engine is None:
             return
+        result = self._engine.send_daily_summary()
+        if not result.get("sent"):
+            logger.info(f"影视简介增强：每日汇总未发送：{result.get('message')}")
+
+    def _send_notify(self, title: str, text: str) -> None:
+        """发送插件通知；是否发送由引擎按通知类型判断。"""
         try:
             self.post_message(mtype=MessageType.Plugin, title=title, text=text)
         except Exception as err:  # noqa: BLE001
