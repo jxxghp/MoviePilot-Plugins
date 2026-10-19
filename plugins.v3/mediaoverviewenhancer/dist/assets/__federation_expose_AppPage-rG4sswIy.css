@@ -1,0 +1,37 @@
+
+.moe-root[data-v-74175de1] {
+  padding: 12px 16px 24px;
+}
+.moe-header[data-v-74175de1] {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.moe-chips[data-v-74175de1] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 8px;
+}
+.moe-actions[data-v-74175de1] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+.moe-table-wrap[data-v-74175de1] {
+  max-height: 360px;
+  overflow: auto;
+}
+.moe-logs[data-v-74175de1] {
+  max-height: 240px;
+  overflow: auto;
+  font-size: 12px;
+}
+.moe-log-line[data-v-74175de1] {
+  display: flex;
+  gap: 6px;
+  line-height: 1.6;
+}

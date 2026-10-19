@@ -6,7 +6,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse, parse_qs
 
 import requests
@@ -17,7 +17,8 @@ from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.log import logger
 from app.plugins import _PluginBase
-from app.schemas.types import EventType
+from app.schemas.notification import ChannelCapability, ChannelCapabilityManager
+from app.schemas.types import EventType, NotificationChannel
 
 
 class UpdateWeChatIp(_PluginBase):
@@ -28,7 +29,7 @@ class UpdateWeChatIp(_PluginBase):
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本，必须和 package.v2.json 中保持一致
-    plugin_version = "1.0.9"
+    plugin_version = "1.0.10"
     # 作者信息
     plugin_author = "书小白"
     author_url = "https://github.com/thshu/MoviePilot-Plugins"
@@ -45,6 +46,10 @@ class UpdateWeChatIp(_PluginBase):
     _qrcode_key = None
     _tl_key = None
     _captcha = {}
+    # 短信验证码长度
+    _captcha_length = 6
+    # 聊天框文本输入会话超时时间（秒）
+    _text_input_timeout = 120
     _wwrtx_sid = None
     _party_cache_data = None
     _app_id = ""
@@ -171,34 +176,20 @@ class UpdateWeChatIp(_PluginBase):
         arg_str = event_data.get("arg_str")
         source = event_data.get("source")
         user = event_data.get("user")
-        if arg_str is not None:
-            if arg_str == '扫码完成':
-                self._login(channel, user)
-            elif len(re.findall('[0-9]', arg_str)) == 6:
-                self._captcha[self._qrcode_key] = arg_str
-                self._confirm_captcha(self._tl_key, self._captcha.get(self._qrcode_key))
-                self._wwrtx_sid = self._se.cookies.get_dict().get('wwrtx.sid')
-                if self._party_cache():
-                    self._login_success()
-                    self.post_message(
-                        channel=channel,
-                        title="登录成功",
-                        userid=user,
-                        text=f"成功登录企业:{self._party_cache_data.get('party_list', {}).get('list', [{}])[0].get('name')}",
-                    )
-                else:
-                    self.post_message(
-                        channel=channel,
-                        title="登录失败",
-                        userid=user,
-                        text=f"登录失败,返回值:{self._party_cache_data}",
-                    )
+        if arg_str is not None and str(arg_str).strip():
+            arg_text = str(arg_str).strip()
+            if arg_text == '扫码完成':
+                self._login(channel, user, source=source)
+            elif len(self._digits_of(arg_text)) == self._captcha_length:
+                # 命令一次性提交完整验证码：先归一化再校验长度
+                self._captcha[self._qrcode_key] = self._digits_of(arg_text)
+                self._submit_captcha(channel, user, self._qrcode_key, source=source)
             else:
                 self.post_message(
                     channel=channel,
                     title="无效的输入",
                     userid=user,
-                    content="无效的输入",
+                    text=f"未识别到 {self._captcha_length} 位数字验证码，可回复：\n```\n/update_wechat_ip 验证码内容\n```",
                 )
         else:
             # 初始化变量
@@ -247,6 +238,14 @@ class UpdateWeChatIp(_PluginBase):
         original_chat_id = event_data.get("original_chat_id")
 
         callback_text = event_data.get("text", "")
+        if not isinstance(callback_text, str):
+            callback_text = str(callback_text or "")
+
+        # 宿主文本输入会话回调（plugin_input / _cancel / _expired），需先于按钮解析处理
+        if callback_text.startswith("plugin_input"):
+            self._handle_text_input_event(event_data, callback_text)
+            return
+
         if "|" not in callback_text:
             self.post_message(
                 channel=channel,
@@ -256,52 +255,80 @@ class UpdateWeChatIp(_PluginBase):
             )
             return
         text, qrcode_key = callback_text.split("|", 1)
+        qrcode_key = self._resolve_captcha_key(qrcode_key)
 
         if text == "扫码完成":
             self._qrcode_key = qrcode_key
-            self._login(channel, userid)
-        if text == "输入完毕":
-            self._confirm_captcha(self._tl_key, self._captcha.get(self._qrcode_key))
-            if self._party_cache():
-                self._login_success()
-                self.post_message(
+            self._login(
+                channel,
+                userid,
+                source=source,
+                original_message_id=original_message_id,
+                original_chat_id=original_chat_id,
+            )
+        elif text == "输入完毕":
+            # 使用回调携带的 qrcode_key，避免多轮登录后读到已重置的实例值
+            self._submit_captcha(channel, userid, qrcode_key, source=source)
+        elif text == "退格":
+            self._captcha[qrcode_key] = self._captcha.get(qrcode_key, "")[:-1]
+            self._send_captcha_prompt(
+                channel=channel,
+                userid=userid,
+                qrcode_key=qrcode_key,
+                source=source,
+                original_message_id=original_message_id,
+                original_chat_id=original_chat_id,
+            )
+        elif text == "清空":
+            self._captcha[qrcode_key] = ""
+            self._send_captcha_prompt(
+                channel=channel,
+                userid=userid,
+                qrcode_key=qrcode_key,
+                source=source,
+                original_message_id=original_message_id,
+                original_chat_id=original_chat_id,
+                note="已清空输入，可重新输入验证码。",
+            )
+        elif text == "文本输入":
+            if self._request_text_input(channel, userid, source, qrcode_key):
+                self._send_captcha_prompt(
                     channel=channel,
-                    title="登录成功",
                     userid=userid,
-                    text=f"成功登录企业:{self._party_cache_data.get('party_list', {}).get('list', [{}])[0].get('name')}",
+                    qrcode_key=qrcode_key,
+                    source=source,
+                    original_message_id=original_message_id,
+                    original_chat_id=original_chat_id,
+                    note=self._text_input_note(channel),
                 )
             else:
-                self.post_message(
+                self._send_captcha_prompt(
                     channel=channel,
-                    title="登录失败",
                     userid=userid,
-                    text=f"登录失败,返回值:{self._party_cache_data}",
+                    qrcode_key=qrcode_key,
+                    source=source,
+                    original_message_id=original_message_id,
+                    original_chat_id=original_chat_id,
+                    note="当前宿主未提供文本输入会话接口，请使用数字按钮或 /update_wechat_ip 命令输入。",
                 )
         elif len(re.findall('[0-9]', text)) != 0:
             if qrcode_key not in self._captcha.keys():
                 self._captcha[qrcode_key] = ""
             self._captcha[qrcode_key] += text
-            self.post_message(
+            self._send_captcha_prompt(
                 channel=channel,
-                title="短信验证码",
                 userid=userid,
-                buttons=self._get_buttons(),
-                text='\n'.join(
-                    [
-                        "触发验证码：",
-                        f"验证码内容:{self._captcha[qrcode_key]}\n"
-                        f"如果按钮不可用，可回复：\n```\n/update_wechat_ip 验证码内容\n```"
-                    ]
-                ),
+                qrcode_key=qrcode_key,
+                source=source,
                 original_message_id=original_message_id,
-                original_chat_id=original_chat_id
+                original_chat_id=original_chat_id,
             )
         else:
             self.post_message(
                 channel=channel,
                 title="无效的输入",
                 userid=userid,
-                content="无效的输入",
+                text="无效的输入",
             )
 
     def get_api(self) -> List[Dict[str, Any]]:
@@ -667,7 +694,8 @@ class UpdateWeChatIp(_PluginBase):
         self._is_login = False
         return False
 
-    def _login(self, channel, userid):
+    def _login(self, channel, userid, source=None, original_message_id=None, original_chat_id=None):
+        """执行扫码后的登录步骤，需要时下发短信验证码输入交互。"""
         logger.info("触发登录回调，开始执行登录步骤")
         check_data = self._check(self._qrcode_key)
         if check_data:
@@ -675,22 +703,18 @@ class UpdateWeChatIp(_PluginBase):
             res = self._loginpage_wx(self._qrcode_key, code)
             if 'tl_key' in res.url:
                 logger.info("返回值中获取到tl_key,触发短信验证码")
-                self.post_message(
-                    channel=channel,
-                    title="短信验证码",
-                    userid=userid,
-                    buttons=self._get_buttons(),
-                    text='\n'.join(
-                        [
-                            "触发验证码：",
-                            f"如果按钮不可用，可回复：\n```\n/update_wechat_ip 验证码内容\n```"
-                        ]
-                    ),
-                )
                 parsed = urlparse(res.url)
                 query_params = parse_qs(parsed.query)
                 # 获取 tl_key 的值（parse_qs 返回字典，每个键对应一个列表）
                 self._tl_key = query_params.get('tl_key', [None])[0]
+                self._start_captcha_input(
+                    channel,
+                    userid,
+                    self._qrcode_key,
+                    source=source,
+                    original_message_id=original_message_id,
+                    original_chat_id=original_chat_id,
+                )
             else:
                 self._wwrtx_sid = self._se.cookies.get_dict().get('wwrtx.sid')
                 if self._party_cache():
@@ -750,6 +774,7 @@ class UpdateWeChatIp(_PluginBase):
         })
 
     def _get_buttons(self):
+        """生成短信验证码输入按钮：数字键盘、退格/清空/直接输入、提交。"""
         buttons = [
             [
                 {
@@ -761,10 +786,273 @@ class UpdateWeChatIp(_PluginBase):
             for i in range(2)
         ]
         buttons.append(
+            [
+                {"text": "退格",
+                 "callback_data": f"[PLUGIN]{self.__class__.__name__}|退格|{self._qrcode_key}"},
+                {"text": "清空",
+                 "callback_data": f"[PLUGIN]{self.__class__.__name__}|清空|{self._qrcode_key}"},
+                {"text": "直接输入",
+                 "callback_data": f"[PLUGIN]{self.__class__.__name__}|文本输入|{self._qrcode_key}"}
+            ]
+        )
+        buttons.append(
             [{"text": f'输入完毕',
               "callback_data": f"[PLUGIN]{self.__class__.__name__}|输入完毕|{self._qrcode_key}"}]
         )
         return buttons
+
+    def _resolve_captcha_key(self, qrcode_key) -> str:
+        """解析回调携带的 qrcode_key，缺失或为字面量 None 时回退当前登录会话。"""
+        if qrcode_key and str(qrcode_key) != "None":
+            return str(qrcode_key)
+        return self._qrcode_key
+
+    @staticmethod
+    def _digits_of(text) -> str:
+        """从输入内容中提取数字，忽略空格、标点和提示前缀。"""
+        return re.sub(r'\D', '', str(text or ""))
+
+    @staticmethod
+    def _mask_captcha(captcha: str) -> str:
+        """脱敏展示已输入的验证码，避免完整短信码留在消息历史中。"""
+        if not captcha:
+            return "未输入"
+        head = captcha[:2]
+        return f"{head}{'*' * (len(captcha) - len(head))}（已输入 {len(captcha)} 位）"
+
+    @staticmethod
+    def _as_channel(channel) -> Optional[NotificationChannel]:
+        """把渠道枚举或字符串归一为 NotificationChannel，无法识别时返回 None。"""
+        if not channel:
+            return None
+        if isinstance(channel, NotificationChannel):
+            return channel
+        try:
+            return NotificationChannel(str(channel))
+        except ValueError:
+            return None
+
+    @classmethod
+    def _channel_supports(cls, channel, capability: ChannelCapability) -> bool:
+        """判断渠道是否具备指定交互能力，兼容传入渠道枚举或字符串。"""
+        resolved = cls._as_channel(channel)
+        if not resolved:
+            return False
+        return ChannelCapabilityManager.supports_capability(resolved, capability)
+
+    @staticmethod
+    def _text_input_manager():
+        """获取宿主插件文本输入会话管理器，宿主未提供该接口时返回 None。"""
+        try:
+            from app.application.messaging.plugin import plugin_input_interaction_manager
+            return plugin_input_interaction_manager
+        except Exception as err:
+            logger.debug(f"宿主未提供插件文本输入会话接口: {err}")
+            return None
+
+    def _request_text_input(self, channel, userid, source, qrcode_key) -> bool:
+        """登记宿主文本输入会话，接管用户在聊天框发送的下一条文本。"""
+        manager = self._text_input_manager()
+        if not manager:
+            return False
+        channel_value = self._as_channel(channel)
+        try:
+            manager.create_or_replace(
+                user_id=str(userid),
+                plugin_id=self.__class__.__name__,
+                channel=channel_value,
+                source=source,
+                username=None,
+                chat_id=None,
+                prompt_id=qrcode_key,
+                timeout_seconds=self._text_input_timeout,
+                payload={"qrcode_key": qrcode_key, "action": "captcha"},
+            )
+        except Exception as err:
+            logger.warning(f"登记短信验证码文本输入会话失败: {err}")
+            return False
+        return True
+
+    def _captcha_prompt_text(self, qrcode_key, note: str = None) -> str:
+        """组装短信验证码输入提示正文。"""
+        typed = self._captcha.get(qrcode_key, "")
+        lines = [
+            "触发验证码：",
+            f"验证码内容：{self._mask_captcha(typed)}",
+        ]
+        if note:
+            lines.append(note)
+        lines.append("如果按钮不可用，可回复：\n```\n/update_wechat_ip 验证码内容\n```")
+        return '\n'.join(lines)
+
+    def _text_input_note(self, channel) -> str:
+        """按渠道聊天链路给出一次性输入验证码的引导文案。"""
+        if self._as_channel(channel) == NotificationChannel.WebAgent:
+            # WebAgent 聊天消息走 Agent 链路，不会消费插件文本输入会话，需使用命令形式一次性提交
+            return (
+                f"本渠道聊天消息由 Agent 处理，一次性提交请输入：\n"
+                f"```\n/update_wechat_ip {self._captcha_length}位完整验证码\n```\n"
+                f"可先用退格修改，再一次性发送。"
+            )
+        return (
+            f"请在 {self._text_input_timeout} 秒内直接在聊天框发送完整 {self._captcha_length} 位验证码"
+            f"（可先用退格修改再一次性发送），发送“取消”可退回按钮输入。"
+        )
+
+    def _send_captcha_prompt(self, channel, userid, qrcode_key, source=None,
+                             original_message_id=None, original_chat_id=None,
+                             note: str = None) -> None:
+        """下发验证码输入提示，渠道支持编辑时优先就地更新原消息。"""
+        buttons = self._get_buttons()
+        text = self._captcha_prompt_text(qrcode_key, note=note)
+        resolved_channel = self._as_channel(channel)
+        if (original_message_id and original_chat_id and resolved_channel
+                and self._channel_supports(resolved_channel, ChannelCapability.MESSAGE_EDITING)):
+            # WebAgent 没有后端消息模块，编辑事件需要按用户路由
+            metadata = {"userid": userid} if resolved_channel == NotificationChannel.WebAgent else None
+            try:
+                if self.chain.edit_message(
+                        channel=resolved_channel,
+                        source=source,
+                        message_id=original_message_id,
+                        chat_id=original_chat_id,
+                        title="短信验证码",
+                        text=text,
+                        buttons=buttons,
+                        metadata=metadata):
+                    return
+            except Exception as err:
+                logger.debug(f"编辑短信验证码消息失败，改为发送新消息: {err}")
+        self.post_message(
+            channel=channel,
+            title="短信验证码",
+            userid=userid,
+            text=text,
+            buttons=buttons,
+            original_message_id=original_message_id,
+            original_chat_id=original_chat_id,
+        )
+
+    def _start_captcha_input(self, channel, userid, qrcode_key, source=None,
+                             original_message_id=None, original_chat_id=None) -> None:
+        """下发验证码输入交互：支持按钮的渠道展示键盘，不支持时直接接管聊天文本。"""
+        if self._channel_supports(channel, ChannelCapability.INLINE_BUTTONS):
+            self._send_captcha_prompt(
+                channel=channel,
+                userid=userid,
+                qrcode_key=qrcode_key,
+                source=source,
+                original_message_id=original_message_id,
+                original_chat_id=original_chat_id,
+                note="可点数字按钮逐位输入（支持退格/清空），也可点“直接输入”后在聊天框一次发送完整验证码。",
+            )
+            return
+        if self._request_text_input(channel, userid, source, qrcode_key):
+            self._send_captcha_prompt(
+                channel=channel,
+                userid=userid,
+                qrcode_key=qrcode_key,
+                source=source,
+                original_message_id=original_message_id,
+                original_chat_id=original_chat_id,
+                note=self._text_input_note(channel),
+            )
+            return
+        self._send_captcha_prompt(
+            channel=channel,
+            userid=userid,
+            qrcode_key=qrcode_key,
+            source=source,
+            original_message_id=original_message_id,
+            original_chat_id=original_chat_id,
+        )
+
+    def _submit_captcha(self, channel, userid, qrcode_key, source=None) -> None:
+        """提交短信验证码并回报登录结果。"""
+        captcha = self._captcha.get(qrcode_key) or ""
+        if len(captcha) != self._captcha_length:
+            self._send_captcha_prompt(
+                channel=channel,
+                userid=userid,
+                qrcode_key=qrcode_key,
+                source=source,
+                note=(
+                    f"当前已输入 {len(captcha)} 位，需要 {self._captcha_length} 位，"
+                    f"请用退格/清空修正，或点“直接输入”在聊天框一次发送完整验证码。"
+                ),
+            )
+            return
+        self._confirm_captcha(self._tl_key, captcha)
+        self._wwrtx_sid = self._se.cookies.get_dict().get('wwrtx.sid')
+        self._captcha.pop(qrcode_key, None)
+        if self._party_cache():
+            self._login_success()
+            self.post_message(
+                channel=channel,
+                title="登录成功",
+                userid=userid,
+                text=f"成功登录企业:{self._party_cache_data.get('party_list', {}).get('list', [{}])[0].get('name')}",
+            )
+        else:
+            self.post_message(
+                channel=channel,
+                title="登录失败",
+                userid=userid,
+                text=f"登录失败,返回值:{self._party_cache_data}",
+            )
+
+    def _handle_text_input_event(self, event_data, callback_text: str) -> None:
+        """处理宿主文本输入会话回调，支持聊天框一次性输入完整验证码。"""
+        channel = event_data.get("channel")
+        source = event_data.get("source")
+        userid = event_data.get("userid")
+        payload = event_data.get("payload") or {}
+        if not isinstance(payload, dict):
+            payload = {}
+        qrcode_key = self._resolve_captcha_key(payload.get("qrcode_key"))
+        if callback_text.startswith("plugin_input_cancel"):
+            self._send_captcha_prompt(
+                channel=channel,
+                userid=userid,
+                qrcode_key=qrcode_key,
+                source=source,
+                note="已退出文本输入，可继续使用数字按钮（支持退格/清空）。",
+            )
+            return
+        if callback_text.startswith("plugin_input_expired"):
+            self._send_captcha_prompt(
+                channel=channel,
+                userid=userid,
+                qrcode_key=qrcode_key,
+                source=source,
+                note="文本输入已超时，请点“直接输入”重新发起，或使用数字按钮输入。",
+            )
+            return
+        digits = self._digits_of(event_data.get("input_text"))
+        if not digits:
+            self._send_captcha_prompt(
+                channel=channel,
+                userid=userid,
+                qrcode_key=qrcode_key,
+                source=source,
+                note="本次输入未包含数字，已退出文本输入，需要时请点“直接输入”重试。",
+            )
+            return
+        if len(digits) == self._captcha_length:
+            self._captcha[qrcode_key] = digits
+            self._submit_captcha(channel, userid, qrcode_key, source=source)
+            return
+        re_registered = self._request_text_input(channel, userid, source, qrcode_key)
+        self._send_captcha_prompt(
+            channel=channel,
+            userid=userid,
+            qrcode_key=qrcode_key,
+            source=source,
+            note=(
+                f"识别到 {len(digits)} 位数字，需要 {self._captcha_length} 位，"
+                + ("请在聊天框重新发送完整验证码。" if re_registered else "请使用数字按钮输入。")
+            ),
+        )
 
     def get_ip_from_url(self):
         urls = self._ip_urls

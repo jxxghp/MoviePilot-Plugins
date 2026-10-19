@@ -67,6 +67,52 @@ def page_nodes(nodes):
         yield from page_nodes(node.get("content", []))
 
 
+@pytest.mark.parametrize("success,logged_in", [(True, True), (False, True), (False, False)])
+@pytest.mark.parametrize("login_sites", [[1], ["all"]])
+def test_combined_run_reuses_visits_and_preserves_login_history(history_plugin, monkeypatch, success, logged_in, login_sites):
+    """签到、保号及失败均复用本轮验证；登录独选站点仍请求且单独通知。"""
+    plugin, storage, clock = history_plugin
+    today = datetime(2026, 10, 18)
+    clock.today.return_value = clock.now.return_value = today
+    plugin._notify = True
+    plugin._login_sites = login_sites
+    result = SiteResult("签到站", "签到成功" if success else "登录成功，签到未确认" if logged_in else "签到失败，状态码：466！",
+                        success, logged_in)
+    plugin.signin_site.return_value = result
+    monkeypatch.setattr(plugin, "post_message", Mock())
+
+    plugin.sign_in()
+
+    plugin.signin_site.assert_called_once()
+    assert [call.args[0]["id"] for call in plugin.login_site.call_args_list] == ([2] if login_sites == ["all"] else [])
+    history = storage["登录-2026-10-18"]
+    assert history["results"]["1"]["success"] is (success or logged_in)
+    assert history["results"]["1"]["logged_in"] is (success or logged_in)
+    assert (1 in history["retry"]) is not (success or logged_in)
+    notifications = plugin.post_message.call_args_list
+    assert len(notifications) == (2 if login_sites == ["all"] else 1)
+    if login_sites == ["all"]:
+        login_notification = notifications[1].kwargs
+        assert "签到站" not in login_notification["text"]
+        assert "登录站" in login_notification["text"]
+        assert "本次登录数量: 1" in login_notification["text"]
+
+
+def test_completed_signin_history_also_supplies_login_evidence(history_plugin):
+    """同日签到已完成而未重新请求时，仍可由明确签到结果补齐登录历史。"""
+    plugin, storage, clock = history_plugin
+    today = datetime(2026, 10, 18)
+    clock.today.return_value = clock.now.return_value = today
+    storage["签到-2026-10-18"] = day_records(today)["签到-2026-10-18"]
+    plugin._login_sites = [1]
+
+    plugin.sign_in()
+
+    plugin.signin_site.assert_not_called()
+    plugin.login_site.assert_not_called()
+    assert storage["登录-2026-10-18"]["results"]["1"]["success"] is True
+
+
 @pytest.mark.parametrize("type_str, site_id", [("签到", 1), ("登录", 2)])
 def test_cleanup_after_gap_preserves_window_and_unrelated_data(history_plugin, type_str, site_id):
     """停跑后删除全部过期历史，保留第14天、昨天及非历史数据；已完成时仍清理。"""
