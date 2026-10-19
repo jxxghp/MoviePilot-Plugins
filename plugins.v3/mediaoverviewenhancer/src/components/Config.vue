@@ -22,6 +22,15 @@ const DEFAULTS = {
   mv_libraries: ['mv'],
   mv_min_chars: 60,
   mv_target_chars: 110,
+  mv_write_people: true,
+  mv_people_role: '演唱',
+  mv_member_enabled: true,
+  mv_member_role: '成员',
+  mv_member_name_mode: 'zh',
+  mv_member_source: 'both',
+  mv_write_nfo: true,
+  mv_people_avatar: true,
+  nfo_path_map: '/media/:/medias/media/',
   translate_foreign: true,
   ai_generate_when_missing: true,
   ai_when_source_short: false,
@@ -65,6 +74,16 @@ const episodeModeItems = [
   { title: '智能：TMDB 优先 + 缺失时 AI', value: 'auto' },
   { title: '仅使用 TMDB 简介', value: 'tmdb' },
   { title: '全部由 AI 重写', value: 'ai' },
+]
+const memberNameModeItems = [
+  { title: '中文译名（如 李彩琳）', value: 'zh' },
+  { title: '原始名称（如 CL）', value: 'original' },
+  { title: '中文 + 原名（如 李彩琳 (CL)）', value: 'both' },
+]
+const memberSourceItems = [
+  { title: 'MusicBrainz + Wikidata（推荐）', value: 'both' },
+  { title: '仅 MusicBrainz', value: 'musicbrainz' },
+  { title: '仅 Wikidata（自带中文名）', value: 'wikidata' },
 ]
 
 function clone(value) {
@@ -156,6 +175,8 @@ function buildPayload() {
   payload.episode_target_chars = Number(payload.episode_target_chars) || 160
   payload.mv_min_chars = Number(payload.mv_min_chars) || 0
   payload.mv_target_chars = Number(payload.mv_target_chars) || 110
+  payload.mv_people_role = textValue(payload.mv_people_role) || '演唱'
+  payload.mv_member_role = textValue(payload.mv_member_role) || '成员'
   payload.concurrency = Number(payload.concurrency) || 2
   payload.max_items_per_run = Number(payload.max_items_per_run) || 200
   payload.notify_daily_time = normalizeHhmm(payload.notify_daily_time)
@@ -360,6 +381,79 @@ onMounted(() => {
           />
         </VCol>
       </VRow>
+      <VSwitch
+        v-model="localConfig.mv_write_people"
+        label="把解析出的艺人写入 Emby 演员"
+        color="primary"
+        hide-details
+        class="mt-2"
+      />
+      <VTextField
+        v-model="localConfig.mv_people_role"
+        label="演员角色名（默认「演唱」）"
+        density="comfortable"
+        :disabled="!localConfig.mv_write_people"
+        persistent-hint
+        hint="写入 Emby 的 People 字段，显示在条目「演员」区域"
+        class="mt-2"
+      />
+      <VSwitch
+        v-model="localConfig.mv_member_enabled"
+        label="把团队成员也写入演员"
+        color="primary"
+        hide-details
+        :disabled="!localConfig.mv_write_people"
+        class="mt-2"
+      />
+      <VTextField
+        v-model="localConfig.mv_member_role"
+        label="成员角色名（默认「成员」）"
+        density="comfortable"
+        :disabled="!localConfig.mv_write_people || !localConfig.mv_member_enabled"
+        persistent-hint
+        hint="成员名单取自 MusicBrainz，团体与成员各占一个演员条目"
+        class="mt-2"
+      />
+      <VSelect
+        v-model="localConfig.mv_member_name_mode"
+        :items="memberNameModeItems"
+        label="成员名显示方式"
+        density="comfortable"
+        :disabled="!localConfig.mv_write_people || !localConfig.mv_member_enabled"
+        class="mt-2"
+      />
+      <VSelect
+        v-model="localConfig.mv_member_source"
+        :items="memberSourceItems"
+        label="成员数据源"
+        density="comfortable"
+        :disabled="!localConfig.mv_write_people || !localConfig.mv_member_enabled"
+        persistent-hint
+        hint="Wikidata 自带中文成员名，MusicBrainz 覆盖更广，两者取并集"
+      />
+      <VSwitch
+        v-model="localConfig.mv_write_nfo"
+        label="生成 NFO 元数据文件（供 Kodi / Jellyfin 等读取）"
+        color="primary"
+        hide-details
+        :disabled="!localConfig.mv_write_people"
+        class="mt-2"
+      />
+      <VSwitch
+        v-model="localConfig.mv_people_avatar"
+        label="自动补演员头像（TMDB / Wikidata 取图）"
+        color="primary"
+        hide-details
+        :disabled="!localConfig.mv_write_people"
+      />
+      <VTextField
+        v-model="localConfig.nfo_path_map"
+        label="NFO 路径映射（服务器路径:本地路径）"
+        density="comfortable"
+        :disabled="!localConfig.mv_write_nfo"
+        persistent-hint
+        hint="默认 /media/:/medias/media/；只新增同名 .nfo，不改动视频文件"
+      />
       <div class="text-caption text-medium-emphasis mb-2">
         MV 没有 TMDB/IMDb 条目，简介只能由 AI 依据条目名与文件名线索生成。运行面板里需单独选「仅 MV」，
         「全部」不会带上 MV，避免一次性产生大量大模型调用；已达字数的条目默认跳过，勾「强制重写」才会重做。

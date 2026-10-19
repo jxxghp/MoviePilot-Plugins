@@ -49,6 +49,15 @@ const DEFAULTS = {
   mv_libraries: ['mv'],
   mv_min_chars: 60,
   mv_target_chars: 110,
+  mv_write_people: true,
+  mv_people_role: '演唱',
+  mv_member_enabled: true,
+  mv_member_role: '成员',
+  mv_member_name_mode: 'zh',
+  mv_member_source: 'both',
+  mv_write_nfo: true,
+  mv_people_avatar: true,
+  nfo_path_map: '/media/:/medias/media/',
   translate_foreign: true,
   ai_generate_when_missing: true,
   ai_when_source_short: false,
@@ -88,6 +97,16 @@ const episodeModeItems = [
   { title: '智能：TMDB 优先 + 缺失时 AI', value: 'auto' },
   { title: '仅使用 TMDB 简介', value: 'tmdb' },
   { title: '全部由 AI 重写', value: 'ai' },
+];
+const memberNameModeItems = [
+  { title: '中文译名（如 李彩琳）', value: 'zh' },
+  { title: '原始名称（如 CL）', value: 'original' },
+  { title: '中文 + 原名（如 李彩琳 (CL)）', value: 'both' },
+];
+const memberSourceItems = [
+  { title: 'MusicBrainz + Wikidata（推荐）', value: 'both' },
+  { title: '仅 MusicBrainz', value: 'musicbrainz' },
+  { title: '仅 Wikidata（自带中文名）', value: 'wikidata' },
 ];
 
 function clone(value) {
@@ -179,6 +198,8 @@ function buildPayload() {
   payload.episode_target_chars = Number(payload.episode_target_chars) || 160;
   payload.mv_min_chars = Number(payload.mv_min_chars) || 0;
   payload.mv_target_chars = Number(payload.mv_target_chars) || 110;
+  payload.mv_people_role = textValue(payload.mv_people_role) || '演唱';
+  payload.mv_member_role = textValue(payload.mv_member_role) || '成员';
   payload.concurrency = Number(payload.concurrency) || 2;
   payload.max_items_per_run = Number(payload.max_items_per_run) || 200;
   payload.notify_daily_time = normalizeHhmm(payload.notify_daily_time);
@@ -236,7 +257,7 @@ return (_ctx, _cache) => {
 
   return (_openBlock(), _createBlock(_component_VForm, { class: "moe-config" }, {
     default: _withCtx(() => [
-      _cache[52] || (_cache[52] = _createElementVNode("div", { class: "moe-config__toolbar text-subtitle-1" }, "影视简介增强设置", -1)),
+      _cache[61] || (_cache[61] = _createElementVNode("div", { class: "moe-config__toolbar text-subtitle-1" }, "影视简介增强设置", -1)),
       (dailyStats.value)
         ? (_openBlock(), _createBlock(_component_VAlert, {
             key: 0,
@@ -259,7 +280,7 @@ return (_ctx, _cache) => {
           color: "primary",
           "hide-details": ""
         }, null, 8, ["modelValue"]),
-        _cache[35] || (_cache[35] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mb-2" }, " 启用后才会在入库后自动补简介、执行定时补漏或手动批量任务。 ", -1)),
+        _cache[44] || (_cache[44] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mb-2" }, " 启用后才会在入库后自动补简介、执行定时补漏或手动批量任务。 ", -1)),
         _createVNode(_component_VSwitch, {
           modelValue: localConfig.value.auto_on_transfer,
           "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => ((localConfig.value.auto_on_transfer) = $event)),
@@ -284,7 +305,7 @@ return (_ctx, _cache) => {
         }, null, 8, ["modelValue"])
       ]),
       _createElementVNode("section", _hoisted_2, [
-        _cache[36] || (_cache[36] = _createElementVNode("div", { class: "text-subtitle-2 mb-2" }, "媒体服务器范围", -1)),
+        _cache[45] || (_cache[45] = _createElementVNode("div", { class: "text-subtitle-2 mb-2" }, "媒体服务器范围", -1)),
         _createVNode(_component_VSelect, {
           modelValue: serversModel.value,
           "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((serversModel).value = $event)),
@@ -308,7 +329,7 @@ return (_ctx, _cache) => {
         }, null, 8, ["modelValue"])
       ]),
       _createElementVNode("section", _hoisted_3, [
-        _cache[37] || (_cache[37] = _createElementVNode("div", { class: "text-subtitle-2 mb-2" }, "电影简介", -1)),
+        _cache[46] || (_cache[46] = _createElementVNode("div", { class: "text-subtitle-2 mb-2" }, "电影简介", -1)),
         _createVNode(_component_VSwitch, {
           modelValue: localConfig.value.movie_enabled,
           "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((localConfig.value.movie_enabled) = $event)),
@@ -364,7 +385,7 @@ return (_ctx, _cache) => {
         })
       ]),
       _createElementVNode("section", _hoisted_4, [
-        _cache[38] || (_cache[38] = _createElementVNode("div", { class: "text-subtitle-2 mb-2" }, "剧集分集简介", -1)),
+        _cache[47] || (_cache[47] = _createElementVNode("div", { class: "text-subtitle-2 mb-2" }, "剧集分集简介", -1)),
         _createVNode(_component_VSwitch, {
           modelValue: localConfig.value.episode_enabled,
           "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((localConfig.value.episode_enabled) = $event)),
@@ -426,7 +447,7 @@ return (_ctx, _cache) => {
           "hide-details": "",
           class: "mt-2"
         }, null, 8, ["modelValue"]),
-        _cache[39] || (_cache[39] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mb-2" }, " 关闭时只在简介缺失、过短或同季多集重复时才处理，可显著减少大模型用量。 ", -1)),
+        _cache[48] || (_cache[48] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mb-2" }, " 关闭时只在简介缺失、过短或同季多集重复时才处理，可显著减少大模型用量。 ", -1)),
         _createVNode(_component_VSwitch, {
           modelValue: localConfig.value.skip_specials,
           "onUpdate:modelValue": _cache[15] || (_cache[15] = $event => ((localConfig.value.skip_specials) = $event)),
@@ -443,7 +464,7 @@ return (_ctx, _cache) => {
         }, null, 8, ["modelValue"])
       ]),
       _createElementVNode("section", _hoisted_5, [
-        _cache[40] || (_cache[40] = _createElementVNode("div", { class: "text-subtitle-2 mb-2" }, "MV 简介（音乐视频）", -1)),
+        _cache[49] || (_cache[49] = _createElementVNode("div", { class: "text-subtitle-2 mb-2" }, "MV 简介（音乐视频）", -1)),
         _createVNode(_component_VSwitch, {
           modelValue: localConfig.value.mv_enabled,
           "onUpdate:modelValue": _cache[17] || (_cache[17] = $event => ((localConfig.value.mv_enabled) = $event)),
@@ -498,59 +519,141 @@ return (_ctx, _cache) => {
           ]),
           _: 1
         }),
-        _cache[41] || (_cache[41] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mb-2" }, " MV 没有 TMDB/IMDb 条目，简介只能由 AI 依据条目名与文件名线索生成。运行面板里需单独选「仅 MV」， 「全部」不会带上 MV，避免一次性产生大量大模型调用；已达字数的条目默认跳过，勾「强制重写」才会重做。 ", -1))
+        _createVNode(_component_VSwitch, {
+          modelValue: localConfig.value.mv_write_people,
+          "onUpdate:modelValue": _cache[21] || (_cache[21] = $event => ((localConfig.value.mv_write_people) = $event)),
+          label: "把解析出的艺人写入 Emby 演员",
+          color: "primary",
+          "hide-details": "",
+          class: "mt-2"
+        }, null, 8, ["modelValue"]),
+        _createVNode(_component_VTextField, {
+          modelValue: localConfig.value.mv_people_role,
+          "onUpdate:modelValue": _cache[22] || (_cache[22] = $event => ((localConfig.value.mv_people_role) = $event)),
+          label: "演员角色名（默认「演唱」）",
+          density: "comfortable",
+          disabled: !localConfig.value.mv_write_people,
+          "persistent-hint": "",
+          hint: "写入 Emby 的 People 字段，显示在条目「演员」区域",
+          class: "mt-2"
+        }, null, 8, ["modelValue", "disabled"]),
+        _createVNode(_component_VSwitch, {
+          modelValue: localConfig.value.mv_member_enabled,
+          "onUpdate:modelValue": _cache[23] || (_cache[23] = $event => ((localConfig.value.mv_member_enabled) = $event)),
+          label: "把团队成员也写入演员",
+          color: "primary",
+          "hide-details": "",
+          disabled: !localConfig.value.mv_write_people,
+          class: "mt-2"
+        }, null, 8, ["modelValue", "disabled"]),
+        _createVNode(_component_VTextField, {
+          modelValue: localConfig.value.mv_member_role,
+          "onUpdate:modelValue": _cache[24] || (_cache[24] = $event => ((localConfig.value.mv_member_role) = $event)),
+          label: "成员角色名（默认「成员」）",
+          density: "comfortable",
+          disabled: !localConfig.value.mv_write_people || !localConfig.value.mv_member_enabled,
+          "persistent-hint": "",
+          hint: "成员名单取自 MusicBrainz，团体与成员各占一个演员条目",
+          class: "mt-2"
+        }, null, 8, ["modelValue", "disabled"]),
+        _createVNode(_component_VSelect, {
+          modelValue: localConfig.value.mv_member_name_mode,
+          "onUpdate:modelValue": _cache[25] || (_cache[25] = $event => ((localConfig.value.mv_member_name_mode) = $event)),
+          items: memberNameModeItems,
+          label: "成员名显示方式",
+          density: "comfortable",
+          disabled: !localConfig.value.mv_write_people || !localConfig.value.mv_member_enabled,
+          class: "mt-2"
+        }, null, 8, ["modelValue", "disabled"]),
+        _createVNode(_component_VSelect, {
+          modelValue: localConfig.value.mv_member_source,
+          "onUpdate:modelValue": _cache[26] || (_cache[26] = $event => ((localConfig.value.mv_member_source) = $event)),
+          items: memberSourceItems,
+          label: "成员数据源",
+          density: "comfortable",
+          disabled: !localConfig.value.mv_write_people || !localConfig.value.mv_member_enabled,
+          "persistent-hint": "",
+          hint: "Wikidata 自带中文成员名，MusicBrainz 覆盖更广，两者取并集"
+        }, null, 8, ["modelValue", "disabled"]),
+        _createVNode(_component_VSwitch, {
+          modelValue: localConfig.value.mv_write_nfo,
+          "onUpdate:modelValue": _cache[27] || (_cache[27] = $event => ((localConfig.value.mv_write_nfo) = $event)),
+          label: "生成 NFO 元数据文件（供 Kodi / Jellyfin 等读取）",
+          color: "primary",
+          "hide-details": "",
+          disabled: !localConfig.value.mv_write_people,
+          class: "mt-2"
+        }, null, 8, ["modelValue", "disabled"]),
+        _createVNode(_component_VSwitch, {
+          modelValue: localConfig.value.mv_people_avatar,
+          "onUpdate:modelValue": _cache[28] || (_cache[28] = $event => ((localConfig.value.mv_people_avatar) = $event)),
+          label: "自动补演员头像（TMDB / Wikidata 取图）",
+          color: "primary",
+          "hide-details": "",
+          disabled: !localConfig.value.mv_write_people
+        }, null, 8, ["modelValue", "disabled"]),
+        _createVNode(_component_VTextField, {
+          modelValue: localConfig.value.nfo_path_map,
+          "onUpdate:modelValue": _cache[29] || (_cache[29] = $event => ((localConfig.value.nfo_path_map) = $event)),
+          label: "NFO 路径映射（服务器路径:本地路径）",
+          density: "comfortable",
+          disabled: !localConfig.value.mv_write_nfo,
+          "persistent-hint": "",
+          hint: "默认 /media/:/medias/media/；只新增同名 .nfo，不改动视频文件"
+        }, null, 8, ["modelValue", "disabled"]),
+        _cache[50] || (_cache[50] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mb-2" }, " MV 没有 TMDB/IMDb 条目，简介只能由 AI 依据条目名与文件名线索生成。运行面板里需单独选「仅 MV」， 「全部」不会带上 MV，避免一次性产生大量大模型调用；已达字数的条目默认跳过，勾「强制重写」才会重做。 ", -1))
       ]),
       _createElementVNode("section", _hoisted_6, [
-        _cache[42] || (_cache[42] = _createElementVNode("div", { class: "text-subtitle-2 mb-2" }, "数据源与写入", -1)),
-        _cache[43] || (_cache[43] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mb-2" }, " 电影与剧集优先用 TMDB 中文简介；MV 没有 TMDB/IMDb 条目，只能由 AI 依据条目名与文件名线索生成。 ", -1)),
+        _cache[51] || (_cache[51] = _createElementVNode("div", { class: "text-subtitle-2 mb-2" }, "数据源与写入", -1)),
+        _cache[52] || (_cache[52] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mb-2" }, " 电影与剧集优先用 TMDB 中文简介；MV 没有 TMDB/IMDb 条目，只能由 AI 依据条目名与文件名线索生成。 ", -1)),
         _createVNode(_component_VSwitch, {
           modelValue: localConfig.value.translate_foreign,
-          "onUpdate:modelValue": _cache[21] || (_cache[21] = $event => ((localConfig.value.translate_foreign) = $event)),
+          "onUpdate:modelValue": _cache[30] || (_cache[30] = $event => ((localConfig.value.translate_foreign) = $event)),
           label: "允许把英文简介翻译成中文",
           color: "primary",
           "hide-details": ""
         }, null, 8, ["modelValue"]),
         _createVNode(_component_VSwitch, {
           modelValue: localConfig.value.ai_generate_when_missing,
-          "onUpdate:modelValue": _cache[22] || (_cache[22] = $event => ((localConfig.value.ai_generate_when_missing) = $event)),
+          "onUpdate:modelValue": _cache[31] || (_cache[31] = $event => ((localConfig.value.ai_generate_when_missing) = $event)),
           label: "允许在无简介时由 AI 生成",
           color: "primary",
           "hide-details": ""
         }, null, 8, ["modelValue"]),
-        _cache[44] || (_cache[44] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mb-2" }, " AI 生成只依据影片/剧集上下文，尽量不编造细节，但仍可能与真实剧情有出入，建议先试跑。 ", -1)),
+        _cache[53] || (_cache[53] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mb-2" }, " AI 生成只依据影片/剧集上下文，尽量不编造细节，但仍可能与真实剧情有出入，建议先试跑。 ", -1)),
         _createVNode(_component_VSwitch, {
           modelValue: localConfig.value.ai_when_source_short,
-          "onUpdate:modelValue": _cache[23] || (_cache[23] = $event => ((localConfig.value.ai_when_source_short) = $event)),
+          "onUpdate:modelValue": _cache[32] || (_cache[32] = $event => ((localConfig.value.ai_when_source_short) = $event)),
           label: "素材不足或同季重复时改用 AI 生成",
           color: "primary",
           "hide-details": ""
         }, null, 8, ["modelValue"]),
-        _cache[45] || (_cache[45] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mb-2" }, " 开启后，TMDB 简介过短（翻译/扩写后仍不到上面的字数阈值）或同季多集简介雷同的条目， 会改由 AI 依据上下文生成更完整、彼此不同的简介；素材充足的条目不受影响。 ", -1)),
+        _cache[54] || (_cache[54] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mb-2" }, " 开启后，TMDB 简介过短（翻译/扩写后仍不到上面的字数阈值）或同季多集简介雷同的条目， 会改由 AI 依据上下文生成更完整、彼此不同的简介；素材充足的条目不受影响。 ", -1)),
         _createVNode(_component_VSwitch, {
           modelValue: localConfig.value.tmdb_title_fallback,
-          "onUpdate:modelValue": _cache[24] || (_cache[24] = $event => ((localConfig.value.tmdb_title_fallback) = $event)),
+          "onUpdate:modelValue": _cache[33] || (_cache[33] = $event => ((localConfig.value.tmdb_title_fallback) = $event)),
           label: "剧集无 TMDB 标识时按标题搜索兜底",
           color: "primary",
           "hide-details": ""
         }, null, 8, ["modelValue"]),
-        _cache[46] || (_cache[46] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mb-2" }, " 仅对剧集生效：当 Emby 里的剧集没有 TMDB 标识（未刮削）时，按「标题 + 年份」严格匹配 TMDB （要求标题高度一致、年份相差不超过一年），匹配到的剧集与 TMDB ID 会写入插件日志便于核对。 关闭时这类剧集会被整体跳过。 ", -1)),
+        _cache[55] || (_cache[55] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mb-2" }, " 仅对剧集生效：当 Emby 里的剧集没有 TMDB 标识（未刮削）时，按「标题 + 年份」严格匹配 TMDB （要求标题高度一致、年份相差不超过一年），匹配到的剧集与 TMDB ID 会写入插件日志便于核对。 关闭时这类剧集会被整体跳过。 ", -1)),
         _createVNode(_component_VSwitch, {
           modelValue: localConfig.value.lock_overview,
-          "onUpdate:modelValue": _cache[25] || (_cache[25] = $event => ((localConfig.value.lock_overview) = $event)),
+          "onUpdate:modelValue": _cache[34] || (_cache[34] = $event => ((localConfig.value.lock_overview) = $event)),
           label: "写入后锁定 Overview 字段（防止 Emby 刷新覆盖）",
           color: "primary",
           "hide-details": ""
         }, null, 8, ["modelValue"]),
         _createVNode(_component_VSwitch, {
           modelValue: localConfig.value.force_rewrite,
-          "onUpdate:modelValue": _cache[26] || (_cache[26] = $event => ((localConfig.value.force_rewrite) = $event)),
+          "onUpdate:modelValue": _cache[35] || (_cache[35] = $event => ((localConfig.value.force_rewrite) = $event)),
           label: "默认强制重写（忽略字数阈值）",
           color: "primary",
           "hide-details": ""
         }, null, 8, ["modelValue"])
       ]),
       _createElementVNode("section", _hoisted_7, [
-        _cache[47] || (_cache[47] = _createElementVNode("div", { class: "text-subtitle-2 mb-2" }, "运行控制", -1)),
+        _cache[56] || (_cache[56] = _createElementVNode("div", { class: "text-subtitle-2 mb-2" }, "运行控制", -1)),
         _createVNode(_component_VRow, { dense: "" }, {
           default: _withCtx(() => [
             _createVNode(_component_VCol, {
@@ -560,7 +663,7 @@ return (_ctx, _cache) => {
               default: _withCtx(() => [
                 _createVNode(_component_VTextField, {
                   modelValue: localConfig.value.concurrency,
-                  "onUpdate:modelValue": _cache[27] || (_cache[27] = $event => ((localConfig.value.concurrency) = $event)),
+                  "onUpdate:modelValue": _cache[36] || (_cache[36] = $event => ((localConfig.value.concurrency) = $event)),
                   type: "number",
                   label: "并发数（1-8）",
                   density: "comfortable"
@@ -575,7 +678,7 @@ return (_ctx, _cache) => {
               default: _withCtx(() => [
                 _createVNode(_component_VTextField, {
                   modelValue: localConfig.value.max_items_per_run,
-                  "onUpdate:modelValue": _cache[28] || (_cache[28] = $event => ((localConfig.value.max_items_per_run) = $event)),
+                  "onUpdate:modelValue": _cache[37] || (_cache[37] = $event => ((localConfig.value.max_items_per_run) = $event)),
                   type: "number",
                   label: "单次最多处理条数",
                   density: "comfortable"
@@ -588,24 +691,24 @@ return (_ctx, _cache) => {
         }),
         _createVNode(_component_VSwitch, {
           modelValue: localConfig.value.show_sidebar_nav,
-          "onUpdate:modelValue": _cache[29] || (_cache[29] = $event => ((localConfig.value.show_sidebar_nav) = $event)),
+          "onUpdate:modelValue": _cache[38] || (_cache[38] = $event => ((localConfig.value.show_sidebar_nav) = $event)),
           label: "在主界面侧栏显示入口",
           color: "primary",
           "hide-details": ""
         }, null, 8, ["modelValue"])
       ]),
       _createElementVNode("section", _hoisted_8, [
-        _cache[48] || (_cache[48] = _createElementVNode("div", { class: "text-subtitle-2 mb-2" }, "通知推送", -1)),
+        _cache[57] || (_cache[57] = _createElementVNode("div", { class: "text-subtitle-2 mb-2" }, "通知推送", -1)),
         _createVNode(_component_VSwitch, {
           modelValue: localConfig.value.notify,
-          "onUpdate:modelValue": _cache[30] || (_cache[30] = $event => ((localConfig.value.notify) = $event)),
+          "onUpdate:modelValue": _cache[39] || (_cache[39] = $event => ((localConfig.value.notify) = $event)),
           label: "任务完成通知（含成功 / 跳过 / 失败统计）",
           color: "primary",
           "hide-details": ""
         }, null, 8, ["modelValue"]),
         _createVNode(_component_VSwitch, {
           modelValue: localConfig.value.notify_failure,
-          "onUpdate:modelValue": _cache[31] || (_cache[31] = $event => ((localConfig.value.notify_failure) = $event)),
+          "onUpdate:modelValue": _cache[40] || (_cache[40] = $event => ((localConfig.value.notify_failure) = $event)),
           label: "有失败条目时额外提醒",
           color: "primary",
           "hide-details": ""
@@ -613,7 +716,7 @@ return (_ctx, _cache) => {
         _createVNode(_component_VDivider, { class: "my-2" }),
         _createVNode(_component_VSwitch, {
           modelValue: localConfig.value.notify_daily,
-          "onUpdate:modelValue": _cache[32] || (_cache[32] = $event => ((localConfig.value.notify_daily) = $event)),
+          "onUpdate:modelValue": _cache[41] || (_cache[41] = $event => ((localConfig.value.notify_daily) = $event)),
           label: "每日成功汇总通知",
           color: "primary",
           "hide-details": ""
@@ -630,7 +733,7 @@ return (_ctx, _cache) => {
               default: _withCtx(() => [
                 _createVNode(_component_VTextField, {
                   modelValue: localConfig.value.notify_daily_time,
-                  "onUpdate:modelValue": _cache[33] || (_cache[33] = $event => ((localConfig.value.notify_daily_time) = $event)),
+                  "onUpdate:modelValue": _cache[42] || (_cache[42] = $event => ((localConfig.value.notify_daily_time) = $event)),
                   type: "time",
                   label: "每天发送时间",
                   density: "comfortable",
@@ -644,7 +747,7 @@ return (_ctx, _cache) => {
           ]),
           _: 1
         }),
-        _cache[49] || (_cache[49] = _createElementVNode("div", { class: "text-caption text-medium-emphasis" }, " 通知使用 MoviePilot 已配置的消息渠道；每日汇总统计当天 0 点起的处理结果。 ", -1))
+        _cache[58] || (_cache[58] = _createElementVNode("div", { class: "text-caption text-medium-emphasis" }, " 通知使用 MoviePilot 已配置的消息渠道；每日汇总统计当天 0 点起的处理结果。 ", -1))
       ]),
       (validationMessage.value)
         ? (_openBlock(), _createBlock(_component_VAlert, {
@@ -664,9 +767,9 @@ return (_ctx, _cache) => {
         _createVNode(_component_VBtn, {
           variant: "text",
           "min-width": "88",
-          onClick: _cache[34] || (_cache[34] = $event => (emit('close')))
+          onClick: _cache[43] || (_cache[43] = $event => (emit('close')))
         }, {
-          default: _withCtx(() => [...(_cache[50] || (_cache[50] = [
+          default: _withCtx(() => [...(_cache[59] || (_cache[59] = [
             _createTextVNode("取消", -1)
           ]))]),
           _: 1
@@ -677,7 +780,7 @@ return (_ctx, _cache) => {
           loading: saving.value,
           onClick: saveConfig
         }, {
-          default: _withCtx(() => [...(_cache[51] || (_cache[51] = [
+          default: _withCtx(() => [...(_cache[60] || (_cache[60] = [
             _createTextVNode("保存", -1)
           ]))]),
           _: 1
@@ -690,6 +793,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-82815e3c"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ddf22c30"]]);
 
 export { Config as default };

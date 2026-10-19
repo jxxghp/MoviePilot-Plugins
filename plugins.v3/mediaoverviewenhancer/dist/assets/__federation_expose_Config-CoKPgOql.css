@@ -1,18 +1,18 @@
 
-.moe-config[data-v-82815e3c] {
+.moe-config[data-v-ddf22c30] {
   min-width: 0;
   padding-bottom: 12px;
 }
-.moe-config__toolbar[data-v-82815e3c] {
+.moe-config__toolbar[data-v-ddf22c30] {
   position: sticky;
   top: 0;
   z-index: 2;
   padding: 12px 16px 4px;
 }
-.moe-config__section[data-v-82815e3c] {
+.moe-config__section[data-v-ddf22c30] {
   padding: 4px 16px 12px;
 }
-.moe-config__actions[data-v-82815e3c] {
+.moe-config__actions[data-v-ddf22c30] {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
