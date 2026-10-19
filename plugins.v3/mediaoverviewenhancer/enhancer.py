@@ -8,6 +8,7 @@ import json
 import re
 import threading
 import time
+from xml.etree import ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
@@ -28,6 +29,27 @@ MV = "mv"
 SOURCE_TMDB = "tmdb"
 SOURCE_TRANSLATE = "translate"
 SOURCE_AI = "ai"
+# 仅补充演员（People）而不改动简介
+SOURCE_PEOPLE = "people"
+
+# MusicBrainz：MV 没有 TMDB 演职员数据，团体成员只能取自这里
+MB_API = "https://musicbrainz.org/ws/2"
+MB_USER_AGENT = (
+    "MoviePilot-MediaOverviewEnhancer/1.0 "
+    "(+https://github.com/jxxghp/MoviePilot-Plugins)"
+)
+MB_GROUP_TYPES = {"Group", "Orchestra", "Choir"}
+
+# Wikidata：成员数据的第二来源，可直接取到中文标签
+WD_SPARQL_ENDPOINT = "https://query.wikidata.org/sparql"
+WD_MEMBER_QUERY = (
+    "SELECT ?memberLabel ?memberEn WHERE {"
+    '  ?group rdfs:label "%s"@en .'
+    "  ?group wdt:P527 ?member ."
+    '  OPTIONAL { ?member rdfs:label ?memberEn FILTER(lang(?memberEn) = "en") }'
+    '  SERVICE wikibase:label { bd:serviceParam wikibase:language "zh-hans,zh,en". }'
+    "} LIMIT 40"
+)
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "enabled": False,
@@ -55,6 +77,16 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "mv_libraries": ["mv"],
     "mv_min_chars": 60,
     "mv_target_chars": 110,
+    "mv_write_people": True,
+    "mv_people_role": "演唱",
+    "mv_member_enabled": True,
+    "mv_member_role": "成员",
+    "mv_member_translate": True,
+    "mv_member_name_mode": "zh",
+    "mv_member_source": "both",
+    "mv_write_nfo": True,
+    "mv_people_avatar": True,
+    "nfo_path_map": "/media/:/medias/media/",
     # 数据源与写入
     "translate_foreign": True,
     "ai_generate_when_missing": True,
@@ -113,6 +145,19 @@ def _normalize_hhmm(value: Any, default: str = "21:00") -> str:
     return f"{hour:02d}:{minute:02d}"
 
 
+def _people_names(value: Any) -> List[str]:
+    """提取条目 People 字段中已有的人员名称。"""
+    if not isinstance(value, list):
+        return []
+    names: List[str] = []
+    for item in value:
+        if isinstance(item, dict):
+            name = str(item.get("Name") or "").strip()
+            if name:
+                names.append(name)
+    return names
+
+
 def normalize_config(config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """把外部配置规整成引擎可用的完整配置。"""
     data: Dict[str, Any] = dict(DEFAULT_CONFIG)
@@ -133,6 +178,15 @@ def normalize_config(config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     data["mv_libraries"] = _as_str_list(data.get("mv_libraries")) or ["mv"]
     data["mv_min_chars"] = _bounded_int(data.get("mv_min_chars"), 60, 0, 2000)
     data["mv_target_chars"] = _bounded_int(data.get("mv_target_chars"), 110, 40, 1000)
+    data["mv_people_role"] = str(data.get("mv_people_role") or "").strip()[:20] or "演唱"
+    data["mv_member_role"] = str(data.get("mv_member_role") or "").strip()[:20] or "成员"
+    if data.get("mv_member_name_mode") not in {"zh", "original", "both"}:
+        data["mv_member_name_mode"] = (
+            "original" if data.get("mv_member_translate") is False else "zh"
+        )
+    if data.get("mv_member_source") not in {"musicbrainz", "wikidata", "both"}:
+        data["mv_member_source"] = "both"
+    data["nfo_path_map"] = str(data.get("nfo_path_map") or "").strip() or "/media/:/medias/media/"
     data["concurrency"] = _bounded_int(data.get("concurrency"), 2, 1, 8)
     data["max_items_per_run"] = _bounded_int(data.get("max_items_per_run"), 200, 1, 5000)
     data["notify_daily_time"] = _normalize_hhmm(data.get("notify_daily_time"))
@@ -142,6 +196,11 @@ def normalize_config(config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "movie_enabled",
         "episode_enabled",
         "mv_enabled",
+        "mv_write_people",
+        "mv_member_enabled",
+        "mv_member_translate",
+        "mv_write_nfo",
+        "mv_people_avatar",
         "episode_always_rewrite",
         "skip_specials",
         "translate_foreign",
@@ -459,12 +518,22 @@ class EmbyClient:
                 return data
         return {}
 
-    def update_overview(self, item_id: str, overview: str, lock: bool = True) -> Tuple[bool, str]:
-        """写入条目的简介。
+    def update_overview(
+        self,
+        item_id: str,
+        overview: str,
+        lock: bool = True,
+        people: Optional[List[Dict[str, Any]]] = None,
+        lock_people: bool = False,
+        drop_people: Optional[List[str]] = None,
+        dedupe_only: bool = False,
+        prune_role: str = "",
+    ) -> Tuple[bool, str]:
+        """写入条目的简介，并按需补充演员（People）信息。
 
         Emby 的 UpdateItem 会整份覆盖条目字段，缺失 ``ProviderIds`` 会直接报 400，
         缺失 ``Name``/``IndexNumber`` 则会被清空。因此这里先读回完整条目，
-        只替换简介与锁定字段后整体回写。
+        只替换简介、演员与锁定字段后整体回写。
         """
         payload = self.get_full_dto(item_id)
         if not payload:
@@ -480,6 +549,57 @@ class EmbyClient:
         if lock:
             if "Overview" not in locked_fields:
                 locked_fields.append("Overview")
+        added_people: List[str] = []
+        drop_names = {
+            str(name).strip().casefold() for name in (drop_people or []) if str(name).strip()
+        }
+        if people or drop_names or dedupe_only or prune_role:
+            current_people = payload.get("People")
+            merged = (
+                [dict(item) for item in current_people if isinstance(item, dict)]
+                if isinstance(current_people, list)
+                else []
+            )
+            if drop_names:
+                merged = [
+                    item for item in merged
+                    if str(item.get("Name") or "").strip().casefold() not in drop_names
+                ]
+            # 按角色清理：移除「成员」角色里不在期望名单中的历史写入（如上一轮的旧译名）
+            if prune_role:
+                expected_names = {
+                    str(item.get("Name") or "").strip().casefold() for item in (people or [])
+                }
+                merged = [
+                    item for item in merged
+                    if str(item.get("Role") or "").strip() != prune_role
+                    or str(item.get("Name") or "").strip().casefold() in expected_names
+                ]
+            # 按名称去重：Emby 会规范化人员名（大小写不同也算同一人），
+            # 历史重试若不去重会堆叠出重复演职员。
+            deduped: List[Dict[str, Any]] = []
+            seen: set = set()
+            for item in merged:
+                key = str(item.get("Name") or "").strip().casefold()
+                if not key or key in seen:
+                    continue
+                seen.add(key)
+                deduped.append(item)
+            merged = deduped
+            names = {str(item.get("Name") or "").strip().casefold() for item in merged}
+            for person in people or []:
+                if not isinstance(person, dict):
+                    continue
+                name = str(person.get("Name") or "").strip()
+                if not name or name.casefold() in names:
+                    continue
+                merged.append(dict(person))
+                names.add(name.casefold())
+                added_people.append(name)
+            payload["People"] = merged
+            # Emby 的演职员锁字段名是 Cast（不是 People），写错名称时会被直接忽略
+            if lock_people and "Cast" not in locked_fields:
+                locked_fields.append("Cast")
         # 关闭自动锁定只表示不新增锁，不解除用户已有的字段锁。
         payload["LockedFields"] = locked_fields
         response = self._request.post_res(
@@ -493,12 +613,39 @@ class EmbyClient:
         if response.status_code >= 300:
             return False, f"HTTP {response.status_code}: {str(getattr(response, 'text', '') or '')[:160]}"
         # 写入后回读校验，确认简介真的落库且名称未被破坏
-        verify = self.get_item_detail(item_id, "Overview,Name")
+        verify = self.get_item_detail(item_id, "Overview,Name,People")
         written = clean_text(verify.get("Overview"))
         if text_signature(written) != text_signature(overview):
             return False, "写入后回读不一致"
         if not verify.get("Name"):
             return False, "写入后条目名称为空"
+        if added_people:
+            written_names = {
+                str(item.get("Name") or "").strip().casefold()
+                for item in (verify.get("People") or [])
+                if isinstance(item, dict)
+            }
+            missing = [name for name in added_people if name.casefold() not in written_names]
+            if missing:
+                return False, f"写入后回读缺少演员信息：{'、'.join(missing[:3])}"
+        return True, ""
+
+    def set_remote_image(
+        self, item_id: str, image_url: str, image_type: str = "Primary"
+    ) -> Tuple[bool, str]:
+        """让 Emby 从远程地址抓取并保存条目图片（用于人物头像）。"""
+        if not item_id or not image_url:
+            return False, "缺少条目或图片地址"
+        response = self._request.post_res(
+            url=self._url(f"Items/{item_id}/RemoteImages/Download"),
+            params=self._params({"Type": image_type, "ImageUrl": image_url}),
+            json={},
+            timeout=self._timeout,
+        )
+        if response is None:
+            return False, "请求失败或无响应"
+        if response.status_code >= 300:
+            return False, f"HTTP {response.status_code}"
         return True, ""
 
     def test_connection(self) -> Tuple[bool, str]:
@@ -681,6 +828,168 @@ class TmdbProvider:
         return False
 
 
+class MusicBrainzProvider:
+    """MusicBrainz 艺人成员数据源：MV 没有 TMDB 演职员数据，团体成员只能取自这里。"""
+
+    def __init__(self) -> None:
+        """初始化带进程内缓存的提供者。"""
+        self._request = RequestUtils(headers={"User-Agent": MB_USER_AGENT}, timeout=20)
+        self._cache: Dict[str, List[str]] = {}
+
+    def _get(self, path: str, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """请求 MusicBrainz JSON 接口，并遵守其 1 秒限流约定。"""
+        try:
+            response = self._request.get_res(
+                url=f"{MB_API}/{path}", params={**params, "fmt": "json"}
+            )
+        except Exception as err:  # noqa: BLE001
+            logger.debug(f"影视简介增强：MusicBrainz 请求失败 {path} {err}")
+            return None
+        finally:
+            time.sleep(1.05)
+        if response is None or int(getattr(response, "status_code", 500) or 500) >= 300:
+            return None
+        try:
+            data = response.json()
+        except Exception:  # noqa: BLE001
+            return None
+        return data if isinstance(data, dict) else None
+
+    def members(self, artist: str) -> List[str]:
+        """按艺人名返回团体成员名单（个人艺人返回空列表）。"""
+        key = str(artist or "").strip()
+        if not key:
+            return []
+        cached = self._cache.get(key.casefold())
+        if cached is not None:
+            return list(cached)
+        members = self._fetch_members(key)
+        self._cache[key.casefold()] = members
+        return list(members)
+
+    def _fetch_members(self, artist: str) -> List[str]:
+        """搜索艺人并读取「member of band」关系。"""
+        search = self._get("artist", {"query": f'artist:"{artist}"', "limit": 5})
+        if not search:
+            return []
+        group = next(
+            (
+                item
+                for item in (search.get("artists") or [])
+                if isinstance(item, dict) and str(item.get("type") or "") in MB_GROUP_TYPES
+            ),
+            None,
+        )
+        if not group or not group.get("id"):
+            return []
+        detail = self._get(f"artist/{group['id']}", {"inc": "artist-rels"})
+        if not detail:
+            return []
+        members: List[str] = []
+        for relation in detail.get("relations") or []:
+            if not isinstance(relation, dict):
+                continue
+            if str(relation.get("type") or "") != "member of band":
+                continue
+            if str(relation.get("direction") or "") != "backward":
+                continue
+            name = str((relation.get("artist") or {}).get("name") or "").strip()
+            if name and name not in members:
+                members.append(name)
+        return members
+
+
+class WikidataProvider:
+    """Wikidata 成员数据源（P527「has part」），可直接返回中文标签。"""
+
+    def __init__(self) -> None:
+        """初始化带进程内缓存的提供者。"""
+        self._request = RequestUtils(headers={"User-Agent": MB_USER_AGENT}, timeout=25)
+        self._cache: Dict[str, List[Dict[str, str]]] = {}
+
+    def members(self, artist: str) -> List[Dict[str, str]]:
+        """返回 [{original: 原名, zh: 中文名}]，失败时为空列表。"""
+        key = str(artist or "").strip()
+        if not key:
+            return []
+        cached = self._cache.get(key.casefold())
+        if cached is not None:
+            return [dict(item) for item in cached]
+        entries = self._fetch(key)
+        self._cache[key.casefold()] = entries
+        return [dict(item) for item in entries]
+
+    def person_image(self, name: str) -> str:
+        """查人物照片（P18），返回可直接下载的地址；未命中返回空字符串。"""
+        key = str(name or "").strip()
+        if not key:
+            return ""
+        for lang in ("zh", "en", "ko"):
+            query = (
+                "SELECT ?image WHERE {"
+                f'  ?person rdfs:label "{key.replace(chr(34), "")}"@{lang} .'
+                "  ?person wdt:P18 ?image ."
+                "} LIMIT 1"
+            )
+            data = self._query(query)
+            rows = (data.get("results") or {}).get("bindings") or []
+            if rows:
+                image = str(rows[0]["image"]["value"]).replace("http://", "https://")
+                return image + ("&" if "?" in image else "?") + "width=480"
+        return ""
+
+    def _query(self, query: str) -> Dict[str, Any]:
+        """执行任意 SPARQL 查询（带限流）。"""
+        try:
+            response = self._request.post_res(
+                url=WD_SPARQL_ENDPOINT,
+                data={"query": query, "format": "json"},
+                timeout=40,
+            )
+        except Exception as err:  # noqa: BLE001
+            logger.debug(f"影视简介增强：Wikidata 查询失败 {err}")
+            return {}
+        finally:
+            time.sleep(1.05)
+        if response is None or int(getattr(response, "status_code", 500) or 500) >= 300:
+            return {}
+        try:
+            data = response.json()
+        except Exception:  # noqa: BLE001
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _fetch(self, artist: str) -> List[Dict[str, str]]:
+        """执行 SPARQL 查询并解析成员标签。"""
+        query = WD_MEMBER_QUERY % artist.replace('"', "").replace("\\", "")
+        try:
+            response = self._request.get_res(
+                url=WD_SPARQL_ENDPOINT,
+                params={"query": query, "format": "json"},
+            )
+        except Exception as err:  # noqa: BLE001
+            logger.debug(f"影视简介增强：Wikidata 查询失败 {artist} {err}")
+            return []
+        finally:
+            time.sleep(1.05)
+        if response is None or int(getattr(response, "status_code", 500) or 500) >= 300:
+            return []
+        try:
+            data = response.json()
+        except Exception:  # noqa: BLE001
+            return []
+        entries: List[Dict[str, str]] = []
+        for binding in (data.get("results") or {}).get("bindings") or []:
+            if not isinstance(binding, dict):
+                continue
+            zh = str((binding.get("memberLabel") or {}).get("value") or "").strip()
+            original = str((binding.get("memberEn") or {}).get("value") or "").strip()
+            if not zh and not original:
+                continue
+            entries.append({"original": original or zh, "zh": zh or original})
+        return entries
+
+
 class LLMTextWriter:
     """基于系统 LLM 的简介扩写、翻译与生成器。"""
 
@@ -716,6 +1025,32 @@ class LLMTextWriter:
         except Exception as err:  # noqa: BLE001
             logger.warning(f"影视简介增强：LLM 调用失败 {err}")
             return ""
+
+    def translate_names(self, names: List[str]) -> List[str]:
+        """把艺人/成员名单批量翻译成简体中文译名，失败时返回原名。"""
+        cleaned = [str(name).strip() for name in names if str(name).strip()]
+        if not cleaned or not self.available():
+            return cleaned
+        raw = self.generate(
+            MEMBER_TRANSLATE_SYSTEM,
+            json.dumps(cleaned, ensure_ascii=False),
+        )
+        if not raw:
+            return cleaned
+        start, end = raw.find("["), raw.rfind("]")
+        if start < 0 or end <= start:
+            return cleaned
+        try:
+            parsed = json.loads(raw[start : end + 1])
+        except Exception:  # noqa: BLE001
+            return cleaned
+        if not isinstance(parsed, list) or len(parsed) != len(cleaned):
+            return cleaned
+        translated: List[str] = []
+        for original, value in zip(cleaned, parsed):
+            text = str(value or "").strip()
+            translated.append(text or original)
+        return translated
 
 
 MOVIE_EXPAND_SYSTEM = (
@@ -828,7 +1163,7 @@ def parse_mv_media(text: str) -> Dict[str, str]:
     song = re.sub(r"\([^)]*\)", " ", song)
     song = re.sub(MV_NOISE_PATTERN, " ", song)
     song = re.sub(r"\s{2,}", " ", song).strip(" -_")
-    artist = re.sub(r"[._]+", " ", artist).strip(" -_")
+    artist = _strip_mv_date_prefix(re.sub(r"[._]+", " ", artist).strip(" -_"))
     if not artist and origin:
         artist = origin
     return {
@@ -839,9 +1174,37 @@ def parse_mv_media(text: str) -> Dict[str, str]:
     }
 
 
+def _strip_mv_date_prefix(text: str) -> str:
+    """去掉艺人名前的日期/期数前缀，例如 ``2012 03 28 2NE1`` → ``2NE1``。
+
+    文件名里常带录制日期或期数（``2012 03.28``、``03.28``、``2012-03-28``），
+    不处理时会被当成艺人写入 Emby。这里只剥离「年份/月日 + 分隔符」这种明确形态，
+    避免影响以数字开头的正常艺名（如 ``2NE1``）；剥离后为空时保留原值。
+    """
+    cleaned = str(text or "").strip()
+    if not cleaned:
+        return ""
+    patterns = (
+        r"^(?:19|20)\d{2}(?:[\s._-]+\d{1,2}){0,2}[\s._-]+",
+        r"^\d{1,2}[\s._-]+\d{1,2}[\s._-]+",
+        r"^\d{1,2}月\d{1,2}日[\s._-]*",
+    )
+    for pattern in patterns:
+        candidate = re.sub(pattern, "", cleaned).strip(" -_")
+        if candidate and candidate != cleaned:
+            return candidate
+    return cleaned
+
+
 TRANSLATE_SYSTEM = (
     "你是影视作品简介翻译。把给定简介翻译成通顺的简体中文，"
     "保持原有信息量，不增删情节，不加小标题或列表，直接输出译文。"
+)
+
+MEMBER_TRANSLATE_SYSTEM = (
+    "你是韩国/华语流行音乐资料助手。把用户给出的艺人名列表翻译成中文常用译名："
+    "已经是中文的原样返回，英文名用中文圈通行译名，韩文名用中文译名。"
+    "保持顺序与数量不变，只输出 JSON 字符串数组，不要任何解释。"
 )
 
 
@@ -864,6 +1227,8 @@ class OverviewEnhancer:
         self._notify = notify
         self._tmdb = TmdbProvider()
         self._llm = LLMTextWriter()
+        self._mb = MusicBrainzProvider()
+        self._wd = WikidataProvider()
         self._lock = threading.RLock()
         self._state = self._load_state()
         self._run: Optional[Dict[str, Any]] = None
@@ -1168,16 +1533,26 @@ class OverviewEnhancer:
         """根据 MV 库条目构建待处理任务（简介来源只有 AI）。"""
         jobs: List[Dict[str, Any]] = []
         minimum = int(self._config.get("mv_min_chars") or 0)
+        write_people = bool(self._config.get("mv_write_people"))
         for item in items:
             item_id = str(item.get("Id") or "")
             if not item_id:
                 continue
             current = self._overview_of(item)
             current_len = visible_length(current)
-            if not force and current_len >= minimum:
-                continue
             path = str(item.get("Path") or "")
             parsed = parse_mv_media(path or str(item.get("Name") or ""))
+            artist = str(parsed.get("artist") or "").strip()
+            need_text = force or current_len < minimum
+            existing_people = {name.casefold() for name in _people_names(item.get("People"))}
+            expected_people = [artist] if (write_people and artist) else []
+            if expected_people and self._config.get("mv_member_enabled"):
+                expected_people.extend(self._member_names(artist))
+            need_people = bool(expected_people) and any(
+                name.casefold() not in existing_people for name in expected_people
+            )
+            if not need_text and not need_people:
+                continue
             jobs.append(
                 {
                     "key": f"{client.name}|{item_id}",
@@ -1188,9 +1563,14 @@ class OverviewEnhancer:
                     "year": str(item.get("ProductionYear") or parsed.get("year") or ""),
                     "current": current,
                     "current_len": current_len,
-                    "reason": "force" if force else ("missing" if not current_len else "short"),
+                    "reason": (
+                        ("force" if force else ("missing" if not current_len else "short"))
+                        if need_text
+                        else "people"
+                    ),
+                    "people_only": bool(need_people and not need_text),
                     "path": path,
-                    "artist": parsed.get("artist") or "",
+                    "artist": artist,
                     "song": parsed.get("song") or "",
                     "notes": parsed.get("notes") or "",
                 }
@@ -1327,7 +1707,10 @@ class OverviewEnhancer:
                             client,
                             list(
                                 client.iter_items(
-                                    "Movie,MusicVideo,Video", [parent], max_items=scan_limit, extra_fields="Path"
+                                    "Movie,MusicVideo,Video",
+                                    [parent],
+                                    max_items=scan_limit,
+                                    extra_fields="Path,People",
                                 )
                             ),
                             force_flag,
@@ -1439,8 +1822,296 @@ class OverviewEnhancer:
             lines.append(f"现有简介：{job['current']}")
         return "\n".join(lines)
 
+    def _member_entries(self, artist: str) -> List[Dict[str, str]]:
+        """查询团体成员（多数据源合并），结果写入插件状态做持久缓存。"""
+        key = str(artist or "").strip()
+        if not key or not self._config.get("mv_member_enabled"):
+            return []
+        with self._lock:
+            cache = self._state.get("mb_members")
+            if not isinstance(cache, dict):
+                cache = {}
+                self._state["mb_members"] = cache
+            cached = cache.get(key)
+        entries = self._normalize_member_cache(cached)
+        if entries:
+            return entries
+        if isinstance(cached, list):
+            return []
+        entries = self._fetch_member_entries(key)
+        with self._lock:
+            self._state.setdefault("mb_members", {})[key] = entries
+        self._save_state()
+        if entries:
+            self._log(
+                f"成员数据：{key} 共 {len(entries)} 人（"
+                + "、".join(str(item.get("zh") or item.get("original") or "") for item in entries[:12])
+                + "）"
+            )
+        return entries
+
+    @staticmethod
+    def _normalize_member_cache(cached: Any) -> List[Dict[str, str]]:
+        """把历史缓存的成员数据统一成 [{original, zh}]。"""
+        entries: List[Dict[str, str]] = []
+        if isinstance(cached, dict):
+            originals = [str(name) for name in (cached.get("members") or []) if str(name).strip()]
+            zh_values = [str(name) for name in (cached.get("zh") or []) if str(name).strip()]
+            for index, name in enumerate(originals):
+                zh = zh_values[index] if index < len(zh_values) else ""
+                if not zh and re.search(r"[\u4e00-\u9fff]", name):
+                    name, zh = "", name
+                entries.append({"original": name, "zh": zh})
+            return entries
+        if isinstance(cached, list):
+            for item in cached:
+                if isinstance(item, dict):
+                    original = str(item.get("original") or "").strip()
+                    zh = str(item.get("zh") or "").strip()
+                    if original or zh:
+                        entries.append({"original": original or zh, "zh": zh or original})
+                elif isinstance(item, str) and item.strip():
+                    entries.append({"original": item.strip(), "zh": ""})
+        return entries
+
+    def _member_display_names(self, entries: List[Dict[str, str]]) -> List[str]:
+        """按配置的名字模式生成要写入 Emby 的成员名。"""
+        mode = str(self._config.get("mv_member_name_mode") or "zh")
+        names: List[str] = []
+        for entry in entries:
+            original = str(entry.get("original") or "").strip()
+            zh = str(entry.get("zh") or "").strip()
+            if mode == "original":
+                value = original or zh
+            elif mode == "both":
+                value = (
+                    f"{zh} ({original})"
+                    if zh and original and zh.casefold() != original.casefold()
+                    else (zh or original)
+                )
+            else:
+                value = zh or original
+            if value and value not in names:
+                names.append(value)
+        return names
+
+    def _member_names(self, artist: str) -> List[str]:
+        """返回按当前名字模式处理后的成员名列表。"""
+        return self._member_display_names(self._member_entries(artist))
+
+    def _fetch_member_entries(self, artist: str) -> List[Dict[str, str]]:
+        """按配置的数据源查询成员并合并，必要时用 AI 补齐缺失的中文名。"""
+        source = str(self._config.get("mv_member_source") or "both")
+        entries: List[Dict[str, str]] = []
+        if source in {"musicbrainz", "both"}:
+            for name in self._mb.members(artist):
+                entries.append({"original": name, "zh": ""})
+        if source in {"wikidata", "both"}:
+            for item in self._wd.members(artist):
+                original = str(item.get("original") or "").strip()
+                zh = str(item.get("zh") or "").strip()
+                target = next(
+                    (
+                        entry
+                        for entry in entries
+                        if original
+                        and entry["original"]
+                        and entry["original"].casefold() == original.casefold()
+                    ),
+                    None,
+                )
+                if target is not None:
+                    if zh and not target["zh"]:
+                        target["zh"] = zh
+                    continue
+                if zh and any(entry["zh"] == zh for entry in entries):
+                    continue
+                entries.append({"original": original or zh, "zh": zh or original})
+        if str(self._config.get("mv_member_name_mode") or "zh") != "original":
+            pending = [
+                entry["original"] for entry in entries if not entry["zh"] and entry["original"]
+            ]
+            translated = self._llm.translate_names(pending)
+            if translated and len(translated) == len(pending):
+                for name, value in zip(pending, translated):
+                    target = next(
+                        (entry for entry in entries if entry["original"] == name), None
+                    )
+                    if target is not None and value:
+                        target["zh"] = value
+        return entries
+
+    def _mv_people(self, job: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """构造 MV 的演员列表：艺人（团体）与其团队成员。"""
+        artist = str(job.get("artist") or "").strip()
+        if not artist or not self._config.get("mv_write_people"):
+            return []
+        role = str(self._config.get("mv_people_role") or "").strip() or "演唱"
+        people = [{"Name": artist, "Type": "Actor", "Role": role}]
+        member_role = str(self._config.get("mv_member_role") or "").strip() or "成员"
+        for member in self._member_names(artist):
+            people.append({"Name": member, "Type": "Actor", "Role": member_role})
+        return people
+
+    def _nfo_path_map(self) -> Tuple[str, str]:
+        """解析 NFO 路径映射（媒体服务器路径前缀 -> 本地可写路径前缀）。"""
+        text = str(self._config.get("nfo_path_map") or "").strip()
+        if not text or ":" not in text:
+            return "", ""
+        source, _, target = text.partition(":")
+        source = source.strip()
+        target = target.strip()
+        if not source or not target:
+            return "", ""
+        return source.rstrip("/") + "/", target.rstrip("/") + "/"
+
+    def _nfo_text(
+        self, job: Dict[str, Any], overview: str, people: List[Dict[str, Any]], local: Path
+    ) -> str:
+        """生成与 Kodi / Emby / Jellyfin 兼容的 NFO 文本。"""
+        root = ET.Element("movie")
+        ET.SubElement(root, "title").text = str(job.get("title") or local.stem)
+        if overview:
+            ET.SubElement(root, "plot").text = overview
+        if job.get("year"):
+            ET.SubElement(root, "year").text = str(job["year"])
+        poster = local.with_suffix(".jpg")
+        if poster.exists():
+            ET.SubElement(root, "thumb").text = poster.name
+        for order, person in enumerate(people):
+            name = str(person.get("Name") or "").strip()
+            if not name:
+                continue
+            actor = ET.SubElement(root, "actor")
+            ET.SubElement(actor, "name").text = name
+            if person.get("Role"):
+                ET.SubElement(actor, "role").text = str(person["Role"])
+            ET.SubElement(actor, "order").text = str(order)
+            if person.get("image"):
+                ET.SubElement(actor, "thumb").text = str(person["image"])
+            ET.SubElement(actor, "type").text = str(person.get("Type") or "Actor")
+        ET.SubElement(root, "lockdata").text = "false"
+        try:
+            ET.indent(root, space="  ")
+        except AttributeError:  # pragma: no cover - 兼容旧运行时
+            pass
+        return (
+            '<?xml version="1.0" encoding="utf-8" standalone="yes"?>\n'
+            + ET.tostring(root, encoding="utf-8").decode("utf-8")
+            + "\n"
+        )
+
+    def _person_image(self, name: str) -> str:
+        """查询演员头像地址（TMDB 优先、Wikidata 兜底，结果持久缓存）。"""
+        key = str(name or "").strip()
+        if not key:
+            return ""
+        with self._lock:
+            cache = self._state.get("person_images")
+            if not isinstance(cache, dict):
+                cache = {}
+                self._state["person_images"] = cache
+            if key in cache:
+                return str(cache[key] or "")
+        url = ""
+        try:
+            from app.modules.themoviedb.tmdbapi import TmdbApi
+
+            for row in (TmdbApi(language="zh-CN").search_persons(key) or [])[:3]:
+                path = (
+                    row.get("profile_path")
+                    if isinstance(row, dict)
+                    else getattr(row, "profile_path", "")
+                )
+                if path:
+                    url = f"https://image.tmdb.org/t/p/w300{path}"
+                    break
+        except Exception:  # noqa: BLE001
+            url = ""
+        if not url:
+            try:
+                url = self._wd.person_image(key)
+            except Exception:  # noqa: BLE001
+                url = ""
+        with self._lock:
+            self._state.setdefault("person_images", {})[key] = url
+        self._save_state()
+        return url
+
+    def _ensure_avatars(
+        self, client: EmbyClient, job: Dict[str, Any], people: List[Dict[str, Any]]
+    ) -> None:
+        """给本次写入的演员补 Emby 人物头像（人物还没有头像时才写）。"""
+        if not people or not self._config.get("mv_people_avatar"):
+            return
+        detail = client.get_full_dto(job.get("item_id") or "")
+        for person in detail.get("People") or []:
+            if not isinstance(person, dict):
+                continue
+            name = str(person.get("Name") or "").strip()
+            person_id = str(person.get("Id") or "")
+            if not name or not person_id:
+                continue
+            with self._lock:
+                done = self._state.get("person_avatars")
+                if not isinstance(done, dict):
+                    done = {}
+                    self._state["person_avatars"] = done
+                if done.get(person_id):
+                    continue
+            image = self._person_image(name)
+            if not image:
+                continue
+            ok, message = client.set_remote_image(person_id, image)
+            if ok:
+                with self._lock:
+                    self._state.setdefault("person_avatars", {})[person_id] = True
+                self._save_state()
+                self._log(f"已为演员 {name} 补充头像")
+            else:
+                logger.debug(f"影视简介增强：演员 {name} 头像写入失败 {message}")
+
+    def _write_nfo(
+        self, job: Dict[str, Any], overview: str, people: List[Dict[str, Any]]
+    ) -> None:
+        """把简介与演员写入与媒体同名的 NFO 文件，供其它客户端读取。"""
+        if not self._config.get("mv_write_nfo"):
+            return
+        media_path = str(job.get("path") or "")
+        if not media_path:
+            return
+        source, target = self._nfo_path_map()
+        if source and not media_path.startswith(source):
+            return
+        local = Path((target + media_path[len(source) :]) if source else media_path)
+        if not local.exists():
+            return
+        nfo = local.with_suffix(".nfo")
+        enriched: List[Dict[str, Any]] = []
+        for person in people:
+            item = dict(person)
+            image = self._person_image(str(person.get("Name") or ""))
+            if image:
+                item["image"] = image
+            enriched.append(item)
+        try:
+            content = self._nfo_text(job, overview, enriched, local)
+            if nfo.exists() and nfo.read_text(encoding="utf-8") == content:
+                return
+            nfo.write_text(content, encoding="utf-8")
+        except Exception as err:  # noqa: BLE001
+            logger.warning(f"影视简介增强：NFO 写入失败 {nfo} {err}")
+
     def _mv_plan(self, job: Dict[str, Any], allow_llm: bool = True) -> Dict[str, Any]:
         """判断 MV 简介的生成方式：MV 没有 TMDB 源，只能由 AI 生成。"""
+        if job.get("people_only"):
+            role = str(self._config.get("mv_people_role") or "").strip() or "演唱"
+            return {
+                "action": "write",
+                "text": str(job.get("current") or ""),
+                "source": SOURCE_PEOPLE,
+                "message": f"仅补充演员：{job.get('artist')}（{role}）",
+            }
         if not self._config.get("mv_enabled"):
             return {"action": "skip", "message": "MV 简介未启用（请在配置里打开「处理 MV」）"}
         if not self._config.get("ai_generate_when_missing"):
@@ -1975,16 +2646,32 @@ class OverviewEnhancer:
         text = clean_text(plan.get("text"), 4000)
         if visible_length(text) < 10:
             return {"status": "skipped", "message": "生成结果过短"}
-        if text_signature(text) == text_signature(job.get("current")):
+        people_only = str(plan.get("source") or "") == SOURCE_PEOPLE
+        if not people_only and text_signature(text) == text_signature(job.get("current")):
             return {"status": "skipped", "message": "内容与现有简介一致"}
         if self._cancel.is_set():
             return {"status": "skipped", "message": "任务已取消"}
+        people: Optional[List[Dict[str, Any]]] = None
+        if job.get("kind") == MV:
+            people = self._mv_people(job) or None
         ok, message = client.update_overview(
-            job["item_id"], text, lock=bool(self._config.get("lock_overview"))
+            job["item_id"],
+            text,
+            lock=bool(self._config.get("lock_overview")),
+            people=people,
+            lock_people=bool(people) and bool(self._config.get("lock_overview")),
+            prune_role=str(self._config.get("mv_member_role") or "").strip() or ("成员" if people else ""),
         )
         if not ok:
             return {"status": "failed", "message": message}
-        return {"status": "updated", "text": text, "source": plan.get("source")}
+        self._write_nfo(job, text, people or [])
+        self._ensure_avatars(client, job, people or [])
+        return {
+            "status": "updated",
+            "text": text,
+            "source": plan.get("source"),
+            "people": [person["Name"] for person in (people or [])],
+        }
 
     # ------------------------------------------------------------------ 入库后自动
 

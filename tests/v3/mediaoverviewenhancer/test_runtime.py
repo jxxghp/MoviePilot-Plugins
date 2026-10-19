@@ -17,8 +17,14 @@ from app.plugins.mediaoverviewenhancer.enhancer import (
 
 @pytest.fixture
 def engine(tmp_path):
-    """创建仅使用临时状态目录的启用引擎，并清理后台任务。"""
-    instance = OverviewEnhancer(config={"enabled": True}, data_dir=tmp_path)
+    """创建仅使用临时状态目录的启用引擎，并清理后台任务。
+
+    关闭成员数据查询：该功能会访问 MusicBrainz / Wikidata，
+    测试环境禁止真实出站网络。
+    """
+    instance = OverviewEnhancer(
+        config={"enabled": True, "mv_member_enabled": False}, data_dir=tmp_path
+    )
     yield instance
     instance.stop()
 
