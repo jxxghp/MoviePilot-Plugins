@@ -25,7 +25,7 @@ class NapCatMsg(_PluginBase):
     # 插件描述
     plugin_desc = "通过NapCat（OneBot11）接口完整接管QQ渠道：向好友或群聊发送全部通知，支持按用户绑定通知目标，并接收QQ消息作为远程命令控制MoviePilot。"
     # 插件图标
-    plugin_icon = "https://avatars.githubusercontent.com/NapNeko?v=4"
+    plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/QQ.png"
     # 插件版本，需与 package.v3.json 中保持一致
     plugin_version = "1.5.0"
     # 插件作者
