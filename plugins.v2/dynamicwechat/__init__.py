@@ -95,6 +95,8 @@ class DynamicWeChat(_PluginBase):
     # 获取ip地址的网址列表
     _ip_urls = ["https://myip.ipip.net", "https://ddns.oray.com/checkip", "https://ip.3322.net",
                 "https://r.inews.qq.com/api/ip2city", "https://uapis.cn/api/v1/network/myip"]
+    # DDNS域名：填写后优先解析该域名获取动态公网IP（家里插件才能拿到IP而不是自家IP）
+    _company_domain = ""
     # 当前ip地址（可能为分号分隔的多个IP）
     _current_ip_address = '0.0.0.0'
     # 企业微信登录
@@ -193,6 +195,7 @@ class DynamicWeChat(_PluginBase):
             self._cron = config.get("cron")
             self._onlyonce = config.get("onlyonce")
             self._input_id_list = config.get("input_id_list")
+            self._company_domain = config.get("company_domain") or ""
             self._forced_update = config.get("forced_update")
             self._local_scan = config.get("local_scan")
             self._use_cookiecloud = config.get("use_cookiecloud")
@@ -598,6 +601,23 @@ class DynamicWeChat(_PluginBase):
         多WAN模式从配置文件读取已保存的IP列表，单IP模式直接从网络获取
         返回True表示IP已变化需要更新，否则False
         """
+        # DDNS域名模式：解析域名获取动态公网IP，优先于多WAN和URL检测
+        company_domain = str(getattr(self, "_company_domain", "") or "").strip()
+        if company_domain:
+            ip_address = await asyncio.to_thread(self.get_ip_from_domain, company_domain)
+            if not ip_address or ip_address == "获取IP失败":
+                logger.error(f"域名{company_domain}解析失败，不操作可信IP")
+                return False
+            logger.info(f"IP获取成功: 解析域名 {company_domain}: {ip_address}")
+            if not self._ip_changed and func != "public":
+                logger.info("上次IP修改IP失败 继续尝试修改IP")
+                return True
+            if ip_address != self._current_ip_address:
+                logger.info("检测到IP变化")
+                self._wechat_available = False
+                self._cookie_invalid_notified = False
+                return True
+            return False
         if self.wan2:
             # 多WAN模式：读取保存的url_ip和ips
             if not await self._acquire_file_lock():
@@ -756,6 +776,22 @@ class DynamicWeChat(_PluginBase):
                         await asyncio.sleep(0.5)
             self.wan2_url = None
             return None, "获取IP失败"
+
+    def get_ip_from_domain(self, domain) -> str:
+        """
+        解析DDNS域名获取当前公网IP（IP动态变化时，域名始终指向最新IP）
+        """
+        if not domain or not str(domain).strip():
+            return "获取IP失败"
+        try:
+            import socket
+            ip_address = socket.gethostbyname(str(domain).strip())
+            if re.match(self._ip_pattern, ip_address):
+                return ip_address
+            return "获取IP失败"
+        except Exception as e:
+            logger.warning(f"域名{domain}解析失败,Error: {e}")
+            return "获取IP失败"
 
     async def find_qrc(self, page):
         """
@@ -1396,7 +1432,10 @@ class DynamicWeChat(_PluginBase):
              "配置")
         ]
         # 获取当前IP地址，多WAN时加锁读取
-        if self.wan2:
+        company_domain = str(getattr(self, "_company_domain", "") or "").strip()
+        if company_domain:
+            self._current_ip_address = await asyncio.to_thread(self.get_ip_from_domain, company_domain)
+        elif self.wan2:
             ips_str = ""
             if await self._acquire_file_lock():
                 try:
@@ -1497,6 +1536,7 @@ class DynamicWeChat(_PluginBase):
             "forced_update": self._forced_update,
             "local_scan": self._local_scan,
             "input_id_list": self._input_id_list,
+            "company_domain": self._company_domain,
             "cookie_header": self._cookie_header,
             "use_cookiecloud": self._use_cookiecloud,
         })
@@ -1598,6 +1638,20 @@ class DynamicWeChat(_PluginBase):
                         'content': [
                             {
                                 'component': 'VCol',
+                                'props': {'cols': 12, 'md': 6},
+                                'content': [
+                                    {'component': 'VTextField',
+                                     'props': {'model': 'company_domain', 'label': '[可选] DDNS域名',
+                                               'placeholder': '如 xxx.oicp.net，解析后得到动态公网IP'}}
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
                                 'props': {'cols': 12},
                                 'content': [
                                     {'component': 'VTextarea',
@@ -1645,7 +1699,8 @@ class DynamicWeChat(_PluginBase):
             "await_ip": False,
             "cookie_header": "",
             "notification_token": "",
-            "input_id_list": ""
+            "input_id_list": "",
+            "company_domain": ""
         }
 
     def get_page(self) -> List[dict]:
