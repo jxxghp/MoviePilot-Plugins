@@ -11,6 +11,8 @@ from app.utils.system import SystemUtils
 
 
 class CustomHosts(_PluginBase):
+    """管理独立的自定义 Hosts 区块，并在关闭插件时恢复系统记录。"""
+
     # 插件名称
     plugin_name = "自定义Hosts"
     # 插件描述
@@ -18,7 +20,7 @@ class CustomHosts(_PluginBase):
     # 插件图标
     plugin_icon = "hosts.png"
     # 插件版本
-    plugin_version = "1.2.1"
+    plugin_version = "1.2.2"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -35,6 +37,7 @@ class CustomHosts(_PluginBase):
     _enabled = False
 
     def init_plugin(self, config: dict = None):
+        """读取配置并写入自定义 Hosts，未启用时清除插件区块。"""
         # 读取配置
         if config:
             self._enabled = config.get("enabled")
@@ -64,13 +67,16 @@ class CustomHosts(_PluginBase):
                 self.__clear_system_hosts()
 
     def get_state(self) -> bool:
+        """返回插件是否启用且未发生写入错误。"""
         return self._enabled
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
+        """本插件不提供远程命令。"""
         pass
 
     def get_api(self) -> List[Dict[str, Any]]:
+        """本插件不注册额外 API。"""
         pass
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
@@ -178,6 +184,7 @@ class CustomHosts(_PluginBase):
         }
 
     def get_page(self) -> List[dict]:
+        """本插件不提供独立详情页面。"""
         pass
 
     @staticmethod
@@ -259,7 +266,8 @@ class CustomHosts(_PluginBase):
                 # 添加分隔标识
                 system_hosts.add([HostsEntry(entry_type='comment', comment="# CustomHostsPlugin")])
                 # 添加新的Hosts
-                system_hosts.add(new_entrys)
+                # 多个域名可以共用同一 IP；保留依赖库对重复域名的保护。
+                system_hosts.add(new_entrys, allow_address_duplication=True)
                 system_hosts.write()
                 logger.info("更新系统hosts文件成功")
             except Exception as err:
