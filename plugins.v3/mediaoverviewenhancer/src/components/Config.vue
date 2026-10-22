@@ -30,6 +30,9 @@ const DEFAULTS = {
   mv_member_source: 'both',
   mv_write_nfo: true,
   mv_people_avatar: true,
+  mv_split_collab: true,
+  mv_self_heal: true,
+  mv_nfo_root: 'movie',
   nfo_path_map: '/media/:/medias/media/',
   translate_foreign: true,
   ai_generate_when_missing: true,
@@ -38,8 +41,14 @@ const DEFAULTS = {
   duplicate_detect: true,
   lock_overview: true,
   force_rewrite: false,
+  quality_gate: true,
+  quality_min_cjk_ratio: 0.25,
+  llm_retries: 2,
+  backup_days: 30,
+  rollback_max: 200,
   concurrency: 2,
   max_items_per_run: 200,
+  scan_days: 0,
   notify: true,
   notify_failure: true,
   notify_daily: false,
@@ -180,6 +189,11 @@ function buildPayload() {
   payload.concurrency = Number(payload.concurrency) || 2
   payload.max_items_per_run = Number(payload.max_items_per_run) || 200
   payload.notify_daily_time = normalizeHhmm(payload.notify_daily_time)
+  payload.quality_min_cjk_ratio = Number(payload.quality_min_cjk_ratio) || 0.25
+  payload.llm_retries = Number(payload.llm_retries) || 0
+  payload.backup_days = Number(payload.backup_days) || 0
+  payload.rollback_max = Number(payload.rollback_max) || 200
+  payload.scan_days = Number(payload.scan_days) || 0
   return payload
 }
 
@@ -249,6 +263,14 @@ onMounted(() => {
         type="number"
         label="定时补漏间隔（小时，0 表示不启用）"
         density="comfortable"
+      />
+      <VTextField
+        v-model="localConfig.scan_days"
+        type="number"
+        label="增量扫描天数（0 表示全库；只处理最近 N 天入库的电影/剧集）"
+        density="comfortable"
+        persistent-hint
+        hint="用于减少重复全库扫描；MV 的 NFO / 头像自检不受此限制"
       />
     </section>
 
@@ -446,13 +468,41 @@ onMounted(() => {
         hide-details
         :disabled="!localConfig.mv_write_people"
       />
+      <VSwitch
+        v-model="localConfig.mv_split_collab"
+        label="拆分合作艺人（A &amp; B 各自署名并取头像）"
+        color="primary"
+        hide-details
+        persistent-hint
+        hint="合作署名不是自然人，查不到头像；拆开后每位艺人可单独补图"
+        :disabled="!localConfig.mv_write_people"
+      />
+      <VSwitch
+        v-model="localConfig.mv_self_heal"
+        label="自检并补全缺失 / 过期的 NFO 与演员头像"
+        color="primary"
+        hide-details
+        :disabled="!localConfig.mv_write_people"
+        class="mt-2"
+      />
+      <VSelect
+        v-model="localConfig.mv_nfo_root"
+        :items="[
+          { title: 'movie（Emby / Kodi 视频库）', value: 'movie' },
+          { title: 'musicvideo（Kodi 音乐视频库）', value: 'musicvideo' },
+        ]"
+        label="NFO 根元素"
+        density="comfortable"
+        :disabled="!localConfig.mv_write_nfo"
+        class="mt-2"
+      />
       <VTextField
         v-model="localConfig.nfo_path_map"
         label="NFO 路径映射（服务器路径:本地路径）"
         density="comfortable"
         :disabled="!localConfig.mv_write_nfo"
         persistent-hint
-        hint="默认 /media/:/medias/media/；只新增同名 .nfo，不改动视频文件"
+        hint="默认 /media/:/medias/media/；多组用分号分隔（如 /media/:/medias/media/;/mv2/:/medias/media/MV2/）"
       />
       <div class="text-caption text-medium-emphasis mb-2">
         MV 没有 TMDB/IMDb 条目，简介只能由 AI 依据条目名与文件名线索生成。运行面板里需单独选「仅 MV」，
@@ -513,6 +563,58 @@ onMounted(() => {
         color="primary"
         hide-details
       />
+      <VDivider class="my-3" />
+      <div class="text-subtitle-2 mb-2">质量与安全</div>
+      <VSwitch
+        v-model="localConfig.quality_gate"
+        label="质量闸门（中文占比 / 技术词 / 模板句）"
+        color="primary"
+        hide-details
+      />
+      <div class="text-caption text-medium-emphasis mb-2">
+        开启后，未翻译的外文简介、仍在描述画质/编码的文案、过于模板化的空泛简介会被判为失败并进入失败清单，
+        可一键重试，不会写进媒体库。
+      </div>
+      <VRow dense>
+        <VCol cols="12" md="6">
+          <VTextField
+            v-model="localConfig.quality_min_cjk_ratio"
+            type="number"
+            step="0.05"
+            label="中文占比下限（0-1，默认 0.25）"
+            density="comfortable"
+            :disabled="!localConfig.quality_gate"
+          />
+        </VCol>
+        <VCol cols="12" md="6">
+          <VTextField
+            v-model="localConfig.llm_retries"
+            type="number"
+            label="大模型失败重试次数（0-5）"
+            density="comfortable"
+          />
+        </VCol>
+      </VRow>
+      <VRow dense class="mt-1">
+        <VCol cols="12" md="6">
+          <VTextField
+            v-model="localConfig.backup_days"
+            type="number"
+            label="旧简介备份保留天数（0 表示不过期）"
+            density="comfortable"
+            persistent-hint
+            hint="写入前会保存旧简介，可在详情页回滚"
+          />
+        </VCol>
+        <VCol cols="12" md="6">
+          <VTextField
+            v-model="localConfig.rollback_max"
+            type="number"
+            label="最多保留备份条数"
+            density="comfortable"
+          />
+        </VCol>
+      </VRow>
     </section>
 
     <section class="moe-config__section">

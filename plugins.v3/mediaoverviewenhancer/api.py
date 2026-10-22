@@ -55,6 +55,20 @@ def build_api_routes(owner: Any) -> List[Dict[str, Any]]:
             "endpoint": owner.engine_clear,
             "methods": ["POST"],
             "auth": "bear",
-            "summary": "清空处理记录",
+            "summary": "清空处理记录与失败清单",
+        },
+        {
+            "path": "/retry",
+            "endpoint": owner.engine_retry_failures,
+            "methods": ["POST"],
+            "auth": "bear",
+            "summary": "重试失败条目",
+        },
+        {
+            "path": "/rollback",
+            "endpoint": owner.engine_rollback,
+            "methods": ["POST"],
+            "auth": "bear",
+            "summary": "回滚简介到写入前版本",
         },
     ]
