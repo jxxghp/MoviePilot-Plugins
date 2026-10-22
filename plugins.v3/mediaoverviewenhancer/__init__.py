@@ -28,7 +28,7 @@ class MediaOverviewEnhancer(_PluginBase):
         "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/"
         "src/assets/images/misc/edit.png"
     )
-    plugin_version = "1.8.0"
+    plugin_version = "1.9.2"
     plugin_label = "元数据,媒体库,AI"
     plugin_author = "miguelito39721"
     plugin_config_prefix = "mediaoverviewenhancer_"
@@ -225,10 +225,24 @@ class MediaOverviewEnhancer(_PluginBase):
         return self._engine.cancel_run()
 
     def engine_clear(self) -> Dict[str, Any]:
-        """清空处理记录。"""
+        """清空处理记录与失败清单（保留回滚备份）。"""
         if self._engine is None:
             return {"cleared": 0, "message": "引擎未初始化"}
         return self._engine.clear_records()
+
+    def engine_retry_failures(self, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """重试失败条目。"""
+        if self._engine is None:
+            return {"started": False, "message": "引擎未初始化"}
+        if not self.get_state():
+            return {"started": False, "message": "插件未启用"}
+        return self._engine.retry_failures()
+
+    def engine_rollback(self, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """把简介回滚到写入前版本。"""
+        if self._engine is None:
+            return {"rolled_back": 0, "failed": 0, "message": "引擎未初始化"}
+        return self._engine.rollback(payload or {})
 
     def engine_save_config(self, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """保存前端提交的配置。"""
