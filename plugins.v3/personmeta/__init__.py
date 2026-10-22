@@ -36,7 +36,7 @@ class PersonMeta(_PluginBase):
     # 插件图标
     plugin_icon = "actor.png"
     # 插件版本
-    plugin_version = "3.1.1"
+    plugin_version = "3.1.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -68,6 +68,9 @@ class PersonMeta(_PluginBase):
     _person_detail_cache = None
     _processed_person_images = None
     _processed_person_infos = None
+    # 图片下载复用会话：{"douban"|"other": (配置指纹, RequestUtils)}
+    _image_clients = None
+    _image_client_lock = threading.Lock()
 
     def init_plugin(self, config: dict = None):
         self.__reset_people_cache()
@@ -1099,6 +1102,37 @@ class PersonMeta(_PluginBase):
         else:
             return __set_plex_iteminfo()
 
+    def __image_client(self, is_douban: bool) -> RequestUtils:
+        """
+        取得按图片来源复用连接的下载客户端。
+
+        跨境图片链路单次 TLS 握手可达数秒，原先每张图片都新建不带会话的
+        RequestUtils，握手成本随图片数量线性叠加，是刮削超时被放大的主因。
+
+        :param is_douban: 是否为豆瓣图片；豆瓣固定携带 Referer 且不沿用 TMDB 代理配置
+        :return: 持有持久会话的 RequestUtils，代理或 UA 配置变化时重建
+        """
+        kind = "douban" if is_douban else "other"
+        fingerprint = f"{settings.USER_AGENT}|{settings.PROXY!r}"
+        with self._image_client_lock:
+            clients = self._image_clients
+            if clients is None:
+                clients = {}
+                self._image_clients = clients
+            cached = clients.get(kind)
+            if cached and cached[0] == fingerprint:
+                return cached[1]
+            client = RequestUtils(
+                headers={"Referer": "https://movie.douban.com/"} if is_douban else None,
+                proxies=None if is_douban else settings.PROXY,
+                ua=settings.USER_AGENT,
+                use_session=True,
+            )
+            if cached:
+                cached[1].close()
+            clients[kind] = (fingerprint, client)
+            return client
+
     @retry(RequestException, logger=logger)
     def set_item_image(self, server: str, server_type: str, itemid: str, imageurl: str):
         """
@@ -1118,13 +1152,8 @@ class PersonMeta(_PluginBase):
             下载图片
             """
             try:
-                if "doubanio.com" in imageurl:
-                    r = RequestUtils(headers={
-                        'Referer': "https://movie.douban.com/"
-                    }, ua=settings.USER_AGENT).get_res(url=imageurl, raise_exception=True)
-                else:
-                    r = RequestUtils(proxies=settings.PROXY,
-                                     ua=settings.USER_AGENT).get_res(url=imageurl, raise_exception=True)
+                r = self.__image_client("doubanio.com" in imageurl).get_res(
+                    url=imageurl, raise_exception=True)
                 if r:
                     return base64.b64encode(r.content).decode()
                 else:
@@ -1228,5 +1257,13 @@ class PersonMeta(_PluginBase):
                     self._scheduler.shutdown()
                     self._event.clear()
                 self._scheduler = None
+            # 释放复用会话，避免重载配置后继续带着旧代理设置连接
+            with self._image_client_lock:
+                clients, self._image_clients = self._image_clients, None
+            for _, client in (clients or {}).values():
+                try:
+                    client.close()
+                except Exception as err:
+                    logger.debug(f"关闭图片下载会话失败：{err}")
         except Exception as e:
             print(str(e))
