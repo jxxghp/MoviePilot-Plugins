@@ -964,8 +964,8 @@ class DockerCopilotHelper(_PluginBase):
                     "  · 换成带内置自更新的增强版镜像（推荐）——\n"
                     "      镜像名：l429609201/dockercopilot\n"
                     "    插件检测到这版镜像后，点这个按钮就直接自更新，不用装任何额外组件；\n"
-                    "  · WUD（What's Up Docker，有 WebUI）：地址如 http://192.168.6.249:3000，填用户名 admin + 密码；\n"
-                    "  · Watchtower（无界面）：地址如 http://192.168.6.249:8099，填 Token。\n\n"
+                    "  · WUD（What's Up Docker，有 WebUI）：地址如 http://192.168.1.100:3000，填用户名 admin + 密码；\n"
+                    "  · Watchtower（无界面）：地址如 http://192.168.1.100:8099，填 Token。\n\n"
                     "compose 片段见插件仓库的《DC自更新方案.md》。")
             kind, containers = self.__probe_updater(e)
             if kind == "wud":
@@ -1610,7 +1610,7 @@ p {{ color: #999; }}
                                 'props': {
                                     'model': f'host{i}',
                                     'label': f'服务器地址{i}',
-                                    'placeholder': 'http://192.168.6.x:12712',
+                                    'placeholder': 'http://192.168.1.x:12712',
                                     'hide-details': 'auto'
                                 }
                             }
@@ -1647,7 +1647,7 @@ p {{ color: #999; }}
                                     'props': {
                                         'model': f'wtUrl{i}',
                                         'label': f'外部更新器地址{i}（可选）',
-                                        'placeholder': 'http://192.168.6.249:3000 或 :8099',
+                                        'placeholder': 'http://192.168.1.100:3000 或 :8099',
                                         'hint': '只在原版DC上才需要：填 WUD 或 Watchtower 地址。'
                                                 '用增强版镜像（自带内置helper）时这一栏留空即可自动自更新',
                                         'persistent-hint': True,
