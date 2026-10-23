@@ -1,0 +1,8 @@
+[project]
+name = "dockercopilothelper"
+version = "3.0.0"
+description = "DC助手 V3：一个插件联动局域网全部 DockerCopilot 实例"
+dependencies = [
+    "pyjwt",
+    "pytz",
+]
