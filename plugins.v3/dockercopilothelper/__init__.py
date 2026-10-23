@@ -47,7 +47,7 @@ class DockerCopilotHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/gxterry/MoviePilot-Plugins/main/icons/Docker_Copilot.png"
     # 插件版本
-    plugin_version = "3.0.0"
+    plugin_version = "3.0.1"
     # 插件作者
     plugin_author = "po9873"
     # 作者主页
@@ -88,8 +88,6 @@ class DockerCopilotHelper(_PluginBase):
     _dc_update_notify = False
     # 数据页当前「查看全部容器」展开的设备（运行时状态，不落盘）
     _expanded_env = ""
-    # 镜像加速前缀：DC 自己没有加速站配置项，靠这里在更新时改写镜像名
-    _hub_prefix = ""
     # DC 能力探测缓存：host -> (时间戳, 探测结果)，避免数据页每渲染一次都去戳接口
     _feat_cache: Dict[str, Any] = {}
     # 最近一次访问各台 DC 的失败原因：host -> 人类可读的原因
@@ -154,7 +152,6 @@ class DockerCopilotHelper(_PluginBase):
             self._dc_update_notify = config.get("dcupdatenotify")
             self._intervallimit = config.get("intervallimit") or 6
             self._interval = config.get("interval") or 10
-            self._hub_prefix = str(config.get("hubprefix") or "").strip().rstrip("/")
 
             # 解析环境列表
             envs = self.__parse_envs()
@@ -279,8 +276,7 @@ class DockerCopilotHelper(_PluginBase):
                 "dcupdatecron": self._dc_update_cron,
                 "dcupdatenotify": self._dc_update_notify,
                 "intervallimit": self._intervallimit,
-                "interval": self._interval,
-                "hubprefix": self._hub_prefix
+                "interval": self._interval
             }
         )
 
@@ -901,7 +897,6 @@ class DockerCopilotHelper(_PluginBase):
                 "dcupdatenotify": bool(notify.get("dc_update_notify", True)),
                 "interval": notify.get("interval") or 10,
                 "intervallimit": notify.get("interval_limit") or 6,
-                "hubprefix": str(notify.get("hub_prefix") or data.get("hub_prefix") or "").strip(),
             })
             return cfg
         # 旧版扁平格式
@@ -996,45 +991,6 @@ p {{ color: #999; }}
 
     # ---------------- 更新执行（含TAG异常自动重拉） ----------------
 
-    @staticmethod
-    def __apply_hub_prefix(image: str, prefix: str) -> str:
-        """
-        给 Docker Hub 镜像名加加速站前缀。
-
-        为什么要在插件这边做：DC（原版和这个魔改版都一样）**没有** hubURL / 镜像加速配置项，
-        它拉镜像是让宿主机的 docker daemon 去拉，加速只能靠 daemon 的 registry-mirrors。
-        但 DC 的 /api/container/{id}/update 接受 imageNameAndTag，所以我们可以在调用前把
-        `linuxserver/qbittorrent:latest` 改写成 `加速站前缀/linuxserver/qbittorrent:latest`，
-        DC 就按带前缀的名字去拉，必然走加速站，不用动 daemon、不用重启 Docker。
-
-        规则：
-        - prefix 为空，或镜像已经带这个前缀 -> 原样返回
-        - 首段含 . 或 :（ghcr.io / lscr.io / quay.io / registry.xx:5000）-> 不动，
-          这类加速站一般只代理 Docker Hub，硬加前缀会 404
-        - docker.io/、index.docker.io/ 开头先剥掉
-        - 单段名字（nginx、redis:7）补 library/
-        """
-        if not prefix:
-            return image
-        img = str(image or "").strip()
-        if not img:
-            return image
-        low = img.lower()
-        pfx = prefix.strip().rstrip("/")
-        if low.startswith(pfx.lower() + "/"):
-            return img
-        for hub in ("index.docker.io/", "docker.io/"):
-            if low.startswith(hub):
-                img = img[len(hub):]
-                low = img.lower()
-                break
-        first = img.split("/", 1)[0]
-        if "/" in img and ("." in first or ":" in first or first == "localhost"):
-            return image  # 不是 Docker Hub 的镜像，别乱加
-        if "/" not in img:
-            img = "library/" + img
-        return "%s/%s" % (pfx, img)
-
     def __do_update(self, env: Dict[str, Any], container: Dict[str, Any]) -> Tuple[bool, str, str, str]:
         """
         执行一次容器更新并记录历史。
@@ -1078,13 +1034,6 @@ p {{ color: #999; }}
                 msg = "TAG异常且无法推断镜像名，请手动指定TAG"
                 self.__record(env_name, cname, using, False, msg)
                 return False, msg, using, ""
-
-        # 镜像加速：把 Docker Hub 的名字改写成 加速站前缀/xxx，让 DC 从这个站拉
-        if self._hub_prefix:
-            prefixed = self.__apply_hub_prefix(target, self._hub_prefix)
-            if prefixed != target:
-                logger.info(f"DC助手-环境[{env_name}]容器[{cname}]镜像加速：{target} -> {prefixed}")
-                target = prefixed
 
         try:
             url = f"{env['host']}/api/container/{cid}/update"
@@ -1333,7 +1282,6 @@ p {{ color: #999; }}
                 "dc_update_notify": bool(self._dc_update_notify),
                 "interval": self._interval,
                 "interval_limit": self._intervallimit,
-                "hub_prefix": self._hub_prefix,
             },
         }
         return json.dumps(payload, ensure_ascii=False, indent=2)
@@ -1548,30 +1496,6 @@ p {{ color: #999; }}
                                             'type': 'info',
                                             'variant': 'tonal',
                                             'text': '配置恢复：到插件数据页「配置备份/恢复」卡片上传之前导出的JSON文件即可，无需在此粘贴。'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {'cols': 12},
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'hubprefix',
-                                            'label': '镜像加速前缀（可选）',
-                                            'placeholder': '加速站地址，如 mirror.example.com:5000',
-                                            'clearable': True,
-                                            'persistent-hint': True,
-                                            'hint': '更新容器时把 linuxserver/qbittorrent:latest 改写成 '
-                                                    '前缀/linuxserver/qbittorrent:latest，让 DC 直接从加速站拉。'
-                                                    '只改写 Docker Hub 的镜像，ghcr.io / lscr.io 这类不动。留空=不改写',
                                         }
                                     }
                                 ]
