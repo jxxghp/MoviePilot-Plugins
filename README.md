@@ -1,97 +1,109 @@
-# MoviePilot-Plugins
+# MoviePilot-Plugins（V3 · DC助手V3）
 
-MoviePilot 官方插件仓库，也是默认插件市场的源码与索引仓库：
-<https://github.com/jxxghp/MoviePilot-Plugins>
+> **不用 MoviePilot？** 也有独立 Docker 版管理面板：[po9873/dc-panel](https://github.com/po9873/dc-panel)（`ghcr.io/po9873/dc-panel` 镜像，功能对齐，详见其 README）。
 
-当前开发目标是 MoviePilot V3。新插件开发者不需要先阅读 V2 文档，也不要在多份
-“适配指南”之间自行拼接流程。
+MoviePilot V3 第三方插件仓库，目前包含一个插件：**DC助手V3（DockerCopilotHelper）**，版本号 3.0.0（V3 版基线）。
 
-## 从这里开始
+## 安装方法（通过 MoviePilot 插件市场）
 
-### 开发一个新的 V3 插件
+1. 打开 MoviePilot → **设定 → 插件 → 插件市场**
+2. 点「插件市场设置」，在输入框填入本仓库地址并添加：
+   ```
+   https://github.com/po9873/MoviePilot-Plugins/
+   ```
+3. 保存后回到插件市场，刷新列表，搜索 **DC助手V3** → 安装
+4. 以后有新版本，在插件页点「更新」即可自动升级（版本号以 `package.v3.json` 为准）
 
-阅读 [MoviePilot 插件开发指南（V3）](./docs/Plugin_Development.md)。这是当前唯一的
-完整主指南，覆盖目录、最小骨架、生命周期、稳定 SDK、配置与数据、V3 数据库事务、
-页面、事件、API、服务、测试和发布。
+> 要求：MoviePilot **V3**（`system_version >= 3.0.0`）。V2 版 MoviePilot 无法安装本插件。
+> 手动安装：下载本仓库 `plugins.v3/dockercopilothelper` 打包为 zip（根目录即插件目录），在 MoviePilot「插件 → 本地安装」导入。
 
-### 把旧插件迁移到 V3
+## 功能
 
-先阅读主指南，再查看
-[V2 插件迁移到 V3](./docs/V3_Plugin_Adaptation.md)。迁移专题只讲旧导入兼容、
-数据库事务、媒体身份、音乐链、数据迁移和 V3 合同差异，不再承担从零开发说明。
+配合 [DockerCopilot](https://github.com/xcz1997/dockerCopilot) 使用，**一个插件实例联动局域网全部 DC 实例**：
 
-### 维护官方仓库或发布版本
+> **镜像兼容性**：任何 DockerCopilot 镜像（官方原版 `muuua/docker-copilot`、增强版 `l429609201/dockercopilot`、`0nlylty/dockercopilot`）都能被本插件管理——加设备、看容器、更新业务容器全部可用。
+> 唯一区别是「更新 DC 自己」：**只有增强版 `l429609201/dockercopilot` 支持**，其余镜像不支持（详见下面「DC 容器自更新」）。
 
-查看 [仓库与发布指南](./docs/Repository_Guide.md)，了解索引、版本选择、元数据、
-CI、Release 和跨仓协作边界。
+- **多设备**：每台 DC 填一组「服务器地址 + secretKey」，保存后自动出现下一行，想加几台加几台
+- **按设备独立勾选容器**：更新通知 / 自动更新 / 各自独立的容器清单
+- **更新通知**：按周期检查所选容器更新并发送 MP 通知，标题标注来源设备
+- **自动更新**：按周期对所选容器执行 DC 一键更新，可跟踪进度
+- **自动备份**：按周期对所有设备执行容器配置备份
+- **DC 程序自更新**：远程触发 DockerCopilot 自身的「更新程序」（容器内二进制热替换，不重建容器）。这是 DC 自己的 `/api/update` 接口，**所有镜像通用**——但它只是换二进制，不是换镜像，镜像有新版时仍需要「DC 容器自更新」
+- **DC 容器自更新**：**仅支持增强版镜像 `l429609201/dockercopilot`**（内置 `-selfupdate-helper` 旁路容器）→ 数据页点「自更新DC容器」直接调 `POST /api/container/{自身id}/update`，拉镜像重建一步到位，**不需要任何外部组件**。
+  其他镜像（官方 `muuua/docker-copilot`、`0nlylty/dockercopilot`）**不支持自更新**——DC 更新任何容器的第一步就是停掉目标容器，停掉自己后没有进程接手重建。这类设备数据页不显示自更新按钮（置灰并写明原因），解决办法就是换成增强版镜像。
+- **TAG 异常自愈**：容器 `usingImage` 为空或为 `sha256:` 时，先删镜像按 ID 重拉，再用创建镜像名更新
+- **数据页**：彩色统计 + 每设备「待更新」明细 + 原生展开查看全部容器 + 更新分布饼图 + 更新记录（**只显示当天**，标题带累计与历史跨度）
+- **连不上要说人话**：某台 DC 连不上时，配置页下拉会显示「⚠ 读不到容器：端口拒绝连接…」而不是空白，
+  数据页对应卡片也会写出具体原因；**此时不会清空你已勾选的通知容器**（修掉了以前一打开配置页就把勾选洗掉的 bug）。
+  日后新增的 DC 设备 / 新建的容器不需要任何操作，配置页和数据页刷新后自动出现
+- **配置导出 / 导入**：浏览器直接下载 / 上传 JSON 文件
 
-### 按具体功能查示例
+## 配置导出格式（可移植，与独立 Docker 面板互通）
 
-查看 [常见问题](./docs/FAQ.md)。API 返回与前端调用另见
-[插件 API 专题](./docs/V3_API_Response_Adaptation.md)。
+导出的 JSON 使用固定 schema，插件版与**独立 Docker 面板 [dc-panel](https://github.com/po9873/dc-panel)** 共用同一份结构——插件「导出配置」的文件可直接在 dc-panel「数据迁移 → 导入设备」使用，dc-panel「导出设备」的文件也能在本插件导入，两边自由搬家：
 
-### 仍然维护 V2 插件
-
-[V2 插件开发指南](./docs/V2_Plugin_Development.md) 仅作为历史版本参考。新插件和
-V3 专用实现不要从该文档开始。
-
-## 仓库负责什么
-
-本仓库不是独立运行时：
-
-- `MoviePilot` 负责插件加载、事件分发、API、服务、数据、工作流和 Agent 运行时。
-- `MoviePilot-Frontend` 负责配置页、详情页、仪表板和 Vue 联邦组件渲染。
-- `MoviePilot-Plugins` 负责插件源码、市场索引、图标、测试、文档和发布流程。
-
-## 当前目录
-
-```text
-MoviePilot-Plugins/
-├── plugins.v3/              # 当前 V3 专用插件，新插件放这里
-├── tests/v3/                # V3 插件测试
-├── package.v3.json          # V3 插件市场索引
-├── plugins.v2/              # V2 历史专用实现
-├── package.v2.json          # V2 历史索引
-├── plugins/                 # 更早或跨版本的存量实现
-├── package.json             # 默认历史索引
-├── icons/                   # 插件图标
-├── docs/                    # 开发、迁移、FAQ 和发布文档
-└── .github/                 # CI 与 Release 工作流
+```json
+{
+  "schema": "dc-helper",
+  "schema_version": 1,
+  "exported_at": "2026-10-23 16:50:00",
+  "source": "moviepilot-plugin/dockercopilothelper",
+  "enabled": true,
+  "devices": [
+    {
+      "name": "my-nas",
+      "host": "http://192.168.1.100:12712",
+      "secret_key": "你的secretKey",
+      "updatable": ["moviepilot", "qbittorrent"],
+      "auto_update": ["moviepilot"]
+    }
+  ],
+  "notify": {
+    "update_cron": "0 9 * * *",
+    "update_notify": true,
+    "auto_update_cron": "",
+    "auto_update_notify": true,
+    "schedule_report": false,
+    "delete_images": false,
+    "backup_cron": "",
+    "backup_notify": true,
+    "dc_update_cron": "",
+    "dc_update_notify": true,
+    "interval": 10,
+    "interval_limit": 6,
+  }
+}
 ```
 
-V3 新插件使用 `plugins.v3/<plugin_id_lower>/`、`tests/v3/<plugin_id_lower>/` 和
-`package.v3.json`。V3 对旧插件的回退加载只用于兼容存量实现，不是新插件继续写入
-旧目录的理由。
+导入同时兼容两种格式：
 
-## 最重要的提交规则
+1. 上面的 `dc-helper` 格式（推荐，跨版本/跨形态通用；dc-panel 导出的文件即此格式）
+2. 旧版扁平格式（`host1` / `secretKey1` / `name1` / `updatablelist1` …）
 
-- 插件目录名必须是插件主类名的小写形式，主类定义在目录的 `__init__.py`。
-- 新增类和方法需要补充说明职责的注释。
-- `plugin_version`、索引 `version` 和最新 `history` 必须一致。
-- 当前版本历史置顶，所有历史按语义版本降序排列。
-- V3 新代码优先使用 `app.sdk`；不要新增对宿主内部目录布局的无必要依赖。
-- 宿主数据通过 Oper、Chain 或稳定 SDK 访问；不要直接操作宿主 Model，也不要自行持有
-  `SessionFactory` 等裸会话工厂。数据库事务装饰器只用于插件自有表。
-- 插件运行数据写入插件数据目录，不要写回源码目录。
-- V3 第三方依赖写入插件 `pyproject.toml`，不提交插件 `uv.lock`；V1/V2 保留 `requirements.txt`。
-- 第三方依赖安装在宿主共享环境，不能降级或覆盖 MoviePilot 核心依赖，也不要由插件直接执行包管理器。
-- 测试放在仓库根 `tests/v3/<plugin_id>/`，不要放进插件源码目录。
-- 提交前运行 Python 编译、版本门禁、相关测试和 `git diff --check`。
+## 接口一览（插件注册的动态 API）
 
-## 第三方插件仓库
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| POST | `/api/v1/plugin/DockerCopilotHelper/container_update` | 数据页触发容器更新（JSON body: env/cid/cname/image） |
+| GET | `/api/v1/plugin/DockerCopilotHelper/update_now` | 原生链接触发更新，结果显示在独立页面 |
+| GET | `/api/v1/plugin/DockerCopilotHelper/download_config?apikey=` | 导出配置（附件下载） |
+| POST | `/api/v1/plugin/DockerCopilotHelper/upload_config?apikey=` | 导入配置（multipart 上传） |
+| GET | `/api/v1/plugin/DockerCopilotHelper/update_dc_container?apikey=&env=` | 更新 DC 自身容器（仅增强版镜像 l429609201/dockercopilot 支持） |
+| POST | `/api/v1/plugin/DockerCopilotHelper/toggle_expand` | 展开/收起设备容器（保留接口） |
 
-第三方仓库建议 fork 本项目并保留相同目录和索引结构。MoviePilot 插件市场只读取
-GitHub 仓库的 `main` 分支；仓库地址通过 `PLUGIN_MARKET` 配置，多个地址用逗号
-分隔。
+## 安装
 
-请勿开发用于破解 MoviePilot 用户认证，或提供色情、赌博等违法违规内容的插件。
+本地安装：插件管理 → 上传 `DC助手V3-上传安装.zip`（zip 根目录为 `dockercopilothelper/`）。
 
-## 常用链接
+仓库安装：在 `PLUGIN_MARKET` 添加本仓库地址，要求 main 分支且目录结构为 `plugins.v3/` + `package.v3.json`。
 
-- [完整 V3 开发指南](./docs/Plugin_Development.md)
-- [V2 插件迁移到 V3](./docs/V3_Plugin_Adaptation.md)
-- [插件 API 专题](./docs/V3_API_Response_Adaptation.md)
-- [仓库与发布指南](./docs/Repository_Guide.md)
-- [FAQ 索引](./docs/FAQ.md)
-- [插件仓测试说明](./tests/README.md)
-- [MoviePilot-Frontend V3 模块联邦指南](https://github.com/jxxghp/MoviePilot-Frontend/blob/v3/docs/module-federation-guide.md)
+## 来源
+
+**DC 自身容器如何更新**：只有增强版镜像 `l429609201/dockercopilot` 内置了自更新 helper，能自己停旧建新；其他镜像更新自己的第一步就是停掉自己，没有进程接手重建，因此不支持。
+
+> 镜像提示：官方镜像是 `muuua/docker-copilot`（仓库 [xcz1997/dockerCopilot](https://github.com/xcz1997/dockerCopilot)，版本标签有 v2.12.0 ~ v2.14.0）。
+> 增强版镜像 `l429609201/dockercopilot`（内置自更新旁路容器，支持「更新自己」）的仓库见 [l429609201/dockerCopilot](https://github.com/l429609201/dockerCopilot)。
+> `0nlylty/dockercopilot` 是另一条发布线，内部版本 v2.1.3，缺群组/多环境/服务重启/私有仓库认证等接口，**两线版本号不可比**。
+
+参考自 gxterry 的 V1 插件 `dockercopilothelper`，按 MoviePilot V3 规范重写并升级为多设备支持。DC API 逻辑：本地 HS256 签发 JWT，调用 `/api/containers`、`/api/container/{id}/update`、`/api/progress/{taskID}`、`/api/container/backup`、`/api/images`、`/api/image/{sha}`、`/api/version`、`/api/update`。
