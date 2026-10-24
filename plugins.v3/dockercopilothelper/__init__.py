@@ -1,6 +1,7 @@
 import json
 import re
 import time
+import threading
 from datetime import datetime, timedelta
 from html import escape as html_escape
 from typing import Optional, Any, List, Dict, Tuple
@@ -47,9 +48,9 @@ class DockerCopilotHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/gxterry/MoviePilot-Plugins/main/icons/Docker_Copilot.png"
     # 插件版本
-    plugin_version = "3.0.1"
+    plugin_version = "3.0.0"
     # 插件作者
-    plugin_author = "po9873"
+    plugin_author = "Plugin Maintainers"
     # 作者主页
     author_url = ""
     # 插件配置项ID前缀
@@ -68,6 +69,9 @@ class DockerCopilotHelper(_PluginBase):
     # 每台设备各自勾选的容器（索引 -> 容器名列表）
     _updatable_map: Dict[int, List[str]] = {}
     _auto_map: Dict[int, List[str]] = {}
+    # 每台设备是否按当前容器列表全选（配置页的一键开关）
+    _updatable_all: Dict[int, bool] = {}
+    _auto_all: Dict[int, bool] = {}
     # 更新通知
     _update_cron = None
     _updatable_notify = False
@@ -93,6 +97,10 @@ class DockerCopilotHelper(_PluginBase):
     # 最近一次访问各台 DC 的失败原因：host -> 人类可读的原因
     # 用来在配置页/数据页把「连不上」和「真的没有容器」区分开
     _dc_err: Dict[str, str] = {}
+    # 运行中更新任务：<设备idx>::<容器名> -> 任务信息。
+    # 由后台追踪线程维护，防止 5 分钟调度重复提交同一个长耗时更新。
+    _active_updates: Dict[str, Dict[str, Any]] = {}
+    _active_updates_lock = threading.RLock()
 
     _scheduler: Optional[BackgroundScheduler] = None
 
@@ -122,6 +130,8 @@ class DockerCopilotHelper(_PluginBase):
             self._env_slots = []
             self._updatable_map = {}
             self._auto_map = {}
+            self._updatable_all = {}
+            self._auto_all = {}
             # 动态槽位：按配置里实际存在的 hostN 读取，数量不写死
             slot_ids = sorted(
                 int(m.group(1)) for k in config.keys()
@@ -138,6 +148,8 @@ class DockerCopilotHelper(_PluginBase):
                                         })
                 self._updatable_map[i] = config.get(f"updatablelist{i}") or []
                 self._auto_map[i] = config.get(f"autoupdatelist{i}") or []
+                self._updatable_all[i] = bool(config.get(f"updatableall{i}", False))
+                self._auto_all[i] = bool(config.get(f"autoall{i}", False))
             self._update_cron = config.get("updatecron")
             self._updatable_notify = config.get("updatablenotify")
             self._auto_update_cron = config.get("autoupdatecron")
@@ -152,6 +164,9 @@ class DockerCopilotHelper(_PluginBase):
             self._dc_update_notify = config.get("dcupdatenotify")
             self._intervallimit = config.get("intervallimit") or 6
             self._interval = config.get("interval") or 10
+            saved_active = self.get_data("active_updates")
+            with self._active_updates_lock:
+                self._active_updates = dict(saved_active) if isinstance(saved_active, dict) else {}
 
             # 解析环境列表
             envs = self.__parse_envs()
@@ -269,6 +284,8 @@ class DockerCopilotHelper(_PluginBase):
                 "autoupdatesuccess": self._auto_update_success,
                 **{f"updatablelist{i}": v for i, v in self._updatable_map.items()},
                 **{f"autoupdatelist{i}": v for i, v in self._auto_map.items()},
+                **{f"updatableall{i}": v for i, v in self._updatable_all.items()},
+                **{f"autoall{i}": v for i, v in self._auto_all.items()},
                 "schedulereport": self._schedule_report,
                 "deleteimages": self._delete_images,
                 "backupcron": self._backup_cron,
@@ -279,6 +296,72 @@ class DockerCopilotHelper(_PluginBase):
                 "interval": self._interval
             }
         )
+
+    @staticmethod
+    def __active_update_key(env: Dict[str, Any], name: str) -> str:
+        """生成跨设备唯一的更新任务键。"""
+        return f"{env.get('idx', env.get('name', ''))}::{name}"
+
+    def __set_active_update(self, key: str, task_id: str = "", image: str = "", busy: bool = False,
+                            old_image: str = "", name: str = ""):
+        """登记已提交或由 DockerCopilot 报告正在执行的更新任务，并持久化防止重启丢失。"""
+        with self._active_updates_lock:
+            self._active_updates[key] = {
+                "task_id": str(task_id or ""),
+                "image": str(image or ""),
+                "old_image": str(old_image or ""),
+                "name": str(name or key.split("::", 1)[-1]),
+                "started_at": time.time(),
+                "busy": bool(busy),
+            }
+            self.save_data("active_updates", dict(self._active_updates))
+
+    def __clear_active_update(self, key: str):
+        with self._active_updates_lock:
+            self._active_updates.pop(key, None)
+            self.save_data("active_updates", dict(self._active_updates))
+
+    def __active_update_running(self, env: Dict[str, Any], key: str) -> bool:
+        """
+        判断同一容器是否已有更新任务：
+        - 有 taskID 时查询真实进度；未到终态就跳过本轮；
+        - DC 只返回“已有任务”而没有 taskID 时冷却 30 分钟；
+        - 进度接口暂时不可用时最长保护 60 分钟，避免网络抖动导致重复提交。
+        """
+        with self._active_updates_lock:
+            active = dict(self._active_updates.get(key) or {})
+        if not active:
+            return False
+        age = max(0, time.time() - float(active.get("started_at") or 0))
+        task_id = str(active.get("task_id") or "")
+        if not task_id:
+            if age < 1800:
+                return True
+            self.__clear_active_update(key)
+            return False
+        try:
+            url = f"{env['host']}/api/progress/{task_id}"
+            res = RequestUtils(headers={"Authorization": self.get_jwt(env["secretKey"])}).get_res(
+                url, timeout=10)
+            payload = res.json() if res else {}
+            if isinstance(payload, dict) and payload.get("code") == 200:
+                detail = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+                done = bool(detail.get("isDone", payload.get("isDone", False)))
+                failed = bool(detail.get("failed", payload.get("failed", False)))
+                canceled = bool(detail.get("canceled", payload.get("canceled", False)))
+                if done or failed or canceled:
+                    self.__clear_active_update(key)
+                    return False
+                return True
+            # 任务已被 DC 清理：允许根据最新 haveUpdate 重新判断。
+            self.__clear_active_update(key)
+            return False
+        except Exception as err:
+            if age < 3600:
+                logger.warning(f"DC助手-任务[{key}]进度暂不可读，保留去重：{err}")
+                return True
+            self.__clear_active_update(key)
+            return False
 
     def auto_update_all(self):
         """
@@ -312,9 +395,20 @@ class DockerCopilotHelper(_PluginBase):
             for container in containers:
                 if container.get("name") != name or not container.get("haveUpdate"):
                     continue
+                key = self.__active_update_key(env, name)
+                if self.__active_update_running(env, key):
+                    logger.info(f"DC助手-自动更新-环境[{env_name}]容器[{name}]已有任务，跳过本轮")
+                    continue
                 old_image = str(container.get("usingImage") or "")
                 ok, msg, used_image, task_id = self.__do_update(env, container)
                 if not ok:
+                    if "已有任务在执行中" in str(msg):
+                        # 任务可能由上一轮插件实例、dc-panel 或手工操作创建，DC 不返回其 taskID。
+                        # 登记冷却，不写失败历史、不发失败通知，下一轮先查/等待再决定。
+                        self.__set_active_update(key, image=used_image, old_image=old_image,
+                                                 name=name, busy=True)
+                        logger.info(f"DC助手-自动更新-环境[{env_name}]容器[{name}]已有任务，已延后重试")
+                        continue
                     logger.error(f"DC助手-自动更新-环境[{env_name}]容器[{name}]失败：{msg}")
                     if self._auto_update_notify:
                         self.post_message(
@@ -322,20 +416,30 @@ class DockerCopilotHelper(_PluginBase):
                             title=f"【DC助手-自动更新@{env_name}】",
                             text=f"【{name}】\n更新失败：{msg}")
                     continue
+                self.__set_active_update(key, task_id=task_id, image=used_image,
+                                         old_image=old_image, name=name)
                 if self._auto_update_notify:
                     self.post_message(
                         mtype=NotificationType.Plugin,
                         title=f"【DC助手-自动更新@{env_name}】",
                         text=f"【{name}】\n容器更新任务创建成功\n镜像：{used_image}")
-                # 追踪任务直到「更新成功」。track_progress 内部按开关决定发不发通知：
-                # - 更新成功通知（_auto_update_success）：只在最终成功/失败时发一条
-                # - 进度汇报（_schedule_report）：每轮轮询都发
-                if task_id and (self._auto_update_success or self._schedule_report):
-                    self.track_progress(env, self.get_jwt(env["secretKey"]), name, task_id,
-                                        old_image=old_image, image=used_image)
+                # 使用独立线程追踪，避免 5 分钟调度线程被大镜像长时间阻塞。
+                # 活跃任务会一直保留到进度终态，下一轮扫描只跳过，不重复提交。
+                if task_id:
+                    threading.Thread(
+                        target=self.track_progress,
+                        args=(env, self.get_jwt(env["secretKey"]), name, task_id),
+                        kwargs={"old_image": old_image, "image": used_image, "active_key": key},
+                        daemon=True,
+                        name=f"dc-helper-{env.get('idx')}-{name}",
+                    ).start()
+                else:
+                    # 无 taskID 无法追踪，保留 30 分钟冷却后再按 haveUpdate 判断。
+                    self.__set_active_update(key, image=used_image, old_image=old_image,
+                                             name=name, busy=True)
 
     def track_progress(self, env: Dict[str, str], jwt: str, name: str, task_id: str,
-                       old_image: str = "", image: str = ""):
+                       old_image: str = "", image: str = "", active_key: str = ""):
         """
         追踪更新进度。
 
@@ -370,17 +474,26 @@ class DockerCopilotHelper(_PluginBase):
                 break
 
             if report_json.get("code") == 200:
-                last_msg = str(report_json.get("msg") or "")
+                detail = report_json.get("data") if isinstance(report_json.get("data"), dict) else {}
+                message = str(detail.get("message") or report_json.get("msg") or "")
+                detail_msg = str(detail.get("detailMsg") or message)
+                percentage = detail.get("percentage", report_json.get("percentage"))
+                last_msg = (f"{percentage}% {detail_msg}".strip()
+                            if percentage is not None else detail_msg)
+                is_done = bool(detail.get("isDone", report_json.get("isDone", False)))
+                is_failed = bool(detail.get("failed", report_json.get("failed", False)))
+                is_canceled = bool(detail.get("canceled", report_json.get("canceled", False)))
                 if self._schedule_report:
                     self.post_message(
                         mtype=NotificationType.Plugin,
                         title=f"【DC助手-更新进度@{env_name}】",
                         text=f"【{name}】\n进度：{last_msg}"
                     )
-                if "更新成功" in last_msg:
+                if (is_done and not is_failed and not is_canceled) or "更新成功" in last_msg:
                     final = "成功"
                     break
-                if "失败" in last_msg or "错误" in last_msg or "error" in last_msg.lower():
+                if (is_failed or is_canceled or "失败" in last_msg or "错误" in last_msg
+                        or "error" in last_msg.lower()):
                     final = "失败"
                     break
             else:
@@ -418,6 +531,8 @@ class DockerCopilotHelper(_PluginBase):
                     text=(f"【{name}】\n追踪 {limit} 次后仍未拿到终态，可能是镜像较大还在拉取。\n"
                           f"最后进度：{last_msg or '无'}\n"
                           f"请稍后到 DockerCopilot 页面确认容器状态。"))
+        if active_key and final in ("成功", "失败"):
+            self.__clear_active_update(active_key)
         if final != "成功":
             logger.info(f"DC助手-更新进度追踪-环境[{env_name}]-{name}-{final or '超时'}")
 
@@ -618,7 +733,7 @@ class DockerCopilotHelper(_PluginBase):
                 "endpoint": self.api_update_dc_container,
                 "methods": ["GET"],
                 "auth": "apikey",
-                "summary": "更新DC自身容器（仅增强版镜像 l429609201/dockercopilot 支持）",
+                "summary": "更新DC自身容器（需后端支持内置自更新）",
             },
             {
                 "path": "/update_now",
@@ -666,10 +781,10 @@ class DockerCopilotHelper(_PluginBase):
 
     def __probe_features(self, env: Dict[str, str], refresh: bool = False) -> Dict[str, Any]:
         """
-        探测这台 DC 是「原版」还是「增强版（魔改）」。
+        探测这台 DC 是否提供扩展能力。
 
-        判据：增强版额外暴露 /api/docker/hosts（多机管理），原版 v2.1.3 没有这个路由（404）。
-        这类增强版（如 l429609201/dockercopilot）后端带 StartHelperContainer/SelfUpdate：
+        判据：后端额外暴露 /api/docker/hosts（多机管理），基础版本没有这个路由（404）。
+        如果后端同时提供 StartHelperContainer/SelfUpdate：
         点「更新」自身容器时会另起一个 <容器名>-selfupdate-helper 旁路容器，
         由它去停旧容器、按新镜像建新容器、删旧容器，所以它能自己更新自己。
         其他镜像没有这套，停掉自己就没人接手，因此无法直接更新自己。
@@ -720,7 +835,7 @@ class DockerCopilotHelper(_PluginBase):
 
     def __native_self_update(self, env: Dict[str, str]) -> Tuple[bool, str]:
         """
-        走增强版 DC 自己的更新接口更新「它自己」。
+        走后端提供的内置更新接口更新「它自己」。
         DC 会起 <容器名>-selfupdate-helper 旁路容器完成 pull/stop/create/start/remove，
         本进程被停掉后由 helper 接着干，所以这个请求很可能收不到正常返回（连接被切断）——
         连接中断/超时一律视为「已触发」，而不是失败。
@@ -793,12 +908,12 @@ class DockerCopilotHelper(_PluginBase):
         """
         更新「DC 自己的容器」。
 
-        仅支持带内置自更新的镜像：l429609201/dockercopilot（仓库
-        https://github.com/l429609201/dockerCopilot）。这类 DC 后端带
+        仅支持带内置自更新的镜像：带内置自更新能力的 DockerCopilot 后端（仓库
+        对应后端项目地址）。这类 DC 后端带
         StartHelperContainer，更新自身时会另起 <容器名>-selfupdate-helper
         旁路容器，由它停旧建新，因此直接 POST /api/container/{自身id}/update 即可。
 
-        其他镜像（如官方 muuua/docker-copilot）不支持：其更新流程第一步就是
+        其他镜像（如基础版 DockerCopilot）不支持：其更新流程第一步就是
         停掉目标容器，停掉自己后没有进程接手重建——数据页对这类设备不显示自更新按钮。
         """
         if not env:
@@ -808,19 +923,15 @@ class DockerCopilotHelper(_PluginBase):
                 continue
             feat = self.__probe_features(e)
             if feat.get("native_selfupdate"):
-                logger.info(f"DC助手-环境[{env}]检测到增强版DC（{feat.get('version') or '?'}），走内置自更新")
+                logger.info(f"DC助手-环境[{env}]检测到支持内置自更新的 DC（{feat.get('version') or '?'}），走内置自更新")
                 ok, msg = self.__native_self_update(e)
                 title = ("更新DC容器 · 内置自更新 · " if ok else "更新DC容器失败 · 内置自更新 · ") + env
                 return self.__result_page(title, ok, msg)
             return self.__result_page(
                 "更新DC容器", False,
-                "这台设备的 DockerCopilot 镜像不是 l429609201/dockercopilot，"
-                "不支持直接更新自己。\n\n"
-                "原因：DC 更新任何容器的第一步都是「停掉目标容器」——停掉自己之后，"
-                "就没有进程能接手拉镜像和重建了，所以原版镜像无法自更新。\n\n"
-                "解决办法：把该设备的 DC 容器换成增强版镜像 l429609201/dockercopilot"
-                "（仓库 https://github.com/l429609201/dockerCopilot），"
-                "它内置自更新 helper，换好后本页按钮即可直接使用，无需任何外部组件。")
+                "这台设备的 DockerCopilot 后端不支持内置自更新，无法直接更新自己。\n\n"
+                "原因：更新任何容器的第一步都是「停掉目标容器」——停掉自己后没有进程接手重建。\n\n"
+                "请改用带内置自更新 helper 的后端，或配置外部更新器后再试。")
         return self.__result_page("更新DC容器", False, f"未找到设备[{env}]，请检查插件配置")
 
 
@@ -881,6 +992,8 @@ class DockerCopilotHelper(_PluginBase):
                 cfg[f"name{idx}"] = str(item.get("name") or "").strip() or f"DC{idx}"
                 cfg[f"updatablelist{idx}"] = [str(x) for x in (item.get("updatable") or [])]
                 cfg[f"autoupdatelist{idx}"] = [str(x) for x in (item.get("auto_update") or [])]
+                cfg[f"updatableall{idx}"] = bool(item.get("updatable_all", False))
+                cfg[f"autoall{idx}"] = bool(item.get("auto_all", False))
             notify = data.get("notify") if isinstance(data.get("notify"), dict) else {}
             cfg.update({
                 "enabled": bool(data.get("enabled", True)),
@@ -1005,10 +1118,10 @@ p {{ color: #999; }}
         jwt = self.get_jwt(env["secretKey"])
 
         if self.__is_self_container(container) and not self.__probe_features(env).get("native_selfupdate"):
-            logger.warning(f"DC助手-环境[{env_name}]拒绝更新DC自身容器[{cname}]：原版DC更新第一步就是停自己")
-            return (False, "这是 DockerCopilot 自己的容器，原版 DC 不能更新自己"
-                           "（更新第一步就是停掉目标容器，停自己等于自杀且没人重建）。\n"
-                           "换成带内置自更新的增强版镜像 l429609201/dockercopilot 后再试。",
+            logger.warning(f"DC助手-环境[{env_name}]拒绝更新DC自身容器[{cname}]：后端不支持安全自更新")
+            return (False, "这是 DockerCopilot 自己的容器，当前后端不支持安全自更新。"
+                           "更新第一步会停掉目标容器，停自己后没有进程接手重建。\n"
+                           "请改用带内置自更新 helper 的后端或外部更新器后再试。", 
                     using, "")
         if self.__is_self_container(container):
             logger.info(f"DC助手-环境[{env_name}]更新DC自身容器[{cname}]：该DC带内置helper，交给它自己重建")
@@ -1260,6 +1373,8 @@ p {{ color: #999; }}
                 "secret_key": env["secretKey"],
                 "updatable": list(self._updatable_map.get(idx) or []),
                 "auto_update": list(self._auto_map.get(idx) or []),
+                "updatable_all": bool(self._updatable_all.get(idx)),
+                "auto_all": bool(self._auto_all.get(idx)),
             })
         payload = {
             "schema": "dc-helper",
@@ -1313,6 +1428,15 @@ p {{ color: #999; }}
             slot_items[slot["idx"]] = [{"title": n, "value": n} for n in names]
             if not names:
                 slot_hints[slot["idx"]] = "已连上 DC，但这台机器上确实没有容器"
+            # “本机全选”不依赖固定容器名：DC 每次返回新容器时，配置自动跟随。
+            if self._updatable_all.get(slot["idx"]):
+                if self._updatable_map.get(slot["idx"], []) != names:
+                    self._updatable_map[slot["idx"]] = list(names)
+                    changed = True
+            if self._auto_all.get(slot["idx"]):
+                if self._auto_map.get(slot["idx"], []) != names:
+                    self._auto_map[slot["idx"]] = list(names)
+                    changed = True
             # 只有真的读到列表，才清理已失效的勾选
             for store in (self._updatable_map, self._auto_map):
                 old = store.get(slot["idx"]) or []
@@ -1356,7 +1480,7 @@ p {{ color: #999; }}
                                 'props': {
                                     'model': f'host{i}',
                                     'label': f'服务器地址{i}',
-                                    'placeholder': 'http://192.168.1.x:12712',
+                                    'placeholder': 'http://dc-host.example:12712',
                                     'hide-details': 'auto'
                                 }
                             }
@@ -1383,23 +1507,41 @@ p {{ color: #999; }}
         # 每台设备一组容器勾选
         def slot_select(name_prefix: str, label_prefix: str, hint: str):
             rows = []
+            all_prefix = 'updatableall' if name_prefix == 'updatablelist' else 'autoall'
+            all_map = self._updatable_all if name_prefix == 'updatablelist' else self._auto_all
             for slot in self._env_slots:
+                idx = slot["idx"]
+                items = slot_items.get(idx, [])
                 rows.append({
                     'component': 'VRow',
                     'content': [
                         {
                             'component': 'VCol',
-                            'props': {'cols': 12},
+                            'props': {'cols': 12, 'md': 10},
                             'content': [
                                 {
                                     'component': 'VSelect',
                                     'props': {
                                         'chips': True,
                                         'multiple': True,
-                                        'model': f'{name_prefix}{slot["idx"]}',
+                                        'model': f'{name_prefix}{idx}',
                                         'label': f'【{slot["name"]}】{label_prefix}',
-                                        'items': slot_items.get(slot["idx"], []),
-                                        'hint': slot_hints.get(slot["idx"]) or hint
+                                        'items': items,
+                                        'hint': slot_hints.get(idx) or hint
+                                    }
+                                }
+                            ]
+                        },
+                        {
+                            'component': 'VCol',
+                            'props': {'cols': 12, 'md': 2, 'style': {'display': 'flex', 'align-items': 'center'}},
+                            'content': [
+                                {
+                                    'component': 'VSwitch',
+                                    'props': {
+                                        'model': f'{all_prefix}{idx}',
+                                        'label': '本机全选',
+                                        'hint': '保存后按该设备当前容器列表自动保持全选'
                                     }
                                 }
                             ]
@@ -1775,8 +1917,7 @@ p {{ color: #999; }}
                                                         'props': {
                                                             'type': 'warning',
                                                             'variant': 'tonal',
-                                                            'text': '这里只做「程序二进制热更新」（等价于DC WebUI左下角「更新程序」），不等于更新DC这个容器：容器一旦被重建就会退回镜像里的旧版本。'
-                                                                    '要更新 DC 自身容器，请把该设备的 DC 换成增强版镜像 l429609201/dockercopilot（github.com/l429609201/dockerCopilot），换好后数据页即可一键自更新；本项在无法访问GitHub的网络下通常不可用，建议保持关闭。'
+                                                            'text': '这里只做「程序二进制热更新」（等价于 DC WebUI 左下角「更新程序」），不等于更新 DC 容器。容器重建后会以镜像内版本为准。若要更新 DC 容器，请使用带内置自更新 helper 的后端或配置外部更新器。'
                                                         }
                                                     }
                                                 ]
@@ -1972,12 +2113,11 @@ p {{ color: #999; }}
                             f'?apikey={api_key_q}&env={env_q}" target="_blank" rel="noopener" '
                             'style="' + btn_style + 'background:rgba(76,175,80,.18);color:#81C784;">'
                             '自更新DC</a>')
-                    dc_note = '<span style="font-size:11px;color:#fff;mix-blend-mode:difference;">仅 l429609201/dockercopilot 这个镜像支持更新自己</span>'
+                    dc_note = ''
                 else:
                     dc_a = ('<span style="' + btn_style + 'opacity:.4;border:1px dashed rgba(255,255,255,.25);'
                             'cursor:help;">自更新不可用</span>')
-                    dc_note = ('<span style="font-size:11px;color:#fff;mix-blend-mode:difference;">'
-                               '该设备的 DC 镜像不是 l429609201/dockercopilot，不支持直接更新自己</span>')
+                    dc_note = ''
                 status_chip = (
                     self.__badge_html(f"全部最新（{count}）", "#81C784", "rgba(102,187,106,.18)", "12px")
                     if not pending_containers else
