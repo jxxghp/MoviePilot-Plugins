@@ -918,12 +918,14 @@
     "name": "自动字幕下载",
     "description": "文件整理完成后自动搜索并下载缺失的字幕",
     "labels": "字幕",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "icon": "subtitle.png",
     "author": "yubanmeiqin9048",
     "level": 2,
+    "release": true,
     "system_version": ">=3.0.0",
     "history": {
+      "v2.0.1": "修复目标目录失效时字幕扫描异常导致整理完成事件反复重试，跳过已不存在的视频",
       "v2.0.0": "适配 MoviePilot V3，安装时不再强制构建可选调轴依赖"
     },
     "v3t": false
