@@ -6,7 +6,6 @@ import asyncio
 import importlib.util
 import json
 import subprocess
-import sys
 import tempfile
 import tomllib
 import unittest
@@ -49,14 +48,15 @@ class PackageTests(unittest.TestCase):
                 self.assertTrue((target / module).is_file())
 
     def test_v3_market_and_dependency_manifests(self) -> None:
-        """市场应选 V3 副本，依赖清单可被 V3 解析。"""
+        """市场应选 V3 副本并保持版本历史一致，允许迁移后的正常补丁更新。"""
 
         catalog = json.loads((ROOT / "package.v3.json").read_text(encoding="utf-8"))
         legacy = json.loads((ROOT / "package.v2.json").read_text(encoding="utf-8"))
         for plugin_id in ("AutoSubtitle", "SubtitleAssistant"):
             with self.subTest(plugin=plugin_id):
                 entry = catalog[plugin_id]
-                self.assertEqual(entry["version"], "2.0.1" if plugin_id == "SubtitleAssistant" else "2.0.0")
+                self.assertTrue(entry["version"].startswith("2."))
+                self.assertEqual(next(iter(entry["history"])), f"v{entry['version']}")
                 self.assertEqual(entry["system_version"], ">=3.0.0")
                 self.assertFalse(legacy[plugin_id]["v3"])
                 manifest = tomllib.loads(
@@ -74,22 +74,18 @@ class PackageTests(unittest.TestCase):
 class HostSmokeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        """缺少可选 YAKE 依赖时补齐测试替身，插件统一从生产命名空间加载。"""
         from app.testing.bootstrap import ensure_optional_stub
 
         # 测试环境不安装插件依赖；AutoSubtitle 顶层导入 yake，缺失时补占位，已安装则沿用真实模块
         ensure_optional_stub("yake", KeywordExtractor=MagicMock)
-        sys.path.insert(0, str(V3_PLUGINS))
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        sys.path.remove(str(V3_PLUGINS))
 
     def test_autosubtitle_loads_with_optional_sync_dependency_absent(self) -> None:
         """未安装 ffsubsync 时插件仍能初始化和显示配置。"""
 
-        from autosubtitle import AutoSubtitle
+        from app.plugins.autosubtitle import AutoSubtitle
 
-        with patch("autosubtitle._PluginBase.__init__", return_value=None):
+        with patch("app.plugins.autosubtitle._PluginBase.__init__", return_value=None):
             plugin = AutoSubtitle()
         with patch.object(plugin, "update_config", return_value=True):
             plugin.init_plugin({"enabled": False, "auto_sync": True})
@@ -97,14 +93,14 @@ class HostSmokeTests(unittest.TestCase):
         self.assertIsInstance(form, list)
         self.assertTrue(plugin._auto_sync)
         self.assertIn("auto_sync", config)
-        with patch("autosubtitle.asyncio.create_subprocess_exec", side_effect=FileNotFoundError):
+        with patch("app.plugins.autosubtitle.asyncio.create_subprocess_exec", side_effect=FileNotFoundError):
             synced = asyncio.run(plugin._AutoSubtitle__sync_subtitle(Path("subtitle.srt"), "video.mkv"))
         self.assertFalse(synced)
 
     def test_subtitleassistant_initializes_with_isolated_data(self) -> None:
         """V3 宿主 API 可以构建插件运行态，且只写入测试数据。"""
 
-        from subtitleassistant.plugin import build_runtime
+        from app.plugins.subtitleassistant.plugin import build_runtime
 
         with tempfile.TemporaryDirectory() as data_root:
             class SubtitleAssistant:

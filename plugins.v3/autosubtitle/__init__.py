@@ -35,7 +35,7 @@ class AutoSubtitle(_PluginBase):
     # 插件图标
     # plugin_icon = "https://raw.githubusercontent.com/yubanmeiqin9048/MoviePilot-Plugins/main/icons/subtitle.png"
     # 插件版本
-    plugin_version = "2.0.0"
+    plugin_version = "2.0.1"
     # 插件作者
     plugin_author = "yubanmeiqin9048"
     # 作者主页
@@ -152,6 +152,8 @@ class AutoSubtitle(_PluginBase):
         """
         监听文件整理完成事件，检查并补全缺失的字幕。
 
+        事件消费可能晚于文件移动或删除；目标视频已失效时直接结束，避免无效搜索与重试。
+
         整体流程（单次大循环）：
         1. 检查已有字幕 → missing_langs
         2. 提取关键词 → 搜索字幕
@@ -176,6 +178,9 @@ class AutoSubtitle(_PluginBase):
         # 确保有目标视频文件
         video_file = transferinfo.target_item
         if not video_file or not video_file.path:
+            return
+        if not await AsyncPath(video_file.path).is_file():
+            logger.debug(f"[AutoSubtitle] 目标视频文件不存在或不可访问，跳过: {video_file.path}")
             return
 
         logger.info(f"[AutoSubtitle] 开始处理: {video_file.name} ({mediainfo.type.value})")
@@ -360,12 +365,24 @@ class AutoSubtitle(_PluginBase):
         return missing
 
     def __scan_subtitles_in_dir(self, video_dir: Path, video_stem: str) -> tuple[bool, bool, list[Path]]:
-        """扫描目录中的字幕文件，返回 (has_simplified, has_traditional, need_verify)."""
+        """
+        扫描目录字幕，返回 (has_simplified, has_traditional, need_verify)。
+
+        目录可能在入口检查后被移动、删除或变得不可读；扫描失败时按无外挂字幕回退，
+        避免文件系统异常让整理完成事件反复投递。
+        """
         has_simplified = False
         has_traditional = False
         need_verify: list[Path] = []
 
-        for f in video_dir.iterdir():
+        try:
+            # 完整读取迭代器，确保遍历过程中发生的 OSError 也在保护范围内。
+            entries = list(video_dir.iterdir())
+        except OSError as err:
+            logger.warning(f"[AutoSubtitle] 目录无法读取，按无外挂字幕处理: {video_dir} ({err})")
+            return has_simplified, has_traditional, need_verify
+
+        for f in entries:
             if not f.is_file():
                 continue
             # 识别字幕文件：suffix 命中 OR 双层 suffix 命中（如 .srt.!qB）
