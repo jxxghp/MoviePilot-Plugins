@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
+from uuid import uuid4
 
 from app.sdk.logging import logger
 from app.sdk.network import RequestUtils
@@ -42,6 +43,10 @@ _CACHE_MAX = 3000
 _PERSON_IMAGE_MAX = 3000
 _CACHE_DAYS = 30
 _STATE_SAVE_INTERVAL = 5.0
+# 同一条目连续失败达到该次数后，自动扫描不再重试（手动重试/强制重写不受限）
+_FAILURE_RETRY_LIMIT = 3
+# TMDB 详情在一次运行内的复用窗口（秒）
+_TMDB_DETAIL_TTL = 1800.0
 # 质量闸门判定为「中文占比过低」时用于区分可重试失败与素材缺失
 _UNTRANSLATED_PREFIX = "简介中文占比过低"
 
@@ -763,6 +768,7 @@ class TmdbProvider:
         """初始化语言客户端与分集缓存。"""
         self._clients: Dict[str, Any] = {}
         self._season_cache: Dict[Tuple[int, int, str], Dict[int, Dict[str, Any]]] = {}
+        self._detail_cache: Dict[Tuple[str, int, str], Tuple[float, Dict[str, Any]]] = {}
 
     def _client(self, language: str) -> Any:
         """获取指定语言的 TMDB 客户端。"""
@@ -774,21 +780,34 @@ class TmdbProvider:
 
     def movie_detail(self, tmdb_id: Any, language: str = "zh-CN") -> Dict[str, Any]:
         """读取电影详情，失败时返回空字典。"""
-        try:
-            detail = self._client(language).movie.details(int(tmdb_id)) or {}
-        except Exception as err:  # noqa: BLE001
-            logger.debug(f"影视简介增强：TMDB 电影详情读取失败 {tmdb_id} {err}")
-            return {}
-        return detail if isinstance(detail, dict) else dict(detail)
+        return self._detail("movie", tmdb_id, language)
 
     def tv_detail(self, tmdb_id: Any, language: str = "zh-CN") -> Dict[str, Any]:
         """读取剧集详情，失败时返回空字典。"""
+        return self._detail("tv", tmdb_id, language)
+
+    def _detail(self, kind: str, tmdb_id: Any, language: str) -> Dict[str, Any]:
+        """按类型读取 TMDB 详情，同一轮内复用结果（分集处理会反复取同一部剧）。"""
         try:
-            detail = self._client(language).tv.details(int(tmdb_id)) or {}
-        except Exception as err:  # noqa: BLE001
-            logger.debug(f"影视简介增强：TMDB 剧集详情读取失败 {tmdb_id} {err}")
+            key = (kind, int(tmdb_id), language)
+        except (TypeError, ValueError):
             return {}
-        return detail if isinstance(detail, dict) else dict(detail)
+        cached = self._detail_cache.get(key)
+        if cached and time.time() - cached[0] < _TMDB_DETAIL_TTL:
+            return cached[1]
+        try:
+            client = self._client(language)
+            if kind == "movie":
+                detail = client.movie.details(key[1]) or {}
+            else:
+                detail = client.tv.details(key[1]) or {}
+        except Exception as err:  # noqa: BLE001
+            label = "电影" if kind == "movie" else "剧集"
+            logger.debug(f"影视简介增强：TMDB {label}详情读取失败 {tmdb_id} {err}")
+            return {}
+        data = detail if isinstance(detail, dict) else dict(detail)
+        self._detail_cache[key] = (time.time(), data)
+        return data
 
     def season_episodes(self, tmdb_id: Any, season: int, language: str = "zh-CN") -> Dict[int, Dict[str, Any]]:
         """读取某一季的分集信息（含每集简介），结果按语言缓存。"""
@@ -1494,6 +1513,10 @@ class OverviewEnhancer:
         self._mb = MusicBrainzProvider()
         self._wd = WikidataProvider()
         self._lock = threading.RLock()
+        # 状态文件落盘的独立 IO 锁：锁内只做「写临时文件 + 原子替换」
+        self._io_lock = threading.Lock()
+        # 一轮任务内复用的媒体服务器客户端（避免每条目都重读配置、重连 Emby）
+        self._clients_cache: Optional[Tuple[List[EmbyClient], List[str]]] = None
         self._state = self._load_state()
         self._run: Optional[Dict[str, Any]] = None
         self._thread: Optional[threading.Thread] = None
@@ -1582,11 +1605,13 @@ class OverviewEnhancer:
             self._state_dirty = False
             self._last_save_at = time.time()
         text = json.dumps(payload, ensure_ascii=False, indent=2)
-        tmp_file = self._state_file.with_name(self._state_file.name + ".tmp")
+        # 并发 worker 各用独立临时文件并在 IO 锁内串行替换，避免互相截断写出半截 JSON
+        tmp_file = self._state_file.with_name(f"{self._state_file.name}.{uuid4().hex}.tmp")
         try:
-            # 先写临时文件再原子替换：进程中断不会留下半截 JSON
-            tmp_file.write_text(text, encoding="utf-8")
-            os.replace(tmp_file, self._state_file)
+            with self._io_lock:
+                # 先写临时文件再原子替换：进程中断不会留下半截 JSON
+                tmp_file.write_text(text, encoding="utf-8")
+                os.replace(tmp_file, self._state_file)
         except Exception as err:  # noqa: BLE001
             logger.warning(f"影视简介增强：状态文件写入失败 {err}")
             try:
@@ -1721,10 +1746,18 @@ class OverviewEnhancer:
 
     def status(self) -> Dict[str, Any]:
         """返回插件运行状态、统计与最近日志。"""
-        records = self._state.get("records") or {}
+        # 运行中的 worker 会持续写入这些字典，先加锁取快照再组装，避免前端轮询时
+        # 抛 RuntimeError: dictionary changed size during iteration
+        with self._lock:
+            records = dict(self._state.get("records") or {})
+            failures = dict(self._state.get("failures") or {})
+            backups = dict(self._state.get("backups") or {})
+            skipped_untranslated = dict(self._state.get("skipped_untranslated") or {})
+            stats = dict(self._state.get("stats") or {})
+            last_run = self._state.get("last_run")
+            saved_at = self._state.get("state_saved_at")
+            logs = list(self._state.get("logs") or [])[-40:]
         run = self._run or {}
-        failures = self._state.get("failures") or {}
-        backups = self._state.get("backups") or {}
         failure_rows = [
             {
                 "key": entry.get("key"),
@@ -1778,18 +1811,18 @@ class OverviewEnhancer:
             "processed_total": len(records),
             "failure_count": len(failures),
             "backup_count": len(backups),
-            "skipped_untranslated": len(self._state.get("skipped_untranslated") or {}),
+            "skipped_untranslated": len(skipped_untranslated),
             "state_bytes": self._state_size(),
-            "state_saved_at": self._state.get("state_saved_at"),
+            "state_saved_at": saved_at,
             "last_error": self._last_error(),
             "failures": failure_rows,
             "backups": backup_rows,
-            "stats": self._state.get("stats") or {},
-            "last_run": self._state.get("last_run"),
+            "stats": stats,
+            "last_run": last_run,
             "daily": self.daily_stats(),
             "running": bool(run and run.get("state") == "running"),
             "run": run,
-            "logs": list(self._state.get("logs") or [])[-40:],
+            "logs": logs,
         }
 
     def server_status(self) -> List[Dict[str, Any]]:
@@ -1874,8 +1907,16 @@ class OverviewEnhancer:
 
     # ------------------------------------------------------------------ 媒体服务器
 
-    def _resolve_clients(self) -> Tuple[List[EmbyClient], List[str]]:
-        """按配置解析可用的 Emby 客户端。"""
+    def _resolve_clients(self, use_cache: bool = False) -> Tuple[List[EmbyClient], List[str]]:
+        """按配置解析可用的 Emby 客户端；use_cache=True 时复用本轮已解析结果。"""
+        if use_cache and self._clients_cache is not None:
+            return self._clients_cache
+        clients, errors = self._resolve_clients_fresh()
+        self._clients_cache = (clients, errors)
+        return clients, errors
+
+    def _resolve_clients_fresh(self) -> Tuple[List[EmbyClient], List[str]]:
+        """重新读取媒体服务器配置并构造客户端。"""
         clients: List[EmbyClient] = []
         errors: List[str] = []
         if self._helper is None:
@@ -1907,7 +1948,7 @@ class OverviewEnhancer:
 
     def _client_by_name(self, name: str) -> Optional[EmbyClient]:
         """按名称获取指定 Emby 客户端。"""
-        clients, _ = self._resolve_clients()
+        clients, _ = self._resolve_clients(use_cache=True)
         for client in clients:
             if client.name == name:
                 return client
@@ -2424,9 +2465,37 @@ class OverviewEnhancer:
         stats["title_matched"] = self._title_matched
         if self._focus_keys:
             jobs = [job for job in jobs if job.get("key") in self._focus_keys]
+        elif not force_flag:
+            jobs = self._drop_exhausted_failures(jobs)
         configured_max = int(self._config.get("max_items_per_run") or 200)
         max_items = _bounded_int(limit, configured_max, 1, configured_max)
         return jobs[:max_items], errors, stats
+
+    def _drop_exhausted_failures(self, jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """跳过连续失败达到上限的条目，避免定时扫描反复消耗 AI 额度。"""
+        with self._lock:
+            failures = dict(self._state.get("failures") or {})
+        if not failures:
+            return jobs
+        kept: List[Dict[str, Any]] = []
+        dropped = 0
+        for job in jobs:
+            entry = failures.get(job.get("key"))
+            try:
+                count = int(entry.get("count") or 0) if isinstance(entry, dict) else 0
+            except (TypeError, ValueError):
+                count = 0
+            if count >= _FAILURE_RETRY_LIMIT:
+                dropped += 1
+                continue
+            kept.append(job)
+        if dropped:
+            self._log(
+                f"跳过 {dropped} 条已连续失败 {_FAILURE_RETRY_LIMIT} 次的条目"
+                "（可在失败列表手动重试，或开启强制重写）",
+                "warning",
+            )
+        return kept
 
     # ------------------------------------------------------------------ 简介决策
 
@@ -2794,10 +2863,13 @@ class OverviewEnhancer:
             if ok:
                 with self._lock:
                     self._state.setdefault("person_avatars", {})[person_id] = True
-                self._save_state()
+                # 头像补齐属于热点路径：标脏 + 节流落盘，避免每个头像整份写状态文件
+                self._mark_dirty()
+                self._flush_state()
                 self._log(f"已为演员 {name} 补充头像")
             else:
                 logger.debug(f"影视简介增强：演员 {name} 头像写入失败 {message}")
+        self._flush_state()
 
     def _write_nfo(
         self, job: Dict[str, Any], overview: str, people: List[Dict[str, Any]]
@@ -3427,6 +3499,8 @@ class OverviewEnhancer:
     def _run_worker(self, payload: Dict[str, Any]) -> None:
         """后台执行任务：收集条目后交给统一执行器。"""
         try:
+            # 每轮重新解析一次媒体服务器配置，本轮内所有条目复用同一批客户端
+            self._clients_cache = None
             jobs, errors, stats = self._collect_jobs(
                 media_type=str(payload.get("media_type") or "all"),
                 title=str(payload.get("title") or ""),
