@@ -31,7 +31,7 @@ class DynamicWeChat(_PluginBase):
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本
-    plugin_version = "2.1.8"
+    plugin_version = "2.1.9"
     # 插件作者
     plugin_author = "RamenRa"
     # 作者主页
@@ -86,12 +86,17 @@ class DynamicWeChat(_PluginBase):
     _wechat_available = True
     # 仅标记IP变动后 通知发送过了没有
     _send_notification = False
+    # Cookie检查结果 # timeout  # captcha_incomplete # captcha_btn_error
+    _last_check_result = None
+    _login_confirmed_by = None
 
     # 匹配ip地址的正则
     _ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
     # 获取ip地址的网址列表
     _ip_urls = ["https://myip.ipip.net", "https://ddns.oray.com/checkip", "https://ip.3322.net",
                 "https://r.inews.qq.com/api/ip2city", "https://uapis.cn/api/v1/network/myip"]
+    # DDNS域名：填写后优先解析该域名获取动态公网IP（家里插件才能拿到IP而不是自家IP）
+    _company_domain = ""
     # 当前ip地址（可能为分号分隔的多个IP）
     _current_ip_address = '0.0.0.0'
     # 企业微信登录
@@ -190,6 +195,7 @@ class DynamicWeChat(_PluginBase):
             self._cron = config.get("cron")
             self._onlyonce = config.get("onlyonce")
             self._input_id_list = config.get("input_id_list")
+            self._company_domain = config.get("company_domain") or ""
             self._forced_update = config.get("forced_update")
             self._local_scan = config.get("local_scan")
             self._use_cookiecloud = config.get("use_cookiecloud")
@@ -270,7 +276,7 @@ class DynamicWeChat(_PluginBase):
 
         if self._forced_update:
             if not self._local_scan:
-                logger.info("使用Cookie,强制更新公网IP")
+                logger.info("使用Cookie强制更新公网IP")
                 self._start_bg_task(self.forced_change())
             self._forced_update = False
 
@@ -595,6 +601,23 @@ class DynamicWeChat(_PluginBase):
         多WAN模式从配置文件读取已保存的IP列表，单IP模式直接从网络获取
         返回True表示IP已变化需要更新，否则False
         """
+        # DDNS域名模式：解析域名获取动态公网IP，优先于多WAN和URL检测
+        company_domain = str(getattr(self, "_company_domain", "") or "").strip()
+        if company_domain:
+            ip_address = await asyncio.to_thread(self.get_ip_from_domain, company_domain)
+            if not ip_address or ip_address == "获取IP失败":
+                logger.error(f"域名{company_domain}解析失败，不操作可信IP")
+                return False
+            logger.info(f"IP获取成功: 解析域名 {company_domain}: {ip_address}")
+            if not self._ip_changed and func != "public":
+                logger.info("上次IP修改IP失败 继续尝试修改IP")
+                return True
+            if ip_address != self._current_ip_address:
+                logger.info("检测到IP变化")
+                self._wechat_available = False
+                self._cookie_invalid_notified = False
+                return True
+            return False
         if self.wan2:
             # 多WAN模式：读取保存的url_ip和ips
             if not await self._acquire_file_lock():
@@ -754,6 +777,22 @@ class DynamicWeChat(_PluginBase):
             self.wan2_url = None
             return None, "获取IP失败"
 
+    def get_ip_from_domain(self, domain) -> str:
+        """
+        解析DDNS域名获取当前公网IP（IP动态变化时，域名始终指向最新IP）
+        """
+        if not domain or not str(domain).strip():
+            return "获取IP失败"
+        try:
+            import socket
+            ip_address = socket.gethostbyname(str(domain).strip())
+            if re.match(self._ip_pattern, ip_address):
+                return ip_address
+            return "获取IP失败"
+        except Exception as e:
+            logger.warning(f"域名{domain}解析失败,Error: {e}")
+            return "获取IP失败"
+
     async def find_qrc(self, page):
         """
         查找二维码图片
@@ -896,7 +935,7 @@ class DynamicWeChat(_PluginBase):
             except Exception as e:
                 logger.error(f"CookieCloud更新 cookie 发生错误: {e}")
         else:
-            self._is_special_upload = False
+            self._is_special_upload = True  # 不用cookiecloud 也显示cookie寿命
             logger.info("更新本地 Cookie成功")
 
     async def _send_cookie_false(self):
@@ -1068,7 +1107,7 @@ class DynamicWeChat(_PluginBase):
                 return None
             cookie_header = ''
             for domain, cookie in cookies.items():
-                if domain == ".work.weixin.qq.com":
+                if domain.lstrip(".").lower() == "work.weixin.qq.com":
                     cookie_header = cookie
                     break
             if not cookie_header:
@@ -1142,11 +1181,13 @@ class DynamicWeChat(_PluginBase):
                 page = await context.new_page()
                 await page.goto(self._wechatUrl)
                 await asyncio.sleep(3)
-                if await self.check_login_status(page, task='refresh_cookie'):
+                result = await self.check_login_status(page, task='refresh_cookie')
+                if result is True:
                     self._cookie_valid = True
                     self._cookie_invalid_notified = False
                     cookie_used = True
-                else:
+                    self._none_streak = 0
+                elif result is False:
                     self._cookie_valid = False
                     self._saved_cookie = None
                     # 本地失效，若启用CookieCloud则暂不通知，等待云端尝试
@@ -1156,6 +1197,26 @@ class DynamicWeChat(_PluginBase):
                         logger.info("Cookie失效，等待公网IP变动后再通知")
                     else:
                         await self._send_cookie_false()
+                else:
+                    self._cookie_valid = False
+                    self._saved_cookie = None
+                    reason = getattr(self, '_last_check_result', 'unknown')
+                    self._none_streak = getattr(self, '_none_streak', 0) + 1
+                    reason_text = {
+                        'stopped': '插件正在重启或停用',
+                        'timeout': '15秒内页面未给出登录/未登录信号（网络慢或企业微信页面结构变化）',
+                        'captcha_incomplete': '扫码后的验证码流程未完成',
+                        'captcha_btn_error': '验证码确认环节页面异常',
+                    }.get(reason, f'未知原因({reason})')
+                    logger.info(
+                        f"本次 Cookie 校验无结论（{reason_text}），已尝试用 CookieCloud 备份 cookie 复核；"
+                        f"若复核仍无效将发送失效通知，请留意后续消息。"
+                    )
+                    if self._none_streak >= 3:
+                        logger.warning(
+                            f"Cookie 校验已连续 {self._none_streak} 次无结论，此期间 Cookie 真实失效将无法被及时发现。"
+                            f"请检查容器到 work.weixin.qq.com 的网络连通性；若网络正常则可能是企业微信后台改版，需等待插件更新。"
+                                )
             # 若本地cookie无效，尝试从CookieCloud获取
             if not cookie_used and self._use_cookiecloud:
                 cookie = await self.get_cookie_async()
@@ -1168,6 +1229,7 @@ class DynamicWeChat(_PluginBase):
                         self._cookie_valid = True
                         self._cookie_invalid_notified = False
                         self._saved_cookie = await context.cookies()
+                        self._none_streak = 0
                     else:
                         self._cookie_valid = False
                         self._saved_cookie = None
@@ -1203,75 +1265,156 @@ class DynamicWeChat(_PluginBase):
 
     async def check_login_status(self, page, task):
         """
-        检查登录状态，支持验证码输入
-        根据任务类型（refresh_cookie / local_scanning / push_qr_code）执行不同逻辑
+        检查登录状态，支持短信验证码输入。
+        采用"成功信号 vs 失败信号（登录二维码）"竞速轮询，兼容慢网络与页面 DOM 变化。
+
+        返回值（三态，调用方必须区分处理）:
+          True  - 确认已登录
+          False - 确认未登录（页面出现登录二维码，或验证码流程已走完且失败）
+          None  - 检查无结论（预算内超时 / 页面异常 / 收到停止信号），
+                  调用方不得据此修改 _cookie_valid、不得发送失效通知
+
+        副作用：
+          self._last_check_result   - 本次检查的最终结论原因，供调用方记录/描述：
+              'logged_in' / 'qr_visible' / 'captcha_no_code' / 'captcha_failed'
+              / 'timeout' / 'captcha_incomplete' / 'stopped'
+              / 'captcha_btn_error'
+          self._login_confirmed_by  - 登录由哪种信号确认：'url' / 'selector' / 'captcha'
+
+        :param page:  当前浏览器页面
+        :param task:  任务类型（refresh_cookie / local_scanning / push_qr_code 等）
         """
-        await asyncio.sleep(3)
         if task != 'refresh_cookie':
             logger.info("检查登录状态...")
-        # 移除无效的XPath选择器，仅保留有效CSS或XPath
+
+        # 成功信号：多个备选选择器（任一命中即视为已登录），URL 作为不依赖 DOM 的兜底
         success_selectors = [
             "//div[contains(@class, 'js_show_ipConfig_dialog')]//a[contains(@class, '_mod_card_operationLink') and text()='配置']",
             '#_hmt_click > div.index_colRight > div > div.index_info > div > a',
             '#_hmt_click > div.index_colLeft > div.index_greeting.index_explore_text > div:nth-child(1)'
         ]
-        try:
-            for selector in success_selectors:
-                try:
-                    success_element = await page.wait_for_selector(selector, timeout=3000)
-                    if success_element:
-                        if task != 'refresh_cookie':
-                            logger.info("登录成功！")
-                        return True
-                except asyncio.TimeoutError:
-                    continue
-                except Exception as e:
-                    logger.debug(f"选择器查询异常: {e}")
-                    continue
-        except Exception as e:
-            logger.debug(f"登录检查异常: {e}")
-        try:
-            captcha_panel = await page.wait_for_selector('.receive_captcha_panel', timeout=5000)
-            if captcha_panel:
-                if task == 'local_scanning':
-                    await asyncio.sleep(3)
-                else:
-                    logger.info("等待30秒,请将短信验证码请以'？'结束,发送到<企业微信应用> 如： 110301？")
-                    for _ in range(30):
-                        if self._stopping:
-                            return False
-                        await asyncio.sleep(1)
-                if self._verification_code:
-                    for digit in self._verification_code:
-                        await page.keyboard.press(digit)
-                        await asyncio.sleep(0.3)
-                    confirm_button = await page.wait_for_selector('.confirm_btn', timeout=5000)
-                    if confirm_button:
-                        await confirm_button.click()
-                        await asyncio.sleep(3)
-                        for selector in success_selectors:
-                            try:
-                                success_element = await page.wait_for_selector(selector, timeout=3000)
-                                if success_element:
-                                    self._verification_code = None
-                                    logger.info("验证码登录成功！")
-                                    return True
-                            except asyncio.TimeoutError:
-                                continue
-                            except Exception:
-                                continue
-                else:
-                    logger.error(
-                        "未收到短信验证码，请以问号结尾发送到企业微信应用。如：510010? 使用全局AI助手需使用/wxcode 510010的格式发送验证码")
+        CHECK_BUDGET_SECONDS = 15   # 登录态判定总预算
+        POLL_INTERVAL = 1.0
+
+        async def _poll_logged_in() -> Optional[str]:
+            """
+            非阻塞探测是否已登录。
+            返回 'url' / 'selector' 表示命中的成功信号；None 表示未命中或本回合无法判断。
+            """
+            try:
+                if 'wework_admin/frame' in page.url:
+                    return 'url'
+                for selector in success_selectors:
+                    try:
+                        if await page.query_selector(selector):
+                            return 'selector'
+                    except Exception as e:
+                        logger.debug(f"选择器查询异常: {e}")
+            except Exception as e:
+                logger.debug(f"登录状态探测异常: {e}")
+            return None
+
+        async def _qr_visible() -> bool:
+            """轻量探测登录二维码是否可见（不下载图片、不带阻塞等待）"""
+            try:
+                iframe = await page.query_selector("iframe")
+                if not iframe:
                     return False
-        except asyncio.TimeoutError:
-            pass
-        except Exception:
-            img_src, _ = await self.find_qrc(page)
-            if img_src and task not in ['refresh_cookie', 'local_scanning']:
-                logger.warning("用户没有扫描二维码")
+                frame = await iframe.content_frame()
+                if not frame:
+                    return False
+                return bool(await frame.query_selector("img.qrcode_login_img"))
+            except Exception:
                 return False
-        return False
+
+        async def _handle_captcha_panel() -> Optional[bool]:
+            """
+            处理短信验证码面板（按插件流程仅扫码登录时会出现）。
+            返回 True/False；被停止或页面异常时返回 None，交回主流程按无结论处理。
+            """
+            if task == 'local_scanning':
+                await asyncio.sleep(3)
+            else:
+                logger.info("等待30秒,请将短信验证码请以'？'结束,发送到<企业微信应用> 如： 110301？")
+                for _ in range(30):
+                    if self._stopping:
+                        self._last_check_result = 'stopped'
+                        return None
+                    if self._verification_code:
+                        break
+                    await asyncio.sleep(1)
+            if not self._verification_code:
+                logger.error(
+                    "未收到短信验证码，请以问号结尾发送到企业微信应用。如：510010? 使用全局AI助手需使用/wxcode 510010的格式发送验证码")
+                self._last_check_result = 'captcha_no_code'
+                return False
+            # 输入验证码并确认
+            for digit in self._verification_code:
+                await page.keyboard.press(digit)
+                await asyncio.sleep(0.3)
+            try:
+                confirm_button = await page.wait_for_selector('.confirm_btn', timeout=5000)
+                if confirm_button:
+                    await confirm_button.click()
+            except Exception as e:
+                logger.warning(f"点击验证码确认按钮失败: {e}")
+                self._last_check_result = 'captcha_btn_error'
+                return None
+            # 确认后短轮询登录结果（兼容提交后的页面跳转延迟）
+            for _ in range(6):
+                if await _poll_logged_in():
+                    self._verification_code = None
+                    self._last_check_result = 'logged_in'
+                    self._login_confirmed_by = 'captcha'
+                    logger.info("验证码登录成功！")
+                    return True
+                await asyncio.sleep(1)
+            logger.warning("验证码已提交但未确认登录成功")
+            self._last_check_result = 'captcha_failed'
+            return False
+
+        # ---------- 主竞速轮询 ----------
+        deadline = asyncio.get_event_loop().time() + CHECK_BUDGET_SECONDS
+        captcha_seen = False
+        while asyncio.get_event_loop().time() < deadline:
+            if self._stopping:
+                logger.debug("收到停止信号，登录状态检查中止")
+                self._last_check_result = 'stopped'
+                return None
+            # 1) 成功信号
+            hit = await _poll_logged_in()
+            if hit:
+                self._last_check_result = 'logged_in'
+                self._login_confirmed_by = hit
+                if task != 'refresh_cookie':
+                    logger.info("登录成功！")
+                return True
+            # 2) 验证码面板（扫码登录成功后的二次短信验证）
+            try:
+                if await page.query_selector('.receive_captcha_panel'):
+                    captcha_seen = True
+                    result = await _handle_captcha_panel()
+                    if result is not None:
+                        return result
+                    break  # 验证码流程无结论，不再继续轮询
+            except Exception as e:
+                logger.debug(f"验证码面板探测异常: {e}")
+            # 3) 失败信号：登录二维码可见 = 确定未登录
+            if await _qr_visible():
+                if task not in ['refresh_cookie', 'local_scanning']:
+                    logger.warning("用户没有扫描二维码")
+                self._last_check_result = 'qr_visible'
+                return False
+            await asyncio.sleep(POLL_INTERVAL)
+
+        # 预算耗尽仍无结论
+        self._last_check_result = 'timeout' if not captcha_seen else 'captcha_incomplete'
+        if captcha_seen:
+            logger.warning("验证码流程未走完，本次登录检查无结论")
+        else:
+            logger.warning(f"{CHECK_BUDGET_SECONDS}秒内未能确认登录状态，本次检查无结论")
+        return None
+
 
     async def click_app_management_buttons(self, page):
         """
@@ -1289,7 +1432,10 @@ class DynamicWeChat(_PluginBase):
              "配置")
         ]
         # 获取当前IP地址，多WAN时加锁读取
-        if self.wan2:
+        company_domain = str(getattr(self, "_company_domain", "") or "").strip()
+        if company_domain:
+            self._current_ip_address = await asyncio.to_thread(self.get_ip_from_domain, company_domain)
+        elif self.wan2:
             ips_str = ""
             if await self._acquire_file_lock():
                 try:
@@ -1390,6 +1536,7 @@ class DynamicWeChat(_PluginBase):
             "forced_update": self._forced_update,
             "local_scan": self._local_scan,
             "input_id_list": self._input_id_list,
+            "company_domain": self._company_domain,
             "cookie_header": self._cookie_header,
             "use_cookiecloud": self._use_cookiecloud,
         })
@@ -1491,6 +1638,20 @@ class DynamicWeChat(_PluginBase):
                         'content': [
                             {
                                 'component': 'VCol',
+                                'props': {'cols': 12, 'md': 6},
+                                'content': [
+                                    {'component': 'VTextField',
+                                     'props': {'model': 'company_domain', 'label': '[可选] DDNS域名',
+                                               'placeholder': '如 xxx.oicp.net，解析后得到动态公网IP'}}
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
                                 'props': {'cols': 12},
                                 'content': [
                                     {'component': 'VTextarea',
@@ -1538,7 +1699,8 @@ class DynamicWeChat(_PluginBase):
             "await_ip": False,
             "cookie_header": "",
             "notification_token": "",
-            "input_id_list": ""
+            "input_id_list": "",
+            "company_domain": ""
         }
 
     def get_page(self) -> List[dict]:

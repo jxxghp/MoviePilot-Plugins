@@ -249,17 +249,19 @@ def test_login_only_adapter_is_not_signin_success():
     assert result.completed
 
 
-@pytest.mark.parametrize("login_message, expected_message", [
-    ("访问失败，接口未确认结果", "访问失败，接口未确认结果"),
-    ("模拟登录失败，Cookie已失效", "访问失败，接口未确认结果；模拟登录失败，Cookie已失效"),
+@pytest.mark.parametrize("signin_message, login_message, expected_message", [
+    ("访问失败，接口未确认结果", "访问失败，接口未确认结果", "签到失败，访问失败，接口未确认结果"),
+    ("访问失败，接口未确认结果", "模拟登录失败，Cookie已失效", "签到失败，访问失败，接口未确认结果；Cookie已失效"),
+    ("签到失败，Cookie已失效", "模拟登录失败，Cookie已失效", "签到失败，Cookie已失效"),
+    ("签到失败，状态码：466！", "模拟登录失败，状态码：466！", "签到失败，状态码：466！"),
 ])
 def test_login_fallback_preserves_distinct_errors_without_repeating_identical_errors(
-        monkeypatch, login_message, expected_message):
+        monkeypatch, signin_message, login_message, expected_message):
     """普通站点仍执行登录回退，相同错误只保留一次，不同原因均保留。"""
     plugin = object.__new__(AutoSignIn)
     login = Mock(return_value=(False, login_message))
     handler = Mock(spec=["signin", "login"], return_value=SimpleNamespace(
-        signin=Mock(return_value=(False, "访问失败，接口未确认结果")), login=login))
+        signin=Mock(return_value=(False, signin_message)), login=login))
     monkeypatch.setattr(plugin, "_AutoSignIn__build_class", Mock(return_value=handler))
     stats = SimpleNamespace(success=Mock(), fail=Mock())
     monkeypatch.setattr("app.plugins.autosignin.SiteOper", Mock(return_value=stats))

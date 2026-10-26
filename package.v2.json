@@ -166,7 +166,7 @@
     "name": "站点自动签到",
     "description": "自动模拟登录、签到站点。",
     "labels": "站点",
-    "version": "2.9.14",
+    "version": "2.9.15",
     "system_version": "<=3.1.5",
     "icon": "signin.png",
     "author": "thsrite",
@@ -174,6 +174,7 @@
     "v3": true,
     "release": true,
     "history": {
+      "v2.9.15": "修复空周期随机签到只保留一次及重载后当天漏签，持久化当天计划并保证服务任务唯一",
       "v2.9.14": "修复PTZONE升级后签到失效，改用POST提交并校验登录和签到完成状态，避免假成功",
       "v2.9.13": "修复学校(btschool)一次性到账提示未识别导致的签到误报；馒头(m-team)按前端接口生成签名更新访问时间，需在站点配置Token中填写浏览器登录态",
       "v2.9.12": "修复海胆之家 haidan.cc 未命中专用签到处理器，按配置地址执行打卡并回读首页确认结果",
@@ -839,12 +840,13 @@
     "name": "动态企微可信IP",
     "description": "修改企微应用可信IP，支持Srever酱等第三方通知。验证码以？结尾发送到企业微信应用",
     "labels": "消息通知",
-    "version": "2.1.8",
+    "version": "2.1.9",
     "icon": "Wecom_A.png",
     "author": "RamenRa",
     "level": 2,
     "system_version": ">=2.12.0",
     "history": {
+      "v2.1.9": "fix:修复github@samsshid的issues#53带前导点匹配失败。优化cookie校验的逻辑",
       "v2.1.8": "fix:修复github@318182456指出的问题。校验cookie出现的not enough values to unpack (expected 2, got 1)。错误。",
       "v2.1.7": "修复多线程环境下的任务管理及cookie误报等问题，提升稳定性",
       "v2.1.6-1": "修复并发安全与资源管理问题",
@@ -968,7 +970,7 @@
     "name": "OIDC 认证",
     "description": "通过 OpenID Connect Provider 为 MoviePilot 提供插件化登录与账号绑定。",
     "labels": "认证,OIDC,SSO",
-    "version": "0.3.4",
+    "version": "0.3.5",
     "icon": "Oidcauth_A.png",
     "author": "ui-beam-9,jxxghp",
     "level": 1,
@@ -981,7 +983,8 @@
       "v0.3.1": "修复回调事件类型不匹配导致前端错误提示不准确；移除解绑方法多余检查，允许 OIDC 关闭状态下正常解绑。",
       "v0.3.2": "兼容 MoviePilot v2.15.3 认证模块路径调整，修复插件无法加载的问题，同时保留对旧版认证模块的支持。",
       "v0.3.3": "强化新版认证模块优先、旧版认证模块兜底的加载逻辑，并发布新版本确保旧安装可收到升级。",
-      "v0.3.4": "修复 MoviePilot V3 中 OIDC 登录、绑定及按用户名自动绑定时使用旧数据库调用导致回调崩溃的问题，并保留 V2 兼容。"
+      "v0.3.4": "修复 MoviePilot V3 中 OIDC 登录、绑定及按用户名自动绑定时使用旧数据库调用导致回调崩溃的问题，并保留 V2 兼容。",
+      "v0.3.5": "新增默认关闭的使用代理开关，修复全局代理导致内网 OIDC Provider 登录和绑定失败的问题。"
     }
   },
   "AgentTokens": {
@@ -1035,12 +1038,13 @@
     "name": "动态企微可信IP",
     "description": "修改企微应用可信IP,可本地扫码刷新Cookie,直接调用接口更稳定",
     "labels": "消息通知",
-    "version": "1.0.9",
+    "version": "1.0.10",
     "icon": "Wecom_A.png",
     "author": "书小白",
     "level": 2,
     "v2": true,
     "history": {
+      "1.0.10": "短信验证码支持聊天框一次性输入与退格/清空，输入进度就地更新原消息，命令参数归一化并脱敏展示验证码",
       "1.0.9": "修复登录时间戳硬编码并实现立即检测与资源清理",
       "1.0.8": "完善日志输出",
       "1.0.7": "插件初始化时调用一下check确定登录状态",
@@ -1447,5 +1451,89 @@
       "v1.0.1": "修复 Vue 联邦构建产物未进入发布仓库",
       "v1.0": "初版"
     }
-  }
+  },
+  "PTDataStatistics": {
+    "name": "PT数据统计",
+    "description": "基于 MoviePilot 站点账户快照统计累计与每日上传下载，提供数据统计、养老进度、仪表盘和通知。",
+    "labels": "站点,统计,仪表板",
+    "version": "2.1.8",
+    "icon": "https://raw.githubusercontent.com/changzhanghs/MoviePilot-Plugins/main/icons/ptdatastatistics.png",
+    "author": "changzhanghs",
+    "level": 1,
+    "release": true,
+    "system_version": ">=2.12.0",
+    "history": {
+      "v2.1.8": "不值一提",
+      "v2.1.7": "不值一提",
+      "v2.1.6": "不值一提",
+      "v2.1.5": "不值一提",
+      "v2.1.4": "不值一提",
+      "v2.1.3": "不值一提",
+      "v2.1.2": "不值一提",
+      "v2.1.1": "不值一提",
+      "v2.1.0": "不值一提",
+      "v2.0.17": "不值一提",
+      "v2.0.16": "不值一提",
+      "v2.0.15": "不值一提",
+      "v2.0.14": "不值一提",
+      "v2.0.13": "不值一提",
+      "v2.0.12": "不值一提",
+      "v2.0.11": "不值一提",
+      "v2.0.10": "不值一提",
+      "v2.0.9": "不值一提",
+      "v2.0.8": "不值一提",
+      "v2.0.7": "不值一提",
+      "v2.0.6": "不值一提",
+      "v2.0.5": "不值一提",
+      "v2.0.4": "不值一提",
+      "v2.0.3": "不值一提",
+      "v2.0.2": "不值一提",
+      "v2.0.1": "不值一提",
+      "v2.0.0": "兼容v2及v3"
+    }
+  },
+  "MediaServerNotifyPlus": {
+    "v3": false,
+    "name": "媒体库通知",
+    "description": "极简配置可自定义的媒体库通知消息",
+    "labels": "消息通知,媒体库,自定义模板",
+    "version": "2.1.3",
+    "icon": "mediaplay.png",
+    "author": "changzhanghs",
+    "level": 1,
+    "release": true,
+    "system_version": ">=2.0.0,<3.0.0",
+    "history": {
+      "v2.1.3": "不值一提",
+      "v2.1.2": "不值一提",
+      "v2.1.1": "不值一提",
+      "v2.1.0": "不值一提",
+      "v2.0.11": "不值一提",
+      "v2.0.10": "不值一提",
+      "v2.0.9": "不值一提",
+      "v2.0.8": "不值一提",
+      "v2.0.7": "不值一提",
+      "v2.0.6": "不值一提",
+      "v2.0.5": "不值一提",
+      "v2.0.4": "不值一提",
+      "v2.0.3": "不值一提",
+      "v2.0.2": "不值一提",
+      "v2.0.1": "不值一提",
+      "v2.0.0": "不值一提"
+    }
+  },
+  "BrushDigest": {
+      "name": "刷流汇总",
+      "description": "把站点刷流的新增/删除汇总成一条通知，替代每个种子一条的逐条推送。支持自定义汇总周期、立即推送一次、自动检测数据来源插件。",
+      "labels": "站点,刷流,通知",
+      "version": "1.1.0",
+      "icon": "https://raw.githubusercontent.com/IceNoproblem/MoviePilot-Plugins/main/icons/brushdigest.png",
+      "author": "icenoproblem",
+      "level": 1,
+      "release": true,
+      "history": {
+        "v1.1.0": "新增「立即汇总推送一次」；数据来源改为自动检测的下拉框；内置配置说明与原插件通知开关指引",
+        "v1.0.0": "首个版本，按周期把刷流插件的新增/删除汇总成一条通知"
+      }
+    }
 }

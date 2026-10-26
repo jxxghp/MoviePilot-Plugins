@@ -18,7 +18,7 @@ from app.sdk.network import SitesHelper
 from app.sdk.logging import logger
 from app.sdk.plugin import _PluginBase
 from app.plugins.autosignin.notification import build_notification_content
-from app.plugins.autosignin.result import SiteResult, has_login_evidence, has_login_form, has_signin_evidence
+from app.plugins.autosignin.result import SiteResult, has_login_evidence, has_login_form, has_signin_evidence, merge_failure_messages
 from app.schemas.types import EventType, MessageType
 from app.sdk.network import RequestUtils
 from app.sdk.utilities import StringUtils
@@ -38,7 +38,7 @@ class AutoSignIn(_PluginBase):
     # 插件图标
     plugin_icon = "signin.png"
     # 插件版本
-    plugin_version = "3.0.2"
+    plugin_version = "3.0.5"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -54,6 +54,12 @@ class AutoSignIn(_PluginBase):
     _ALL_SITES = "all"
     # 含当天的历史保留天数，与详情页读取范围保持一致。
     _HISTORY_DAYS = 14
+    # 保存空周期下当天的随机时间，重载插件时复用同一组时间。
+    _RANDOM_SCHEDULE_KEY = "random_schedule"
+    # 空周期默认随机计划的时间窗口和执行次数。
+    _RANDOM_EXECUTIONS = 2
+    _RANDOM_BEGIN_HOUR = 9
+    _RANDOM_END_HOUR = 23
 
     # 定时器
     _scheduler: Optional[BackgroundScheduler] = None
@@ -248,15 +254,11 @@ class AutoSignIn(_PluginBase):
                 logger.error(f"定时任务配置错误：{str(err)}")
         elif self._enabled:
             # 随机时间
-            triggers = TimerUtils.random_scheduler(num_executions=2,
-                                                   begin_hour=9,
-                                                   end_hour=23,
-                                                   max_interval=6 * 60,
-                                                   min_interval=2 * 60)
+            triggers = self._get_random_schedule()
             ret_jobs = []
             for trigger in triggers:
                 ret_jobs.append({
-                    "id": f"AutoSignIn|{trigger.hour}:{trigger.minute}",
+                    "id": f"AutoSignIn_{trigger.hour:02d}_{trigger.minute:02d}",
                     "name": "站点自动签到服务",
                     "trigger": "cron",
                     "func": self.sign_in,
@@ -267,6 +269,77 @@ class AutoSignIn(_PluginBase):
                 })
             return ret_jobs
         return []
+
+    def _get_random_schedule(self) -> List[datetime]:
+        """读取当天已保存的随机计划，首次生成时避免所有时间都落在当前时刻之前。"""
+        timezone = pytz.timezone(settings.TZ)
+        now = datetime.now(timezone)
+        if now.tzinfo is None:
+            now = timezone.localize(now)
+        today = now.date().isoformat()
+        saved = self.get_data(self._RANDOM_SCHEDULE_KEY) or {}
+        if saved.get("date") == today:
+            triggers = self._parse_random_schedule(today, saved.get("times"))
+            if triggers:
+                return triggers
+
+        triggers = self._create_random_schedule(now)
+        self.save_data(
+            self._RANDOM_SCHEDULE_KEY,
+            {
+                "date": today,
+                "times": [{"hour": trigger.hour, "minute": trigger.minute} for trigger in triggers],
+            },
+        )
+        return triggers
+
+    @staticmethod
+    def _parse_random_schedule(date_text: str, raw_times: Any) -> List[datetime]:
+        """将持久化的小时分钟列表还原为当天的调度时间，忽略损坏的记录。"""
+        try:
+            year, month, day = (int(value) for value in date_text.split("-"))
+        except (AttributeError, TypeError, ValueError):
+            return []
+        triggers = []
+        for item in raw_times or []:
+            try:
+                hour = int(item["hour"])
+                minute = int(item["minute"])
+                if not (0 <= hour <= 23 and 0 <= minute <= 59):
+                    continue
+                triggers.append(datetime(year, month, day, hour, minute))
+            except (KeyError, TypeError, ValueError):
+                continue
+        return sorted(set(triggers))
+
+    def _create_random_schedule(self, now: datetime) -> List[datetime]:
+        """生成当天随机计划，并在较晚初始化时重新生成至少一个未来时间。"""
+        current = now.replace(tzinfo=None, second=0, microsecond=0)
+        triggers = TimerUtils.random_scheduler(
+            num_executions=self._RANDOM_EXECUTIONS,
+            begin_hour=self._RANDOM_BEGIN_HOUR,
+            end_hour=self._RANDOM_END_HOUR,
+            max_interval=6 * 60,
+            min_interval=2 * 60,
+        )
+        if any(trigger > current for trigger in triggers):
+            return sorted(triggers)
+
+        if current.hour < self._RANDOM_END_HOUR:
+            triggers = TimerUtils.random_scheduler(
+                num_executions=self._RANDOM_EXECUTIONS,
+                begin_hour=max(self._RANDOM_BEGIN_HOUR, current.hour),
+                end_hour=self._RANDOM_END_HOUR,
+                max_interval=6 * 60,
+                min_interval=2 * 60,
+            )
+            if any(trigger > current for trigger in triggers):
+                return sorted(triggers)
+
+            fallback = current + timedelta(minutes=1)
+            if fallback.hour <= self._RANDOM_END_HOUR:
+                return [fallback]
+        return sorted(triggers)
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
@@ -842,6 +915,12 @@ class AutoSignIn(_PluginBase):
                 .autosignin-table {
                     min-width: 620px;
                 }
+                .autosignin-table table {
+                    table-layout: fixed;
+                }
+                .autosignin-table th:first-child {
+                    width: 160px;
+                }
                 html[data-theme="transparent"] .autosignin-table-wrap,
                 .v-theme--transparent .autosignin-table-wrap {
                     backdrop-filter: blur(var(--transparent-blur, 10px));
@@ -888,7 +967,9 @@ class AutoSignIn(_PluginBase):
                     line-height: 1.1;
                 }
                 .autosignin-status-cell {
+                    width: 180px;
                     min-width: 92px;
+                    text-align: start;
                 }
                 .autosignin-dot-cell {
                     width: 40px;
@@ -950,6 +1031,12 @@ class AutoSignIn(_PluginBase):
                     }
                     .autosignin-site-name {
                         max-width: 126px;
+                    }
+                    .autosignin-table th:first-child {
+                        width: 126px;
+                    }
+                    .autosignin-status-cell {
+                        width: 160px;
                     }
                     .autosignin-dot-cell {
                         width: 34px;
@@ -1316,7 +1403,7 @@ class AutoSignIn(_PluginBase):
             {
                 'component': 'th',
                 'props': {
-                    'class': 'text-start'
+                    'class': 'text-start autosignin-status-cell'
                 },
                 'text': '今日'
             }
@@ -1494,10 +1581,12 @@ class AutoSignIn(_PluginBase):
                               title="开始站点签到 ...",
                               userid=event.event_data.get("user"))
 
+        signin_results = {}
         if self._sign_sites:
-            self.__do(today=today, type_str="签到", do_sites=self._sign_sites, event=event)
+            signin_results = self.__do(today=today, type_str="签到", do_sites=self._sign_sites, event=event) or {}
         if self._login_sites:
-            self.__do(today=today, type_str="登录", do_sites=self._login_sites, event=event)
+            self.__do(today=today, type_str="登录", do_sites=self._login_sites, event=event,
+                      signin_results=signin_results)
 
     def _clean_history(self, today: datetime):
         """清除14天窗口外的签到、登录和月日明细，兼顾停跑后的过期记录。"""
@@ -1519,8 +1608,9 @@ class AutoSignIn(_PluginBase):
                 # 旧明细键不含年份，按窗口内的月日保留，避免跨年误删。
                 self.del_data(key=key)
 
-    def __do(self, today: datetime, type_str: str, do_sites: list, event: Event = None):
-        """清理过期历史后执行签到或登录，保留当天去重及失败重试语义。"""
+    def __do(self, today: datetime, type_str: str, do_sites: list, event: Event = None,
+             signin_results: dict = None) -> dict:
+        """执行并保存实际结果；登录复用本轮签到验证，通知仅列出独立执行的站点。"""
         self._clean_history(today)
 
         # 查看今天有没有签到|登录历史
@@ -1561,7 +1651,8 @@ class AutoSignIn(_PluginBase):
 
             if not no_sites:
                 logger.info(f"今日 {today} 已{type_str}，无重新{type_str}站点，本次任务结束")
-                return
+                return {str(site_id): results[str(site_id)] for site_id in selected_site_ids
+                        if str(site_id) in results}
 
             # 任务站点 = 需要重试+今日未do
             do_sites = no_sites
@@ -1569,16 +1660,32 @@ class AutoSignIn(_PluginBase):
 
         if not do_sites:
             logger.info(f"没有需要{type_str}的站点")
-            return
+            return {}
 
         # 执行签到
         logger.info(f"开始执行{type_str}任务 ...")
+        reused_ids = set()
         if type_str == "签到":
             with ThreadPool(min(len(do_sites), int(self._queue_cnt))) as p:
                 status = p.map(self.signin_site, do_sites)
         else:
-            with ThreadPool(min(len(do_sites), int(self._queue_cnt))) as p:
-                status = p.map(self.login_site, do_sites)
+            # 签到流程已包含必要的登录回退；成功、仅登录和失败均可复用，避免重复访问。
+            reused = signin_results or {}
+            reused_ids = {site.get("id") for site in do_sites if str(site.get("id")) in reused}
+            login_sites = [site for site in do_sites if site.get("id") not in reused_ids]
+            login_results = {}
+            if login_sites:
+                with ThreadPool(min(len(login_sites), int(self._queue_cnt))) as p:
+                    login_results = dict(zip([site.get("id") for site in login_sites], p.map(self.login_site, login_sites)))
+            status = []
+            for site in do_sites:
+                if site.get("id") not in reused_ids:
+                    status.append(login_results[site.get("id")])
+                    continue
+                result = reused[str(site.get("id"))]
+                logged_in = bool(result.get("success") or result.get("logged_in"))
+                status.append(SiteResult(site.get("name"), "登录成功（签到任务已确认）" if logged_in else result["message"],
+                                         logged_in, logged_in))
 
         if status:
             logger.info(f"站点{type_str}任务完成！")
@@ -1630,7 +1737,7 @@ class AutoSignIn(_PluginBase):
                 site_id = site.get("id")
                 results[str(site_id)] = {"success": s.success, "message": s.message, "logged_in": s.logged_in}
 
-                if not s.logged_in and 'Cookie已失效' in s.message and site_id in builtin_site_ids:
+                if site_id not in reused_ids and not s.logged_in and 'Cookie已失效' in s.message and site_id in builtin_site_ids:
                     # 触发自动登录插件登录
                     logger.info(f"触发站点 {site_name} 自动登录更新Cookie和Ua")
                     self.eventmanager.send_event(EventType.PluginAction,
@@ -1649,9 +1756,12 @@ class AutoSignIn(_PluginBase):
                             if site_id not in retry_sites:
                                 retry_sites.append(site_id)
                             # 命中的站点
-                            retry_msg.append(s)
+                            if site_id not in reused_ids:
+                                retry_msg.append(s)
                             continue
 
+                if site_id in reused_ids:
+                    continue
                 if not s.completed:
                     failed_msg.append(s)
                 elif not s.success or "登录成功" in s.message:
@@ -1686,7 +1796,11 @@ class AutoSignIn(_PluginBase):
                 })
 
             # 发送通知
-            if self._notify:
+            notify_rows = [(site, result) for site, result in zip(do_sites, status)
+                           if site.get("id") not in reused_ids]
+            notify_status = [result for _, result in notify_rows]
+            notify_retry = [site_id for site_id in retry_sites if site_id not in reused_ids]
+            if self._notify and notify_rows:
                 # 签到详细信息 登录成功、签到成功、已签到、仿真签到成功、失败--命中重试
                 signin_message = login_success_msg + sign_success_msg + already_sign_msg + fz_sign_msg + failed_msg
                 if len(retry_msg) > 0:
@@ -1694,28 +1808,28 @@ class AutoSignIn(_PluginBase):
 
                 signin_message = "\n".join([f'【{s[0]}】{s[1]}' for s in signin_message if s])
                 if type_str == "签到":
-                    result_counts = (f"确认签到成功: {sum(s.success for s in status)} \n"
-                                     f"仅确认登录: {sum(s.logged_in and not s.success for s in status)} \n")
+                    result_counts = (f"确认签到成功: {sum(s.success for s in notify_status)} \n"
+                                     f"仅确认登录: {sum(s.logged_in and not s.success for s in notify_status)} \n")
                 else:
-                    result_counts = f"确认登录成功: {sum(s.success for s in status)} \n"
-                result_counts += f"登录或访问失败: {sum(not s.completed for s in status)} \n"
+                    result_counts = f"确认登录成功: {sum(s.success for s in notify_status)} \n"
+                result_counts += f"登录或访问失败: {sum(not s.completed for s in notify_status)} \n"
                 # 只提交一份语义数据，由宿主选择渠道样式；开关关闭时沿用旧正文。
                 rich_kwargs = {}
                 if self._rich_notify:
                     rich_kwargs["rich_content"] = build_notification_content(
-                        today, type_str, status, len(selected_site_ids), retry_sites,
-                        [site.get("id") for site in do_sites],
+                        today, type_str, notify_status, len(selected_site_ids) - len(reused_ids), notify_retry,
+                        [site.get("id") for site, _ in notify_rows],
                     )
                 self.post_message(title=f"【站点自动{type_str}】",
                                   mtype=MessageType.SiteMessage,
-                                  text=f"全部{type_str}数量: {len(selected_site_ids)} \n"
-                                       f"本次{type_str}数量: {len(do_sites)} \n"
-                                       f"下次{type_str}数量: {len(retry_sites)} \n"
+                                  text=f"全部{type_str}数量: {len(selected_site_ids) - len(reused_ids)} \n"
+                                       f"本次{type_str}数量: {len(notify_rows)} \n"
+                                       f"下次{type_str}数量: {len(notify_retry)} \n"
                                        f"{result_counts}"
                                        f"{signin_message}",
                                   **rich_kwargs
                                   )
-            if event:
+            if event and notify_rows:
                 self.post_message(channel=event.event_data.get("channel"),
                                   title=f"站点{type_str}完成！", userid=event.event_data.get("user"))
         else:
@@ -1725,6 +1839,7 @@ class AutoSignIn(_PluginBase):
                                   title=f"站点{type_str}任务失败！", userid=event.event_data.get("user"))
         # 保存配置
         self.__update_config()
+        return {str(site_id): results[str(site_id)] for site_id in selected_site_ids if str(site_id) in results}
 
     def __build_class(self, url) -> Any:
         """按站点地址匹配专用签到处理器。"""
@@ -1780,9 +1895,9 @@ class AutoSignIn(_PluginBase):
             if login_result.success:
                 logger.info(f"{result.site_name} 已确认登录，原签到结果：{result.message}")
                 result = SiteResult(result.site_name, "登录成功，签到未确认", False, True)
-            elif result.message != login_result.message:
-                # 两个不同入口可能返回相同错误，只合并不同原因，避免通知重复。
-                result = result._replace(message=f"{result.message}；{login_result.message}")
+            else:
+                reason = merge_failure_messages(result.message, login_result.message)
+                result = result._replace(message=f"签到失败，{reason}")
         # 统计
         seconds = (datetime.now() - start_time).seconds
         domain = StringUtils.get_url_domain(site_info.get('url'))

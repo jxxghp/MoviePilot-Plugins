@@ -8,7 +8,7 @@ import pytest
 
 from app.plugins.autosignin import AutoSignIn
 from app.plugins.autosignin.notification import build_notification_content
-from app.plugins.autosignin.result import SiteResult
+from app.plugins.autosignin.result import SiteResult, merge_failure_messages
 
 
 @pytest.mark.parametrize("action", ["签到", "登录"])
@@ -62,6 +62,33 @@ def test_same_reason_is_grouped_before_display_truncation():
     assert reason_blocks[2].text == "站点3"
 
 
+@pytest.mark.parametrize("signin,login,expected", [
+    ("签到失败，未配置站点地址或Cookie", "模拟登录失败，未配置站点地址或Cookie", "未配置站点地址或Cookie"),
+    ("签到失败，状态码：466！", "模拟登录失败，状态码：466！", "状态码：466！"),
+    ("签到失败，无法打开网站！", "模拟登录失败，无法打开网站！", "无法打开网站！"),
+    ("签到失败，未识别到登录状态", "模拟登录失败，未识别到登录状态", "未识别到登录状态"),
+    ("签到失败，Cookie已失效", "模拟登录失败，Cookie已失效", "Cookie已失效"),
+    ("签到失败，状态码：404！", "模拟登录失败，未识别到登录状态", "状态码：404！；未识别到登录状态"),
+    ("签到失败，未识别到登录状态", "模拟登录失败，Cookie已失效", "未识别到登录状态；Cookie已失效"),
+    ("签到失败： 状态码：466！", "模拟登录失败，状态码：466", "状态码：466！"),
+])
+def test_failure_reasons_merge_without_action_prefixes(signin, login, expected):
+    """按反馈中的网络、Cookie、登录状态和不同入口错误验证原因归并。"""
+    assert merge_failure_messages(signin, login) == expected
+    combined = SiteResult("测试站", f"{signin}；{login}", False)
+    content = build_notification_content("2026-10-18", "签到", [combined], 1, [1], [1])
+    assert content.blocks[3].title == expected
+    assert content.blocks[3].text == "测试站 ↻"
+
+
+def test_old_and_new_failure_messages_share_one_reason_group():
+    """旧历史中的双动作前缀和当前简洁原因在通知中归入同一组。"""
+    results = [SiteResult("旧站", "签到失败，Cookie已失效；模拟登录失败，Cookie已失效", False),
+               SiteResult("新站", "签到失败，Cookie已失效", False)]
+    content = build_notification_content("2026-10-18", "签到", results, 2, [1], [1, 2])
+    assert [(block.title, block.text) for block in content.blocks[3:-1]] == [("Cookie已失效", "旧站 ↻、新站")]
+
+
 def test_47_site_report_has_compact_groups_and_native_telegram_hierarchy():
     """按反馈中的 47 站经过真实转换器，验证归并、全部名称、缩进和可点击入口。"""
     import json
@@ -76,7 +103,7 @@ def test_47_site_report_has_compact_groups_and_native_telegram_hierarchy():
     content = build_notification_content("2026-10-16", "签到", results, 47, list(range(9)), list(range(47)))
     assert sum(block.title == "签到成功" for block in content.blocks) == 1
     assert sum(block.title == "登录成功，签到未确认" for block in content.blocks) == 1
-    cookie_group = next(block for block in content.blocks if block.title == rows[0]["message"])
+    cookie_group = next(block for block in content.blocks if block.title == merge_failure_messages(rows[0]["message"]))
     assert cookie_group.text == "我堡 ↻、藏宝阁 ↻、冬樱 ↻、1PTBA ↻、AGSVPT ↻"
     message = Message(title="站点自动签到", text="原有完整结果", rich_content=content,
                       link="https://example.com/#/plugins?tab=installed&id=AutoSignIn")

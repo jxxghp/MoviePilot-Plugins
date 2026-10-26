@@ -46,6 +46,7 @@ const status = ref({
 
 const config = ref({
   enabled: false,
+  use_proxy: false,
   provider_name: 'OIDC 登录',
   issuer: '',
   client_id: '',
@@ -187,6 +188,14 @@ return (_ctx, _cache) => {
             }, null, 8, ["modelValue"]),
             (config.value.enabled)
               ? (_openBlock(), _createElementBlock(_Fragment, { key: 0 }, [
+                  _createVNode(_component_VSwitch, {
+                    modelValue: config.value.use_proxy,
+                    "onUpdate:modelValue": $event => ((config.value.use_proxy) = $event),
+                    label: "使用代理",
+                    hint: "默认直连 OIDC Provider（内网请保持关闭）；开启后使用 MoviePilot 全局代理。",
+                    "persistent-hint": true,
+                    color: "primary"
+                  }, null, 8, ["modelValue"]),
                   _createVNode(_component_VRow, null, {
                     default: _withCtx(() => [
                       _createVNode(_component_VCol, {

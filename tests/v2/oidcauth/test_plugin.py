@@ -9,7 +9,7 @@ from app.plugins import oidcauth
 def test_imports_auth_ticket_factory_from_current_moviepilot_module() -> None:
     """新版 MoviePilot 中应从 app.core.auth 导入认证票据工厂。"""
     assert oidcauth.create_plugin_auth_ticket is create_plugin_auth_ticket
-    assert oidcauth.OidcAuth.plugin_version == "0.3.4"
+    assert oidcauth.OidcAuth.plugin_version == "0.3.5"
 
 
 def test_auth_ticket_factory_falls_back_to_legacy_module(monkeypatch) -> None:

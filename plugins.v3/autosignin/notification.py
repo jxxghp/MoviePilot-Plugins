@@ -3,7 +3,7 @@
 import re
 from typing import List
 
-from app.plugins.autosignin.result import SiteResult
+from app.plugins.autosignin.result import SiteResult, merge_failure_messages
 from app.schemas.message import NotificationBlock, NotificationContent
 
 _DETAIL_LIMIT = 160
@@ -20,7 +20,8 @@ def _group_results(rows: list, retry_ids: list) -> List[NotificationBlock]:
     """同一状态内按完整结果原因归并，原因只展示一次，保留所有站点及各自重试标记。"""
     reasons: dict[str, list[str]] = {}
     for site_id, result in rows:
-        reason = re.sub(r"\s+", " ", str(result.message)).strip()
+        message = result.message if result.completed else merge_failure_messages(result.message)
+        reason = re.sub(r"\s+", " ", str(message)).strip()
         name = _compact(result.site_name, _NAME_LIMIT)
         if site_id in retry_ids:
             name += " ↻"
