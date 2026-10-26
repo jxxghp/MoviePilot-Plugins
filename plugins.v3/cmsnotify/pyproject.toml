@@ -1,0 +1,5 @@
+[project]
+name = "cmsnotify"
+version = "0.6"
+description = "CMS通知：整理完成115里的媒体后，通知CMS进行增量同步（strm生成），由 V2 适配至 MoviePilot V3"
+dependencies = []

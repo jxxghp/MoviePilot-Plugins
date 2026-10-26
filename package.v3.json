@@ -1138,5 +1138,24 @@
       "v1.1.0": "改为后台定时统计并缓存，页面与仪表板秒出，避免统计阻塞 Web 界面",
       "v1.0.0": "初始版本"
     }
+  },
+  "CMSNotify": {
+    "name": "CMS通知V3",
+    "description": "整理完成115里的媒体后，通知CMS进行增量同步（strm生成）",
+    "labels": "消息通知,媒体库,STRM,CMS",
+    "version": "0.7",
+    "icon": "https://raw.githubusercontent.com/po9873/MoviePilot-Plugins/main/icons/cms.png",
+    "author": "po9873",
+    "level": 1,
+    "release": true,
+    "history": {
+      "v0.7": "维护者变更为 po9873（原作者 imaliang，V3 由本仓库接手维护）；插件名称标明 V3 以便与 V2 版本区分；图标迁移至本仓库，不再依赖原仓库外链。",
+      "v0.6": "适配 MoviePilot V3：导入路径迁移到 app.sdk.*（原 app.core/app.utils/app.log 在 V3 已移除）；事件注册改为显式 EventType.TransferComplete 与 EventType.MetadataScrape；事件负载改为直接读取 V3 契约对象属性；修复 token 错误时仍误报「通知成功」的问题（改为解析响应体 code 字段）；修复刮削分支取 fileitem 对象而非 storage 导致永不命中的 bug；配置页补充跨机器访问说明。",
+      "v0.5": "支持CloudDrive储存",
+      "v0.4": "支持115网盘Plus",
+      "v0.3": "支持通知cms进行自动整理",
+      "v0.2": "整理完成115里的媒体后，通知CMS进行增量同步（strm生成）"
+    },
+    "system_version": ">=3.0.0"
   }
 }

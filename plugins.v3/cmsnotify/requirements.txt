@@ -1,0 +1,1 @@
+# 本插件无额外第三方依赖（仅使用 MoviePilot 内置的 apscheduler 与标准库）
