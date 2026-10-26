@@ -34,7 +34,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "2.19"
+    plugin_version = "2.20"
     # 插件作者
     plugin_author = "jxxghp,CKun"
     # 作者主页
@@ -82,6 +82,8 @@ class IYUUAutoSeed(_PluginBase):
     # 待校全种子hash清单
     _recheck_torrents = {}
     _is_recheck_running = False
+    # 已自动补发校验的种子hash，避免重复补发
+    _auto_rechecked = set()
     # 辅种缓存，出错的种子不再重复辅种，可清除
     _error_caches = []
     # 辅种缓存，辅种成功的种子，可清除
@@ -143,6 +145,7 @@ class IYUUAutoSeed(_PluginBase):
         self.stop_service()
         # 重新初始化运行期校验队列，避免类级字典跨插件重载残留。
         self._recheck_torrents = {}
+        self._auto_rechecked = set()
 
         # 启动定时任务 & 立即运行一次
         if self.get_state() or self._onlyonce:
@@ -877,11 +880,20 @@ class IYUUAutoSeed(_PluginBase):
         torrents, _ = downloader_obj.get_torrents(ids=recheck_torrents)
         if torrents:
             can_seeding_torrents = []
+            need_recheck_torrents = []
             for torrent in torrents:
                 # 获取种子hash
                 hash_str = self.__get_hash(torrent=torrent, dl_type=service.type)
                 if self.__can_seeding(torrent=torrent, dl_type=service.type):
                     can_seeding_torrents.append(hash_str)
+                elif (service.type == "qbittorrent"
+                      and torrent.get("state") in ("stoppedDL", "pausedDL")
+                      and not torrent.get("progress")
+                      and hash_str not in self._auto_rechecked):
+                    # qBittorrent 5.3+ 的 WebAPI 移除了 skip_checking 参数，
+                    # 跳过校验添加的种子不再被标记为已完成，而是停在未校验状态；
+                    # 此处主动补发一次校验，校验完成后即可自动开始辅种
+                    need_recheck_torrents.append(hash_str)
             if can_seeding_torrents:
                 logger.info(f"共 {len(can_seeding_torrents)} 个任务校验完成，开始辅种 ...")
                 # 开始任务
@@ -889,6 +901,10 @@ class IYUUAutoSeed(_PluginBase):
                 # 去除已经处理过的种子
                 self._recheck_torrents[downloader] = list(
                     set(recheck_torrents).difference(set(can_seeding_torrents)))
+            if need_recheck_torrents:
+                logger.info(f"共 {len(need_recheck_torrents)} 个任务未校验，自动补发校验 ...")
+                self._auto_rechecked.update(need_recheck_torrents)
+                downloader_obj.recheck_torrents(ids=need_recheck_torrents)
         elif torrents is None:
             logger.info(f"下载器 {downloader} 查询校验任务失败，将在下次继续查询 ...")
             return

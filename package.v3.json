@@ -1041,6 +1041,25 @@
       "v1.0.0": "首个版本：支持通过NapCat HTTP接口发送私聊、群聊通知，支持消息类型过滤、@全体成员与图片消息"
     }
   },
+  "SiteUserDetail": {
+    "name": "站点用户详情采集",
+    "description": "定时采集 PT 站用户详情页的 BT 客户端信息与下载中种子明细，并提供插件 API 供三方调用。",
+    "labels": "站点,数据",
+    "version": "1.0.5",
+    "icon": "siteuserdetail.png",
+    "author": "Guoyin-Wen",
+    "level": 2,
+    "system_version": ">=3.0.0",
+    "release": true,
+    "history": {
+      "v1.0.5": "馒头(M-Team)客户端采集打通：在站点配置 Token（浏览器登录态）后，通过 /api/torrent/peers 接口按 memberId 精确识别本人会话，获取 agent/IPv4/IPv6（API 不提供端口）；Token 过期时自动回退空值条目并提示",
+      "v1.0.4": "客户端解析覆盖更多站点模板：IP 与地理位置文本连写（UBits 表格）内嵌匹配兜底；新增行内文本解析（家园/学校/高清视界/PT时间/憨憨等无表格模板）；详情页客户端拆为同级可折叠的「无数据站点」「全部站点」分节，空数据行站点列保持显示站点名",
+      "v1.0.3": "详情页改为可折叠分节（IP 聚合前置、明细表默认收起）；IP 聚合使用站点全量展示并支持换行；站点列空值回退 domain/未知（含 API 数据）",
+      "v1.0.2": "修复馒头(M-Team)下载中种子误报：INCOMPLETE 实为历史未完成列表，现以 myPeerStatus.leecher 与行内 peer 会话判定当前真实下载，无活动下载时不再返回历史种子",
+      "v1.0.1": "新增插件详情页（摘要统计、客户端/种子明细、IPv4/IPv6 跨站聚合、促销分布、失败列表）；插件更名为「站点用户详情采集」；采集互斥防重入；快照保存失败不再中断采集（修复服务停机时收尾竞态报错）",
+      "v1.0.0": "首个版本：通用架构采集 + 站点适配器（NexusPHP 通用 / M-Team API / sites 目录微调）；BT 客户端列表（agent/ipv4/ipv6/port，每站至少一条空值兜底）与下载中种子列表（id/hash/促销标签）；hash 下载器名匹配优先、种子详情页兜底；collect/snapshot 两个 apikey 插件 API"
+    }
+  },
   "MediaServerNotifyPlus": {
     "name": "媒体库通知",
     "description": "极简配置可自定义的媒体库通知消息",
