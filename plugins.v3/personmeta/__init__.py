@@ -36,7 +36,7 @@ class PersonMeta(_PluginBase):
     # 插件图标
     plugin_icon = "actor.png"
     # 插件版本
-    plugin_version = "3.1.2"
+    plugin_version = "3.1.3"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -758,8 +758,13 @@ class PersonMeta(_PluginBase):
                 if person_key not in self._processed_person_images:
                     logger.debug(f"更新人物 {people.get('Name')} 的图片：{profile_path}")
                     self._processed_person_images.add(person_key)
-                    self.set_item_image(server=server, server_type=server_type,
-                                        itemid=people.get("Id"), imageurl=profile_path)
+                    try:
+                        self.set_item_image(server=server, server_type=server_type,
+                                            itemid=people.get("Id"), imageurl=profile_path)
+                    except RequestException as err:
+                        # 重试耗尽后只放弃这张图片：名称与简介的更新不能跟着一起被跳过，
+                        # 人物图片会在下一轮重新处理
+                        logger.error(f"人物 {people.get('Name')} 图片重试后仍下载失败：{str(err)}")
                 else:
                     logger.debug(f"人物 {people.get('Name')} 的图片本轮已更新，跳过")
 
@@ -1158,6 +1163,11 @@ class PersonMeta(_PluginBase):
                     return base64.b64encode(r.content).decode()
                 else:
                     logger.warn(f"{imageurl} 图片下载失败，请检查网络连通性")
+            except RequestException:
+                # 交给 set_item_image 的 @retry 处理：在这里吞掉会让重试成为死代码，
+                # 跨境图片链路的一次抖动就会把海报永久丢掉，只能等下一轮刮削。
+                # 状态码错误不会走到这里，get_res 返回的响应本身就是假值。
+                raise
             except Exception as err:
                 logger.error(f"下载图片失败：{str(err)}")
             return None
