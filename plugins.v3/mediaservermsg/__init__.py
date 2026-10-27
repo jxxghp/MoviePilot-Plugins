@@ -42,7 +42,7 @@ class MediaServerMsg(_PluginBase):
     # 插件图标
     plugin_icon = "mediaplay.png"
     # 插件版本
-    plugin_version = "2.1.3"
+    plugin_version = "2.1.4"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -107,6 +107,7 @@ class MediaServerMsg(_PluginBase):
         self._lifecycle_condition = threading.Condition(threading.RLock())
         self._accepting_events = False
         self._active_operations = 0
+        self._ignore_usernames = []
         self._pending_messages = {}
         self._aggregate_timers = {}
         self._owned_timers = set()
@@ -129,6 +130,10 @@ class MediaServerMsg(_PluginBase):
                 self._mediaservers = config.get("mediaservers") or []
                 self._add_play_link = config.get("add_play_link", False)
                 self._aggregate_enabled = config.get("aggregate_enabled", False)
+                usernames = config.get("ignore_usernames")
+                self._ignore_usernames = [
+                    name for name in usernames if isinstance(name, str) and name
+                ] if isinstance(usernames, list) else []
                 self._aggregate_time = int(config.get(
                     "aggregate_time", self.DEFAULT_AGGREGATE_TIME))
             self._pending_messages = {}
@@ -234,6 +239,45 @@ class MediaServerMsg(_PluginBase):
             List[Dict[str, Any]]: 空列表
         """
         pass
+
+    def _get_user_options(self) -> List[dict]:
+        """读取 Emby、Jellyfin、Plex 的用户名，失败时保留已选用户。"""
+        names = dict.fromkeys(self._ignore_usernames or [])
+        try:
+            services = MediaServerHelper().get_services()
+        except Exception:
+            logger.warning("获取媒体服务器列表失败，保留已选忽略用户")
+            services = {}
+        for service in services.values():
+            if service.type not in ("emby", "jellyfin", "plex"):
+                continue
+            response = None
+            try:
+                if service.type == "plex":
+                    response = service.instance.get_data(endpoint="/accounts")
+                else:
+                    response = service.instance.get_data(url="[HOST]Users?api_key=[APIKEY]")
+                if response is None or response.status_code != 200:
+                    logger.warning("获取媒体服务器用户列表失败，请检查连接与用户管理权限")
+                    continue
+                users = response.json()
+                if service.type == "plex":
+                    container = users.get("MediaContainer") if isinstance(users, dict) else None
+                    users = container.get("Account", []) if isinstance(container, dict) else None
+                if not isinstance(users, list):
+                    logger.warning("媒体服务器用户列表格式异常，保留已选忽略用户")
+                    continue
+                for user in users:
+                    field = "name" if service.type == "plex" else "Name"
+                    name = user.get(field) if isinstance(user, dict) else None
+                    if isinstance(name, str) and name:
+                        names[name] = None
+            except Exception:
+                logger.warning("获取媒体服务器用户列表失败，保留已选忽略用户")
+            finally:
+                if response is not None:
+                    response.close()
+        return [{"title": name, "value": name} for name in names]
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
@@ -383,6 +427,33 @@ class MediaServerMsg(_PluginBase):
                     },
                     {
                         'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 12
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSelect',
+                                        'props': {
+                                            'model': 'ignore_usernames',
+                                            'label': '忽略通知的用户',
+                                            'multiple': True,
+                                            'chips': True,
+                                            'clearable': True,
+                                            'items': self._get_user_options(),
+                                            'hint': '勾选的用户不会发送通知',
+                                            'persistent-hint': True
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
                         'props': {'show': '{{aggregate_enabled}}'},
                         'content': [
                             {
@@ -430,6 +501,7 @@ class MediaServerMsg(_PluginBase):
             "enabled": False,
             "types": [],
             "aggregate_enabled": False,
+            "ignore_usernames": [],
             "aggregate_time": 15
         }
 
@@ -680,6 +752,12 @@ class MediaServerMsg(_PluginBase):
             if str(event_type) == "playback.start":
                 # 开始播放消息，删除过期字典
                 self.__remove_element(expiring_key)
+
+            # 检查用户是否属于忽略的用户配置
+            if self._ignore_usernames:
+                if user_name in self._ignore_usernames:
+                    logger.info(f"忽略的用户({user_name})事件,不发送消息:{message_title}")
+                    return
 
             # 发送消息
             self.post_message(mtype=NotificationType.MediaServer,
