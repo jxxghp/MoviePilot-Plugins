@@ -34,7 +34,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "2.21"
+    plugin_version = "2.22"
     # 插件作者
     plugin_author = "jxxghp,CKun"
     # 作者主页
@@ -768,12 +768,15 @@ class IYUUAutoSeed(_PluginBase):
                 logger.info(f"下载器 {downloader} 没有已完成种子")
                 continue
             hash_strs = []
+            # 当前下载器中所有已完成种子
+            completed_hashes_downloader = set()
             for torrent in torrents:
                 if self._event.is_set():
                     logger.info(f"辅种服务停止")
                     return
                 # 获取种子hash
                 hash_str = self.__get_hash(torrent=torrent, dl_type=service.type)
+                completed_hashes_downloader.add(hash_str)
                 if hash_str in self._error_caches or hash_str in self._permanent_error_caches:
                     logger.info(f"种子 {hash_str} 辅种失败且已缓存，跳过 ...")
                     continue
@@ -829,8 +832,10 @@ class IYUUAutoSeed(_PluginBase):
                     chunk = hash_strs[i:i + chunk_size]
                     # 处理分组
                     self.__seed_torrents(hash_strs=chunk,
-                                         service=service)
+                                         service=service,
+                                         completed_hashes_downloader=completed_hashes_downloader)
                 # 触发校验检查
+                logger.info(f"下载器 {downloader} 辅种全部完成。")
                 self.check_recheck()
             else:
                 logger.info(f"没有需要辅种的种子")
@@ -920,14 +925,18 @@ class IYUUAutoSeed(_PluginBase):
             logger.info(f"下载器 {downloader} 中没有需要检查的校验任务，清空待处理列表 ...")
             self._recheck_torrents[downloader] = []
 
-    def __seed_torrents(self, hash_strs: list, service: ServiceInfo):
+    def __seed_torrents(self, hash_strs: list, service: ServiceInfo, completed_hashes_downloader: set[str]):
         """
-        执行一批种子的辅种
+        执行一批种子的辅种，排除当前下载器全部已完成种子。
+
+        :param hash_strs: 本批次参与查询的源种子。
+        :param service: 当前扫描的下载器服务。
+        :param completed_hashes_downloader: 当前下载器中所有的已完成种子
         """
         if not hash_strs:
             return
         logger.info(f"下载器 {service.name} 开始查询辅种，数量：{len(hash_strs)} ...")
-        # 下载器中的Hashs
+        # 下载器中的本批次 Hashs
         hashs = [item.get("hash") for item in hash_strs]
         # 每个Hash的保存目录
         save_paths = {}
@@ -964,7 +973,7 @@ class IYUUAutoSeed(_PluginBase):
                     continue
                 if not seed.get("sid") or not seed.get("info_hash"):
                     continue
-                if seed.get("info_hash") in hashs:
+                if seed.get("info_hash") in completed_hashes_downloader:
                     logger.info(f"{seed.get('info_hash')} 已在下载器中，跳过 ...")
                     continue
                 if seed.get("info_hash") in self._success_caches:
@@ -993,7 +1002,7 @@ class IYUUAutoSeed(_PluginBase):
                                     downloader=service.name,
                                     success_torrents=success_torrents)
 
-        logger.info(f"下载器 {service.name} 辅种完成")
+        logger.info(f"下载器 {service.name} 辅种本批次完成")
 
     def __save_history(self, current_hash: str, downloader: str, success_torrents: []):
         """
