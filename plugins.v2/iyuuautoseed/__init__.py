@@ -34,7 +34,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "2.20"
+    plugin_version = "2.21"
     # 插件作者
     plugin_author = "jxxghp,CKun"
     # 作者主页
@@ -806,6 +806,14 @@ class IYUUAutoSeed(_PluginBase):
                 if self._size and torrent_size < self._size:
                     logger.info(f"种子 {hash_str} 大小:{torrent_size:.2f}GB，小于设定 {self._size}GB，跳过 ...")
                     continue
+                # 拆包种子排除辅种
+                if service.type == "qbittorrent":
+                    if torrent.availability != -1 and torrent.availability < 1:
+                        logger.info(f"种子 {hash_str} 下载不完整，跳过 ...")
+                        continue
+                    if torrent.total_size != torrent.completed:
+                        logger.info(f"种子 {hash_str} 完成字节数与总体积不一致，跳过 ...")
+                        continue
                 category = self.__get_category(torrent=torrent, dl_type=service.type) if self._auto_category else None
                 hash_strs.append({
                     "hash": hash_str,
