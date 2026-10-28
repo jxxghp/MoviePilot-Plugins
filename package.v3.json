@@ -1,4 +1,19 @@
 {
+  "TrackerEditor": {
+    "name": "Tracker替换",
+    "description": "批量替换修改种子tracker。",
+    "labels": "做种",
+    "version": "2.0",
+    "icon": "trackereditor_A.png",
+    "author": "honue",
+    "level": 1,
+    "system_version": ">=3.0.0",
+    "history": {
+      "v2.0": "修复MP V3.2.0后Transmission tracker替换失败的问题",
+      "v1.8": "修复老版本tr修改出错问题，优化log输出",
+      "v1.7": "支持多个tracker替换配置"
+    }
+  },
   "AutoSignIn": {
     "name": "站点自动签到",
     "description": "自动模拟登录、签到站点。",

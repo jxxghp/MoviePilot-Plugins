@@ -134,6 +134,9 @@
       "app.utils.http": 4,
       "app.utils.jieba": 1
     },
+    "trackereditor": {
+      "app.plugins._PluginBase": 1
+    },
     "tvdbdiscover": {
       "app.plugins._PluginBase": 1
     },

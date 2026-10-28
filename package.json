@@ -793,6 +793,7 @@
     "author": "honue",
     "level": 1,
     "v2": true,
+    "v3": false,
     "history": {
       "v1.8": "修复老版本tr修改出错问题，优化log输出",
       "v1.7": "支持多个tracker替换配置"
