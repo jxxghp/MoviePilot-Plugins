@@ -8,6 +8,10 @@ from app.utils.http import RequestUtils
 
 
 class PushPlusMsg(_PluginBase):
+    """
+    将 MoviePilot 通知发送到 PushPlus，支持按消息类型筛选及群组推送。
+    """
+
     # 插件名称
     plugin_name = "PushPlus消息推送"
     # 插件描述
@@ -15,7 +19,7 @@ class PushPlusMsg(_PluginBase):
     # 插件图标
     plugin_icon = "Pushplus_A.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3.1"
     # 插件作者
     plugin_author = "cheng"
     # 作者主页
@@ -34,6 +38,11 @@ class PushPlusMsg(_PluginBase):
     _topic = None  # 新增topic字段
 
     def init_plugin(self, config: dict = None):
+        """
+        读取推送开关、令牌、消息类型和群组配置。
+
+        :param config: 保存的插件配置。
+        """
         if config:
             self._enabled = config.get("enabled")
             self._token = config.get("token")
@@ -41,13 +50,24 @@ class PushPlusMsg(_PluginBase):
             self._topic = config.get("topic")  # 新增topic字段
 
     def get_state(self) -> bool:
+        """
+        仅在启用插件且已配置令牌时接收通知。
+
+        :return: 是否具备发送消息的配置。
+        """
         return self._enabled and (True if self._token else False)
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
+        """
+        本插件不注册远程命令。
+        """
         pass
 
     def get_api(self) -> List[Dict[str, Any]]:
+        """
+        本插件不提供独立 API。
+        """
         pass
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
@@ -182,6 +202,9 @@ class PushPlusMsg(_PluginBase):
         }
 
     def get_page(self) -> List[dict]:
+        """
+        本插件无独立详情页面。
+        """
         pass
 
     @eventmanager.register(EventType.NoticeMessage)
