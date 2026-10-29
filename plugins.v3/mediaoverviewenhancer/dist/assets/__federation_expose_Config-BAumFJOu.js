@@ -41,7 +41,7 @@ const DEFAULTS = {
   movie_target_chars: 320,
   episode_enabled: true,
   episode_mode: 'auto',
-  episode_min_chars: 40,
+  episode_min_chars: 80,
   episode_target_chars: 160,
   episode_always_rewrite: false,
   skip_specials: true,

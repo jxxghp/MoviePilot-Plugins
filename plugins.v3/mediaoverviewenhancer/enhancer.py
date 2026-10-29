@@ -86,7 +86,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     # 剧集分集
     "episode_enabled": True,
     "episode_mode": "auto",
-    "episode_min_chars": 40,
+    "episode_min_chars": 80,
     "episode_target_chars": 160,
     "episode_always_rewrite": False,
     "skip_specials": True,
@@ -215,7 +215,7 @@ def normalize_config(config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     data["schedule_hours"] = _bounded_int(data.get("schedule_hours"), 0, 0, 8760)
     data["movie_min_chars"] = _bounded_int(data.get("movie_min_chars"), 120, 0, 4000)
     data["movie_target_chars"] = _bounded_int(data.get("movie_target_chars"), 320, 80, 2000)
-    data["episode_min_chars"] = _bounded_int(data.get("episode_min_chars"), 40, 0, 2000)
+    data["episode_min_chars"] = _bounded_int(data.get("episode_min_chars"), 80, 0, 2000)
     data["episode_target_chars"] = _bounded_int(data.get("episode_target_chars"), 160, 40, 1000)
     data["mv_libraries"] = _as_str_list(data.get("mv_libraries")) or ["mv"]
     data["mv_min_chars"] = _bounded_int(data.get("mv_min_chars"), 60, 0, 2000)
@@ -1192,6 +1192,7 @@ class LLMTextWriter:
         if not self.available():
             return ""
         attempts = max(1, int(retries) + 1)
+        self._empty_reply = False
         for attempt in range(attempts):
             try:
                 text = str(run_coroutine(self._ainvoke(system_prompt, user_prompt)) or "").strip()
@@ -1200,8 +1201,12 @@ class LLMTextWriter:
                 text = ""
             if text:
                 return text
+            # 区分「调用异常」与「模型返回空内容」，后者多为限流/截断，重试后仍空才提示
+            self._empty_reply = True
             if attempt + 1 < attempts:
                 time.sleep(min(8.0, 1.5 ** attempt))
+        if self._empty_reply:
+            logger.warning("影视简介增强：LLM 返回空内容（可能触发限流或内容被截断）")
         return ""
 
     def translate_names(self, names: List[str]) -> List[str]:
@@ -1254,6 +1259,20 @@ EPISODE_SYSTEM = (
     "1. 只依据给定的剧集上下文撰写，不要编造未提供的具体情节、台词或结局。\n"
     "2. 简介必须只描述该集内容，不要写成整部剧的简介，也不要与其他集重复。\n"
     "3. 信息不足时用概括表述该集可能的推进方向，避免虚构细节。\n"
+    "4. 简体中文、一段连贯文字，不要小标题或列表，不要加前缀，直接输出正文。\n"
+    "5. 严禁任何套话开场：不要出现「第12集中」「本集延续」「本集中」「作为第一季…的一集」这类编号或"
+    "自我指涉的引导语，直接从人物、事件或处境写起。"
+)
+
+# 在已有中文简介基础上扩写时使用：允许比 EPISODE_SYSTEM 更具体，但同样不得套话开场
+EPISODE_EXPAND_SYSTEM = (
+    "你是剧集资料编辑，负责把已有的一集简介补写得更完整。\n"
+    "要求：\n"
+    "1. 严格以「该集现有中文简介」为事实基础扩写，可以补充上下文里出现的类型、背景、人物处境与冲突，"
+    "不得编造未提供的关键情节、台词或结局。\n"
+    "2. 必须写清该集独有的具体事件与人物反应，不要写成整部剧的概述，也不要与其他集雷同。\n"
+    "3. 禁止任何套话开场：「第几集中」「本集延续」「本集中」「作为…的一集」等编号或自我指涉的引导语一律不要，"
+    "直接从人物、事件或处境写起，也不要提「上一集」「此前」这类跨集指代。\n"
     "4. 简体中文、一段连贯文字，不要小标题或列表，不要加前缀，直接输出正文。"
 )
 
@@ -1363,6 +1382,28 @@ def strip_technical_sentences(text: str, min_keep: int = 40) -> str:
     return str(text or "").strip()
 
 
+def strip_template_opening(text: str, min_keep: int = 20) -> str:
+    """去掉「第12集中，」「本集延续…」这类编号套话开场。
+
+    只处理开头：把引导语连同紧跟的逗号一起去掉，保留其后的正文。
+    套话可能叠两层（「作为第一季…的一集，本集延续…」），因此循环剥离；
+    剥离后剩余正文过短（低于 ``min_keep``）时退回上一个可用版本，
+    只有剩下几乎没有内容时才保留原文，避免把整段简介削没。
+    """
+    original = str(text or "").strip()
+    body = original
+    floor = max(1, min_keep)
+    for _ in range(3):
+        match = EPISODE_TEMPLATE_OPENING_PATTERN.match(body)
+        if not match:
+            break
+        rest = body[match.end():].lstrip("，,、：: ")
+        if visible_length(rest) < floor:
+            break
+        body = rest.strip()
+    return body or original
+
+
 def text_cjk_ratio(text: Any) -> float:
     """计算中文（含日韩汉字）字符在有效文字中的占比，用于识别未翻译的外文简介。"""
     body = str(text or "")
@@ -1374,6 +1415,18 @@ def text_cjk_ratio(text: Any) -> float:
 
 TEMPLATE_SENTENCE_PATTERN = re.compile(
     r"^\s*(本片|本剧|该片|该剧|这部电影|这部电视剧|本作品|这段视频)\s*(主要)?\s*(讲述|围绕|呈现)"
+)
+
+# AI 生成分集简介时常见的「编号 + 套话」开场，例如
+# 「第12集中，……」、「本集继续……」、「作为第一季推进至后半程的一集，……」
+EPISODE_TEMPLATE_OPENING_PATTERN = re.compile(
+    r"^\s*(?:"
+    r"第\s*[0-9一二三四五六七八九十百]+\s*[集中集话](?:中|里|，|,)?"
+    r"|本集(?:延续|继续|围绕|聚焦|中|里|讲述|主要)"
+    r"|这一集(?:中|里|延续|继续|围绕|聚焦)"
+    r"|作为第\s*[0-9一二三四五六七八九十百]+\s*季[^，,。]{0,12}的一集"
+    r"|在(?:本|这一)集中"
+    r")"
 )
 
 
@@ -1525,7 +1578,10 @@ class OverviewEnhancer:
         self._pending_worker: Optional[threading.Thread] = None
         self._stop_pending = threading.Event()
         self._skipped_no_provider = 0
+        self._no_provider_names = []
         self._title_matched = 0
+        # 本轮缺 TMDB 标识的条目名称，用于给出可操作的提示
+        self._no_provider_names: List[str] = []
         # 状态落盘节流：热点路径（头像/缓存）先标脏，最多每 5 秒落盘一次
         self._last_save_at = 0.0
         self._state_dirty = False
@@ -1720,6 +1776,15 @@ class OverviewEnhancer:
             )
             for key, _ in ordered[: len(backups) - maximum]:
                 backups.pop(key, None)
+
+    def _note_no_provider(self, kind: str, label: str) -> None:
+        """记录本轮缺少 TMDB 标识的条目（只用于汇总提示，不落盘）。"""
+        text = str(label or "").strip()
+        if not text:
+            return
+        bucket = self._no_provider_names
+        if len(bucket) < 50 and text not in bucket:
+            bucket.append(text)
 
     def _log(self, message: str, level: str = "info") -> None:
         """写入运行日志（同时输出到宿主日志）。"""
@@ -2110,6 +2175,7 @@ class OverviewEnhancer:
             if not tmdb_id:
                 if require_provider:
                     self._skipped_no_provider += 1
+                    self._note_no_provider(MOVIE, f"{name}（{year or '年份未知'}）")
                 continue
             jobs.append(
                 {
@@ -2279,6 +2345,9 @@ class OverviewEnhancer:
             if not tmdb_id:
                 if require_provider:
                     self._skipped_no_provider += 1
+                    self._note_no_provider(
+                        EPISODE, f"{series_title} S{season}" if season else series_title
+                    )
                 continue
             duplicate_values = set()
             if duplicate_detect:
@@ -2348,6 +2417,7 @@ class OverviewEnhancer:
             str(value) for value in (focus_keys or []) if str(value or "").strip()
         }
         self._skipped_no_provider = 0
+        self._no_provider_names = []
         self._title_matched = 0
         jobs: List[Dict[str, Any]] = []
         stats = {
@@ -2498,6 +2568,41 @@ class OverviewEnhancer:
         return kept
 
     # ------------------------------------------------------------------ 简介决策
+
+    def _expand_short_translation(
+        self,
+        job: Dict[str, Any],
+        text: str,
+        target: int,
+        detail: Dict[str, Any],
+        en_overview: str = "",
+    ) -> str:
+        """译文明显短于目标字数时，先给 AI 一次扩写机会。
+
+        ``translate`` 模式的语义是「译文本身」，所以不再额外走素材过短扩写；
+        英文简介常常只有一两句，直译后远低于目标字数，这里直接把译文
+        当作素材扩写，扩写失败则原样返回译文。
+        """
+        body = clean_text(text, 4000)
+        threshold = int((target or 0) * 0.6)
+        if not body or threshold <= 0 or visible_length(body) >= threshold:
+            return body
+        if not self._llm.available():
+            return body
+        context = self._movie_context(job, detail, en_overview)
+        expanded = clean_text(
+            self._llm_generate(
+                MOVIE_EXPAND_SYSTEM,
+                f"{context}\n\n现有中文简介：{body}\n\n"
+                f"请在此基础上扩写为约 {target} 字的中文简介，不得编造具体情节。",
+            ),
+            4000,
+        )
+        # 只有确实更长、且能通过质量闸门时才采用扩写结果
+        if expanded and visible_length(expanded) > visible_length(body):
+            if not self._quality_issue(expanded, str(job.get("kind") or "")):
+                return expanded
+        return body
 
     def _movie_context(self, job: Dict[str, Any], detail: Dict[str, Any], en_overview: str) -> str:
         """构造电影提示词上下文。"""
@@ -3002,15 +3107,18 @@ class OverviewEnhancer:
                 f"影片：{job['title']}（{job.get('year') or '年份未知'}）\n\n简介原文：\n{en_overview}",
             )
             if not text:
+                # 翻译失败但原文可用：至少写回理由，避免条目一直没有中文简介
                 return {
                     "action": "skip",
                     "message": "英文简介翻译失败",
                     "failed": True,
                     "detail": zh_detail,
                 }
+            # translate 模式只做翻译，英文原文偏短时译文同样偏短；
+            # 目标字数明显不足时再判断一次，交给 _short_material_ai_plan 决定是否扩写。
             return {
                 "action": "write",
-                "text": text,
+                "text": self._expand_short_translation(job, text, target, zh_detail, en_overview),
                 "source": SOURCE_TRANSLATE,
                 "detail": zh_detail,
             }
@@ -3157,6 +3265,7 @@ class OverviewEnhancer:
         """检查分集简介是否与同季雷同，必要时重生成一次；仍雷同返回空字符串。"""
         if not text:
             return ""
+        text = strip_template_opening(text)
         if not self._episode_duplicate(job, text):
             return text
         retry = self._llm_generate(
@@ -3166,9 +3275,53 @@ class OverviewEnhancer:
                 "必须与其他集明显区分，不要复用相同的开头与句式。"
             ),
         )
+        if retry:
+            retry = strip_template_opening(retry)
         if retry and not self._episode_duplicate(job, retry):
             return retry
         return ""
+
+    def _expand_short_episode_translation(
+        self,
+        job: Dict[str, Any],
+        text: str,
+        context: str,
+        target: int,
+        minimum: int,
+    ) -> str:
+        """分集译文短于阈值时补写一次；补写失败或更短则保留译文。"""
+        body = clean_text(text, 4000)
+        if not body or visible_length(body) >= max(1, minimum):
+            return body
+        if not self._llm.available():
+            return body
+        expanded = clean_text(
+            self._llm_generate(
+                EPISODE_EXPAND_SYSTEM,
+                f"{context}\n\n现有中文简介：{body}\n\n"
+                f"请在此基础上补写为约 {target} 字的该集简介，不得编造具体情节。",
+            ),
+            4000,
+        )
+        if expanded and visible_length(expanded) > visible_length(body):
+            if not self._quality_issue(expanded, EPISODE):
+                return expanded
+        return body
+
+    def _episode_short_and_expandable(
+        self, job: Dict[str, Any], zh_overview: str, min_chars: int
+    ) -> bool:
+        """判断该集是否属于「中文简介偏短、值得按素材扩写」。
+
+        只有大模型可用、且原文确实短于阈值（或本集被判定为过短/雷同/强制重写）时才扩写；
+        素材充足且未开启「已有简介也交给 AI 重写」的条目保持原样，避免无谓消耗额度。
+        """
+        if not self._llm.available():
+            return False
+        if job.get("reason") in {"short", "duplicate", "force"}:
+            return True
+        threshold = max(1, min_chars)
+        return visible_length(zh_overview) < threshold
 
     def _episode_plan(self, job: Dict[str, Any], allow_llm: bool = True) -> Dict[str, Any]:
         """判断分集简介的生成方式与素材。"""
@@ -3186,8 +3339,7 @@ class OverviewEnhancer:
         has_tmdb = visible_length(zh_overview) >= 20 or visible_length(en_overview) >= 20
 
         if mode == "tmdb":
-            if visible_length(zh_overview) >= 20:
-                return {"action": "write", "text": zh_overview, "source": SOURCE_TMDB}
+            # 中文简介再短也算 TMDB 素材：优先按素材扩写，而不是把几十字原文直接写回
             if visible_length(en_overview) >= 20 and self._config.get("translate_foreign"):
                 if not allow_llm:
                     return {"action": "write", "text": "", "source": SOURCE_TRANSLATE, "message": "将翻译英文分集简介"}
@@ -3199,6 +3351,8 @@ class OverviewEnhancer:
                     "text": text,
                     "source": SOURCE_TRANSLATE,
                 }
+            if visible_length(zh_overview) >= 20:
+                return {"action": "write", "text": zh_overview, "source": SOURCE_TMDB}
             if visible_length(en_overview) >= 20:
                 return {"action": "write", "text": en_overview, "source": SOURCE_TMDB}
             return {"action": "skip", "message": "TMDB 无该集简介"}
@@ -3218,14 +3372,25 @@ class OverviewEnhancer:
                 return {"action": "write", "text": zh_overview, "source": SOURCE_TMDB}
             return {"action": "skip", "message": "AI 生成失败或与同季其他集雷同", "failed": True}
 
-        # auto：中文分集简介优先，其次英文翻译，最后按上下文生成
-        if visible_length(zh_overview) >= max(20, min_chars):
-            if self._config.get("episode_always_rewrite") and job.get("reason") in {"short", "duplicate", "force"}:
+        # auto：中文分集简介优先，其次英文翻译，最后按上下文生成。
+        # 中文简介偏短（含「已有简介也交给 AI 重写」/短简介扩写）时按素材扩写，而不是原样写回。
+        if visible_length(zh_overview) >= 20:
+            needs_expand = self._episode_short_and_expandable(job, zh_overview, min_chars)
+            if not needs_expand and self._config.get("episode_always_rewrite") and job.get("reason") in {
+                "short",
+                "duplicate",
+                "force",
+            }:
+                needs_expand = True
+            if needs_expand:
                 if not allow_llm:
                     return {"action": "write", "text": "", "source": f"{SOURCE_TMDB}+{SOURCE_AI}", "message": "将扩写该集简介"}
                 text = self._finalize_episode_text(
                     job,
-                    self._llm_generate(EPISODE_SYSTEM, f"{context}\n\n请写一段约 {target} 字的该集简介。"),
+                    self._llm_generate(
+                        EPISODE_EXPAND_SYSTEM,
+                        f"{context}\n\n请在以上素材基础上扩写为约 {target} 字的该集简介。",
+                    ),
                     context,
                     target,
                 )
@@ -3252,6 +3417,8 @@ class OverviewEnhancer:
             text = self._llm_generate(TRANSLATE_SYSTEM, f"{context}\n\n简介原文：\n{en_overview}")
             if not text:
                 return {"action": "skip", "message": "英文分集简介翻译失败", "failed": True}
+            # 英文分集简介常常只有一两句，直译后仍短于阈值：补写一次再写回
+            text = self._expand_short_episode_translation(job, text, context, target, min_chars)
             return {
                 "action": "write",
                 "text": text,
@@ -3511,9 +3678,15 @@ class OverviewEnhancer:
             for message in errors:
                 self._log(message, "warning")
             if stats.get("skipped_no_provider"):
+                names = list(getattr(self, "_no_provider_names", []) or [])
+                hint = ""
+                if names:
+                    shown = "、".join(names[:5])
+                    more = f" 等 {len(names)} 个" if len(names) > 5 else ""
+                    hint = f"；例如 {shown}{more}，可在 Emby 里补 TMDB 标识后重跑"
                 self._log(
                     f"跳过 {stats['skipped_no_provider']} 条缺少 TMDB 标识的条目"
-                    "（多为 MV 或未刮削内容，合集类库默认不动）",
+                    "（多为 MV 或未刮削内容，合集类库默认不动）" + hint,
                     "warning",
                 )
             if stats.get("title_matched"):
@@ -3773,6 +3946,9 @@ class OverviewEnhancer:
         if not maintenance:
             # 电影/剧集同样剔除「2160p、WEB-DL、编码」这类文件信息句
             text = clean_text(strip_technical_sentences(text), 4000)
+            # 分集 AI 文案常以「第12集中，」「本集延续…」开场，去掉编号套话再交给质量闸门
+            if job.get("kind") == EPISODE:
+                text = clean_text(strip_template_opening(text), 4000)
             issue = self._quality_issue(text, str(job.get("kind") or ""))
             if issue:
                 if issue.startswith(_UNTRANSLATED_PREFIX):
@@ -3782,6 +3958,10 @@ class OverviewEnhancer:
                 return {"status": "failed", "message": issue}
         if not maintenance and text_signature(text) == text_signature(job.get("current")):
             return {"status": "skipped", "message": "内容与现有简介一致"}
+        if not maintenance and not text:
+            # 方案只给出「将翻译 / 将扩写」等提示、没有实际文本时不写库，
+            # 避免把空字符串当成一次「更新」计入统计。
+            return {"status": "skipped", "message": plan.get("message") or "无可用简介文本"}
         if self._cancel.is_set():
             return {"status": "skipped", "message": "任务已取消"}
         people: Optional[List[Dict[str, Any]]] = None
