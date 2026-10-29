@@ -4,12 +4,14 @@ import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
+from pydantic import BaseModel, Field
+
 from app.core.config import settings
 from app.core.event import Event, eventmanager
 from app.log import logger
 from app.plugins import _PluginBase
 from app.plugins.chatgpt.openai import OpenAi
-from app.schemas import AgentLLMProviderEventData, AgentTokensUsageEventData, NotificationType
+from app.schemas import AgentLLMProviderEventData, AgentTokensUsageEventData, NotificationType, Response
 from app.schemas.types import ChainEventType, EventType
 
 
@@ -51,6 +53,24 @@ Rules:
 MUSIC_NAME_RECOGNIZE_EVENT = getattr(ChainEventType, "MusicNameRecognize", None)
 
 
+class CacheStatsData(BaseModel):
+    """识别缓存查询与清理接口的业务数据。"""
+
+    count: int = Field(description="识别缓存条目数")
+
+
+class UsageStatsData(BaseModel):
+    """Token 用量查询与清理接口的完整统计数据。"""
+
+    input_tokens: int = Field(description="累计输入 Token 数")
+    output_tokens: int = Field(description="累计输出 Token 数")
+    total_tokens: int = Field(description="累计 Token 总数")
+    model_call_count: int = Field(description="累计模型调用次数")
+    success_count: int = Field(description="成功调用次数")
+    failed_count: int = Field(description="失败调用次数")
+    last_used_at: str = Field(description="最近调用时间，无调用记录时为空字符串")
+
+
 class ChatGPT(_PluginBase):
     """
     ChatGPT 识别增强插件，仅保留媒体名称辅助识别能力。
@@ -72,7 +92,7 @@ class ChatGPT(_PluginBase):
     # 插件图标
     plugin_icon = "Chatgpt_A.png"
     # 插件版本
-    plugin_version = "3.1.1"
+    plugin_version = "3.1.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -220,9 +240,9 @@ class ChatGPT(_PluginBase):
         except Exception as exc:
             logger.warning(f"ChatGPT 识别缓存保存失败: {exc}")
 
-    def clear_cache(self) -> dict:
+    def clear_cache(self) -> Response[CacheStatsData]:
         """
-        清除识别缓存，同时清除内存和数据库。
+        清除内存和数据库中的识别缓存，返回详情页所需的统一响应。
         """
         # 清除内存
         self._recognize_cache = {}
@@ -232,7 +252,7 @@ class ChatGPT(_PluginBase):
         except Exception as exc:
             logger.warning(f"ChatGPT 识别缓存清除失败: {exc}")
         logger.info("ChatGPT 识别缓存已清除")
-        return {"success": True, "message": "识别缓存已清除", "count": 0}
+        return Response(success=True, message="识别缓存已清除", data=CacheStatsData(count=0))
 
     def _get_cache_count(self) -> int:
         """
@@ -349,14 +369,18 @@ class ChatGPT(_PluginBase):
         self._usage_stats = self._normalize_usage_stats(stats)
         self._save_usage_stats()
 
-    def clear_usage_stats(self) -> dict:
+    def clear_usage_stats(self) -> Response[UsageStatsData]:
         """
-        清除 Token 用量统计。
+        清除 Token 用量统计，并通过统一响应返回清理后的数据。
         """
         self._usage_stats = self._empty_usage_stats()
         self._save_usage_stats()
         logger.info("ChatGPT Token 用量统计已清除")
-        return {"success": True, "message": "Token 用量统计已清除", "data": self._usage_stats}
+        return Response(
+            success=True,
+            message="Token 用量统计已清除",
+            data=UsageStatsData(**self._usage_stats),
+        )
 
     @staticmethod
     def _clean_text(value: Any) -> str:
@@ -408,6 +432,7 @@ class ChatGPT(_PluginBase):
                 "methods": ["GET"],
                 "auth": "bear",
                 "summary": "清除识别缓存",
+                "response_model": Response[CacheStatsData],
             },
             {
                 "path": "/cache_stats",
@@ -415,6 +440,7 @@ class ChatGPT(_PluginBase):
                 "methods": ["GET"],
                 "auth": "bear",
                 "summary": "获取缓存统计",
+                "response_model": Response[CacheStatsData],
             },
             {
                 "path": "/usage_stats",
@@ -422,6 +448,7 @@ class ChatGPT(_PluginBase):
                 "methods": ["GET"],
                 "auth": "bear",
                 "summary": "获取 Token 用量统计",
+                "response_model": Response[UsageStatsData],
             },
             {
                 "path": "/clear_usage_stats",
@@ -429,20 +456,21 @@ class ChatGPT(_PluginBase):
                 "methods": ["GET"],
                 "auth": "bear",
                 "summary": "清除 Token 用量统计",
+                "response_model": Response[UsageStatsData],
             },
         ]
 
-    def get_cache_stats(self) -> dict:
+    def get_cache_stats(self) -> Response[CacheStatsData]:
         """
-        获取缓存统计信息。
+        通过统一响应返回缓存统计，供宿主普通数据客户端读取。
         """
-        return {"count": self._get_cache_count()}
+        return Response(success=True, data=CacheStatsData(count=self._get_cache_count()))
 
-    def get_usage_stats(self) -> dict:
+    def get_usage_stats(self) -> Response[UsageStatsData]:
         """
-        获取 Token 用量统计信息。
+        通过统一响应返回最新 Token 用量统计，供详情页刷新使用。
         """
-        return self._get_usage_stats()
+        return Response(success=True, data=UsageStatsData(**self._get_usage_stats()))
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """

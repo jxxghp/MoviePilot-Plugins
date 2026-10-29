@@ -55,11 +55,17 @@ MoviePilot 宿主自身的普通 JSON API 固定使用三个顶层字段：
 | 宿主普通 JSON REST | 固定三段式 envelope | 从 `data` 读取业务对象 |
 | `get_api()` 普通 JSON endpoint | 保留 endpoint 自己的响应 | 明确选择裸业务模型或 envelope，并声明匹配的 `response_model` |
 | endpoint 返回 `schemas.Response[T]` | 输出显式 envelope | 适用于接入宿主普通数据页面或统一反馈的接口 |
+| Vuetify JSON 页面 `events.click.api` | 使用宿主普通数据客户端，严格校验三字段 envelope | endpoint 显式返回并声明 `schemas.Response[DataModel]`，业务字段放在 `data` 中 |
 | Vue 远程组件注入的 `api` | 非宿主 `Response` payload 原样返回；标准 envelope 仍按统一错误语义处理 | 按插件自己的 API 合同读取裸数据或 envelope |
 | SSE、文件、图片、HTML、204 | 保持原生协议 | 显式声明原生响应和 OpenAPI content |
 | OAuth2、OpenAI、Anthropic、MCP JSON-RPC | 保持标准协议原生响应 | 不按三段式解析 |
 
 不要通过 `response_model=None` 隐藏普通 JSON 接口的真实结构。
+
+`get_page()` 等 JSON 页面中的按钮请求由宿主 `PageRender` 执行，不能套用 Vue
+远程组件注入 `api` 时允许裸业务数据的规则。裸统计字典、`{success, message}` 或
+`{success, message, count}` 即使返回 HTTP 200，也会被按钮调用方判为无效响应；
+应将 `count` 等字段放进 `data`，并保留字符串类型的 `message`（没有文案时为空字符串）。
 
 ## 3. 适配插件后端 API
 
