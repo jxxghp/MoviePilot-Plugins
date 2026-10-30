@@ -25,9 +25,7 @@ jobs:
         run: python .github/scripts/check_federation_css.py
 
       - name: Check new plugin tests
-        run: |
-          git fetch origin main:refs/remotes/origin/main --depth=1
-          python scripts/check_new_plugin_tests.py --base-ref origin/main
+        run: python scripts/check_new_plugin_tests.py --base-ref origin/main
 
   plugin-test-gate:
     name: Plugin test gate
