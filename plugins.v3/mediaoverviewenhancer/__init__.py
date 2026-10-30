@@ -28,7 +28,7 @@ class MediaOverviewEnhancer(_PluginBase):
         "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/"
         "src/assets/images/misc/edit.png"
     )
-    plugin_version = "1.10.0"
+    plugin_version = "1.12.0"
     plugin_label = "元数据,媒体库,AI"
     plugin_author = "miguelito39721"
     plugin_config_prefix = "mediaoverviewenhancer_"
