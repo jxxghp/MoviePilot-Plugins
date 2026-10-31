@@ -1159,7 +1159,7 @@
       "v1.0.0": "初始版本"
     }
   },
-    "SeedStats": {
+    "TunnelYield": {
     "name": "隧道在线带宽释放",
     "description": "监控隧道/组网EasyTier内指定主机在线时,暂停下载器有上传流量的任务或开启全局限速（需配合采集端），监测 Jellyfin/Emby 外部播放自动限速",
     "labels": "隧道,做种,限速",
