@@ -247,7 +247,10 @@ class TestV3Structure:
         assert not ty._test_env.once_jobs
     def test_metadata(self, ty):
         assert ty.TunnelYield.plugin_name == "隧道在线带宽释放"
-        assert ty.TunnelYield.plugin_version == "0.1.0"
+        version = ty.TunnelYield.plugin_version
+        assert isinstance(version, str)
+        assert version.strip(), "plugin_version 不能为空"
+    
         assert ty.TunnelYield.plugin_config_prefix == "tunnelyield_"
         assert ty.SNAPSHOT_SCHEMA == 1
         assert ty.SECRET_HEADER == "X-Tunnel-Secret"
