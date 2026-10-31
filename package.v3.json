@@ -1171,5 +1171,19 @@
     "history": {
       "v1.0.7": "首个版本：读取 Emby 或直接扫描本地目录，按单集 TMDB ID 核对已播出集的缺集，库内编号与 TMDB 整体错位时改为无法核对；编号冲突按季汇总并给出处理提示；按季以多数版本为基准检查分辨率、编码、HDR 等一致性，报告多版本与重复条目；按需读取 MP/Emby 生成的 NFO 与本地媒体信息（ffprobe/mediainfo，增量缓存）；可选 AI 为编号冲突提出映射、为无法识别的剧集选择身份并生成摘要，建议经规则验证后由用户采纳；提供智能助手只读查询工具，支持忽略规则与定时扫描"
     }
+  },
+    "TunnelYield": {
+    "name": "隧道在线带宽释放",
+    "description": "监控隧道/组网EasyTier内指定主机在线时,暂停下载器有上传流量的任务或开启全局限速（需配合采集端），监测 Jellyfin/Emby 外部播放自动限速",
+    "labels": "隧道,做种,限速",
+    "version": "0.0.1",
+    "icon": "Librespeed_A.png",
+    "author": "RamenRa",
+    "level": 2,
+    "release": true,
+    "system_version": ">=3.0.0",
+    "history": {
+      "v0.0.1": "初始版本"
+    }
   }
 }
