@@ -162,18 +162,22 @@ def parse_int(value: object) -> Optional[int]:
         return None
 
 
-def format_episode_ranges(numbers: Iterable[int]) -> str:
+def format_episode_ranges(numbers: Iterable[int], prefix: str = "E", width: int = 2) -> str:
     """把集号列表压缩为 "E01-E03、E05" 形式。"""
     values = sorted(set(numbers))
     if not values:
         return ""
+
+    def label(value: int) -> str:
+        return f"{prefix}{value:0{width}d}"
+
     parts: list[str] = []
     start = prev = values[0]
     for number in values[1:] + [None]:
         if number is not None and number == prev + 1:
             prev = number
             continue
-        parts.append(f"E{start:02d}" if start == prev else f"E{start:02d}-E{prev:02d}")
+        parts.append(label(start) if start == prev else f"{label(start)}-{label(prev)}")
         if number is not None:
             start = prev = number
     return "、".join(parts)
@@ -582,6 +586,42 @@ def _minor_extras(count: int, season_size: int) -> bool:
     return count <= max(2, season_size // 10) and count * 4 <= season_size
 
 
+def _empty_season(tmdb: Optional[TmdbSeries], season: Optional[int]) -> bool:
+    """TMDB 已建立该季但还没有任何单集数据（常见于刚公布的新季）。"""
+    return tmdb is not None and season in tmdb.seasons and not tmdb.seasons[season]
+
+
+def _regular_seasons(tmdb: TmdbSeries) -> list[int]:
+    """TMDB 中有单集数据的正片季。"""
+    return sorted(season for season, refs in tmdb.seasons.items() if season != 0 and refs)
+
+
+def _describe_seasons(seasons: list[int]) -> str:
+    """把季号列表压缩为 "第 1-9 季" 或 "第 1、3 季"。"""
+    if not seasons:
+        return "没有正片季"
+    return "第 " + format_episode_ranges(seasons, prefix="", width=1) + " 季"
+
+
+def _absent_season_hint(series: LibrarySeries, season: int, tmdb: TmdbSeries, unmatched: list[int], identity: str) -> str:
+    """库内某季在 TMDB 中不存在时的处理建议：多半是分季方式不同，其次才是认错了剧。"""
+    if not series.tmdb_id or not unmatched:
+        return f"处理：TMDB 上没有这一季，可能认错了剧，可在「身份指定」中写 {identity}"
+    source = f"tmdb:{series.tmdb_id} S{season}E{min(unmatched)}-E{max(unmatched)}"
+    regular = _regular_seasons(tmdb)
+    if len(regular) == 1 and len(tmdb.seasons[regular[0]]) > len(unmatched):
+        only = regular[0]
+        return (
+            f"处理：TMDB 把该剧按绝对集数排在第 {only} 季（共 {len(tmdb.seasons[only])} 集），库内可能按 TVDB 分季；"
+            f"可在「编号映射」中写 {source} => S{only}E<起始集>，起始集可按本季首集的播出日期在 TMDB 第 {only} 季中查到；"
+            f"若认错了剧，在「身份指定」中写 {identity}"
+        )
+    return (
+        f"处理：库内分季可能与 TMDB 不同（如按 TVDB 分季），可在「编号映射」中写 {source} => S<TMDB 季>E<起始集>；"
+        f"若认错了剧，在「身份指定」中写 {identity}"
+    )
+
+
 def _conflict_hint(
     series: LibrarySeries, season: Optional[int], tmdb: Optional[TmdbSeries], unmatched: list[int]
 ) -> str:
@@ -590,7 +630,9 @@ def _conflict_hint(
     if season is None:
         return "处理：把文件放进 Season N 目录或在文件名中写明季号（如 S01E01），再让 Emby 重新扫描该剧"
     if tmdb is not None and season not in tmdb.seasons:
-        return f"处理：TMDB 上没有这一季，可能认错了剧或该季在 TMDB 上是独立条目，可在「身份指定」中写 {identity}"
+        return _absent_season_hint(series, season, tmdb, unmatched, identity)
+    if _empty_season(tmdb, season):
+        return "处理：TMDB 已建立这一季但还没有单集数据，等 TMDB 补全后重新扫描即可，不需要编号映射；在此之前可点「忽略」"
     if tmdb is not None and unmatched and _minor_extras(len(unmatched), len(tmdb.seasons[season])):
         return "处理：多出的少量集通常是 TMDB 合并的双集或季末番外，不影响缺集核对；确认无误后可点「忽略」"
     if series.tmdb_id and unmatched:
@@ -639,7 +681,11 @@ def conflict_issues(
             if unmatched.get(season):
                 ranges = format_episode_ranges(unmatched[season])
                 if tmdb is not None and season not in tmdb.seasons:
-                    details.append(f"TMDB 没有第 {season} 季（TMDB 共 {len(tmdb.seasons)} 季），库内 {ranges} 无法对应")
+                    details.append(
+                        f"TMDB 没有第 {season} 季（TMDB 正片为{_describe_seasons(_regular_seasons(tmdb))}），库内 {ranges} 无法对应"
+                    )
+                elif _empty_season(tmdb, season):
+                    details.append(f"TMDB 第 {season} 季暂无单集数据，库内 {ranges} 暂时无法对应")
                 else:
                     details.append(f"TMDB 第 {season} 季中没有 {ranges}")
             if invalid.get(season):
@@ -679,11 +725,78 @@ def numbering_misaligned(matches: list[EpisodeMatch], tmdb: TmdbSeries, include_
             continue
         unmatched[season] += len(match.unmatched_numbers)
     for season, count in unmatched.items():
-        if not count:
+        if not count or _empty_season(tmdb, season):
+            # TMDB 已建季但暂无单集时只是该季暂时无法核对，不影响其他季的对应
             continue
         if season not in tmdb.seasons or not _minor_extras(count, len(tmdb.seasons[season])):
             return True
     return False
+
+
+# 判定"一个文件含两集"时 TMDB 季集数与库内集数之比的范围
+_SPLIT_RATIO = (1.6, 2.4)
+# TMDB 单集两两同日播出的比例达到该值，才认为该季是拆分的短篇
+_SPLIT_PAIRED = 0.7
+
+
+def _paired_ratio(refs: list[TmdbEpisodeRef]) -> float:
+    """TMDB 某季中与另一集同日播出的单集比例；分段播出的短篇（如 11 分钟一段）通常两两同日。"""
+    dates = Counter(ref.air_date for ref in refs if ref.air_date)
+    total = sum(dates.values())
+    return sum(n for n in dates.values() if n >= 2) / total if total else 0.0
+
+
+def split_episode_seasons(
+    matches: list[EpisodeMatch], tmdb: TmdbSeries, missing: dict[int, list[TmdbEpisodeRef]]
+) -> list[int]:
+    """找出疑似"库内一个文件对应 TMDB 两集"的季，这些季按编号算出的缺集是假的。
+
+    典型如汪汪队立大功：TVDB 每季 26 集、每集含两个 11 分钟的故事，TMDB 把每个故事拆成一集（每季约 47 集）。
+    库内按 TVDB 编号时，前半季编号恰好都能对上，后半季全部被当作缺集。
+
+    单季的形态：库内恰好覆盖 TMDB 该季的 E01-En，缺的正好是其后全部已播集，且 TMDB 集数约为库内的两倍。
+    只有一季呈此形态时无法与"后半季确实没下"区分，因此至少要有两季的 TMDB 单集多数两两同日播出，
+    才认定整部剧是拆分短篇；认定后其余呈此形态的季一并按拆分处理。
+    """
+    covered: dict[int, set[int]] = defaultdict(set)
+    for match in matches:
+        for ref in match.refs:
+            covered[ref.season].add(ref.episode)
+    candidates: list[int] = []
+    for season, refs in missing.items():
+        have = covered.get(season)
+        if season == 0 or not have:
+            continue
+        count = len(have)
+        if have != set(range(1, count + 1)):
+            continue
+        if sorted(ref.episode for ref in refs) != list(range(count + 1, count + 1 + len(refs))):
+            continue
+        size = len(tmdb.seasons.get(season, []))
+        if not _SPLIT_RATIO[0] * count <= size <= _SPLIT_RATIO[1] * count:
+            continue
+        candidates.append(season)
+    paired = [season for season in candidates if _paired_ratio(tmdb.seasons[season]) >= _SPLIT_PAIRED]
+    return sorted(candidates) if len(paired) >= 2 else []
+
+
+def split_episode_issue(series: LibrarySeries, tmdb: TmdbSeries, seasons: list[int], matches: list[EpisodeMatch]) -> Issue:
+    """疑似一个文件含两集的季，不报缺集，改为一条无法核对。"""
+    have: dict[int, int] = Counter(ref.season for match in matches for ref in match.refs)
+    details = [f"第 {season} 季：库内 {have[season]} 集，TMDB {len(tmdb.seasons[season])} 集" for season in seasons]
+    details.append(
+        "TMDB 把每集拆成了两段（多为 11 分钟左右的短篇），库内一个文件含两段、按 TVDB 编号，"
+        "因此前半季编号能对上、后半季被误当作缺集；按编号无法核对这些季，也无法用编号映射对齐"
+    )
+    details.append("若这些季确实只下载了前半部分，可对照 TMDB 自行核实；其余季的缺集仍正常报告")
+    return _series_issue(
+        series,
+        IssueType.UNCHECKED,
+        severity=Severity.INFO,
+        summary=f"疑似一个文件含 TMDB 两集，{_describe_seasons(seasons)}未核对缺集",
+        details=details,
+        scope=series_scope(series.tmdb_id, series.server, series.item_id, series.origin),
+    )
 
 
 def unreliable_missing_issue(series: LibrarySeries, missing: dict[int, list[TmdbEpisodeRef]]) -> Issue:
