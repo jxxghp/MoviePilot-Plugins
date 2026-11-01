@@ -28,6 +28,8 @@ from .checks import (
     numbering_misaligned,
     series_scope,
     source_scope,
+    split_episode_issue,
+    split_episode_seasons,
     suggestion_issue,
     summarize_match,
     unchecked_issue,
@@ -244,6 +246,11 @@ class LibraryScanner:
                     if missing and numbering_misaligned(matches, tmdb_series, self.options.include_specials):
                         issues.append(unreliable_missing_issue(series, missing))
                     else:
+                        # 一个文件含 TMDB 两集的季，后半季会被误当作缺集
+                        split = split_episode_seasons(matches, tmdb_series, missing)
+                        if split:
+                            issues.append(split_episode_issue(series, tmdb_series, split, matches))
+                            missing = {season: refs for season, refs in missing.items() if season not in split}
                         issues.extend(missing_issues(series, missing))
                     self._queue_numbering(series, tmdb_series, matches)
         issues.extend(conflict_issues(series, matches, self.options.include_specials, tmdb_series))
@@ -322,6 +329,8 @@ class LibraryScanner:
             f"S{m.episode.season:02d}E{n:02d}"
             for m in matches
             if m.episode.season is not None and (self.options.include_specials or m.episode.season != 0)
+            # TMDB 已建季但暂无单集时，只能等 TMDB 补全，编号映射帮不上忙
+            and not (m.episode.season in tmdb_series.seasons and not tmdb_series.seasons[m.episode.season])
             for n in m.unmatched_numbers
         ]
         scope = series_scope(series.tmdb_id, series.server, series.item_id, series.origin)

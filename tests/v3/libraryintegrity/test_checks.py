@@ -1,6 +1,7 @@
 """影视库完整性检查：取值归一、忽略规则与缺集/版本/多文件规则测试。"""
 
-from datetime import date
+from dataclasses import replace
+from datetime import date, timedelta
 
 from app.plugins.libraryintegrity.checks import (
     apply_ignore_rules,
@@ -232,8 +233,8 @@ def test_conflict_hint_for_season_absent_from_tmdb():
     tmdb = _tmdb({1: 25, 2: 30})
     series = _series([_episode(6, 1), _episode(6, 2)])
     issue = conflict_issues(series, match_episodes(series, tmdb), include_specials=False, tmdb=tmdb)[0]
-    assert issue.details[0] == "TMDB 没有第 6 季（TMDB 共 2 季），库内 E01-E02 无法对应"
-    assert any("可能认错了剧" in line for line in issue.details)
+    assert issue.details[0] == "TMDB 没有第 6 季（TMDB 正片为第 1-2 季），库内 E01-E02 无法对应"
+    assert any("认错了剧" in line for line in issue.details)
 
 
 def test_minor_tail_extras_get_ignore_hint():
@@ -404,3 +405,94 @@ def test_identity_coverage_ratio():
     assert identity_coverage(_series([_episode(1, 1), _episode(1, 2), _episode(0, 1)]), tmdb) == 1.0
     assert identity_coverage(_series([_episode(1, 1), _episode(1, 5)]), tmdb) == 0.5
     assert identity_coverage(_series([]), tmdb) == 0.0
+
+
+def _paired_tmdb(seasons: dict[int, int], series_id: int = 100) -> TmdbSeries:
+    """构造拆分短篇的季集结构：TMDB 单集两两同日播出。"""
+    tmdb = TmdbSeries(tmdb_id=series_id)
+    for season, count in seasons.items():
+        tmdb.seasons[season] = [
+            TmdbEpisodeRef(
+                tmdb_id=10000 + season * 1000 + n, season=season, episode=n,
+                air_date=f"2015-{season:02d}-{(n + 1) // 2:02d}", name=f"第{n}集",
+            )
+            for n in range(1, count + 1)
+        ]
+    return tmdb
+
+
+def test_split_episode_seasons_detected_when_several_seasons_pair_up():
+    """多季都是库内前 n 集、TMDB 约 2n 集且两两同日播出时，判定为一个文件含两集，这些季不报缺集。"""
+    from app.plugins.libraryintegrity.checks import split_episode_issue, split_episode_seasons
+
+    tmdb = _paired_tmdb({1: 47, 2: 50, 3: 26})
+    episodes = [_episode(s, n) for s, size in ((1, 26), (2, 26), (3, 20)) for n in range(1, size + 1)]
+    series = _series(episodes)
+    matches = match_episodes(series, tmdb)
+    missing = find_missing(tmdb, matches, TODAY)
+    assert split_episode_seasons(matches, tmdb, missing) == [1, 2]
+    issue = split_episode_issue(series, tmdb, [1, 2], matches)
+    assert issue.type == IssueType.UNCHECKED
+    assert issue.summary == "疑似一个文件含 TMDB 两集，第 1-2 季未核对缺集"
+    assert issue.details[0] == "第 1 季：库内 26 集，TMDB 47 集"
+
+
+def test_split_episode_seasons_needs_two_paired_seasons():
+    """只有一季呈此形态、或 TMDB 单集并非两两同日播出时，按真缺集报告。"""
+    from app.plugins.libraryintegrity.checks import split_episode_seasons
+
+    def split(tmdb, sizes):
+        """按库内各季集数判定。"""
+        series = _series([_episode(s, n) for s, size in sizes.items() for n in range(1, size + 1)])
+        matches = match_episodes(series, tmdb)
+        return split_episode_seasons(matches, tmdb, find_missing(tmdb, matches, TODAY))
+
+    # 只有一季：可能确实只下了前半季
+    assert split(_paired_tmdb({1: 47, 2: 26}), {1: 26, 2: 26}) == []
+    # 不是两两同日播出（普通剧集只下了一半）
+    weekly = _tmdb({1: 52, 2: 52})
+    for season, refs in weekly.seasons.items():
+        weekly.seasons[season] = [
+            replace(ref, air_date=str(date(2015, 1, 1) + timedelta(days=7 * (season * 100 + ref.episode))))
+            for ref in refs
+        ]
+    assert split(weekly, {1: 26, 2: 26}) == []
+    # 缺的不是紧接着的后半段（中间有断档）
+    tmdb = _paired_tmdb({1: 47, 2: 47})
+    series = _series([_episode(s, n) for s in (1, 2) for n in range(1, 27) if n != 5])
+    matches = match_episodes(series, tmdb)
+    assert split_episode_seasons(matches, tmdb, find_missing(tmdb, matches, TODAY)) == []
+
+
+def test_empty_tmdb_season_is_not_misaligned_and_hints_waiting():
+    """TMDB 已建季但没有单集：不算整体错位，提示等待 TMDB 补全而不是编号映射。"""
+    from app.plugins.libraryintegrity.checks import numbering_misaligned
+
+    tmdb = _tmdb({1: 3, 8: 0})
+    series = _series([_episode(1, 1), _episode(8, 1), _episode(8, 2)])
+    matches = match_episodes(series, tmdb)
+    assert not numbering_misaligned(matches, tmdb, include_specials=False)
+    issue = conflict_issues(series, matches, include_specials=False, tmdb=tmdb)[0]
+    assert "TMDB 第 8 季暂无单集数据，库内 E01-E02 暂时无法对应" in issue.details
+    assert any("等 TMDB 补全" in line and "编号映射" in line for line in issue.details)
+    assert not any("tmdb:100 S8" in line for line in issue.details)
+
+
+def test_absent_season_hint_suggests_absolute_numbering_mapping():
+    """TMDB 只有一个正片季（按绝对集数）时，提示把库内季映射到该季，而不是只建议身份指定。"""
+    tmdb = _tmdb({0: 5, 1: 1400})
+    series = _series([_episode(1, 1), _episode(5, 1), _episode(5, 80)])
+    issue = conflict_issues(series, match_episodes(series, tmdb), include_specials=False, tmdb=tmdb)[0]
+    assert issue.details[0] == "TMDB 没有第 5 季（TMDB 正片为第 1 季），库内 E01、E80 无法对应"
+    hint = next(line for line in issue.details if line.startswith("处理："))
+    assert "绝对集数" in hint and "tmdb:100 S5E1-E80 => S1E<起始集>" in hint and "身份指定" in hint
+
+
+def test_absent_season_hint_for_multi_season_show():
+    """TMDB 有多个正片季时提示分季方式可能不同，给出编号映射写法。"""
+    tmdb = _tmdb({1: 25, 2: 30, 3: 10})
+    series = _series([_episode(6, 1), _episode(6, 2)])
+    issue = conflict_issues(series, match_episodes(series, tmdb), include_specials=False, tmdb=tmdb)[0]
+    assert issue.details[0] == "TMDB 没有第 6 季（TMDB 正片为第 1-3 季），库内 E01-E02 无法对应"
+    hint = next(line for line in issue.details if line.startswith("处理："))
+    assert "tmdb:100 S6E1-E2 => S<TMDB 季>E<起始集>" in hint and "身份指定" in hint
