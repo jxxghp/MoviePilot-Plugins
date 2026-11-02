@@ -152,6 +152,7 @@ def test_emby_uses_transcoded_bitrate(monkeypatch):
     monkeypatch.setattr(module, 'MediaServerHelper', lambda: SimpleNamespace(get_services=lambda: {'emby': media}))
     p._last_playing = module.time.monotonic()
     p._playback_started = p._last_playing - 20
+    p._session_positions[('emby', '8.8.8.8', None)] = (p._last_playing, None)
     captured = []
     p._SpeedLimiter__set_limiter = lambda **kw: captured.append(kw)
     p.check_playing_sessions()
@@ -247,3 +248,33 @@ def test_legacy_idle_limit_remains_effective(monkeypatch):
     p._SpeedLimiter__set_limiter(limit_type='未播放', upload_limit=200, download_limit=0)
     assert tr.session.speed_limit_up == 200
     assert qb.upload_limit == 200 * 1024
+
+
+def test_seek_restarts_buffer_protection(monkeypatch):
+    """拖动后重新让出带宽；正常播放进度不反复触发。"""
+    p, _, _, _, _ = clients(monkeypatch)
+    clock = [1000.0]
+    monkeypatch.setattr(module.time, 'monotonic', lambda: clock[0])
+    session = dict(Id='session', PlayState=dict(PositionTicks=100_000_000), NowPlayingItem=dict(Id='item'))
+    p._note_playback('emby', session)
+    first = p._playback_started
+    clock[0] += 5
+    session['PlayState']['PositionTicks'] += 50_000_000
+    p._note_playback('emby', session)
+    assert p._playback_started == first
+    clock[0] += 5
+    session['PlayState']['PositionTicks'] += 600_000_000
+    p._note_playback('emby', session)
+    assert p._playback_started == clock[0]
+
+
+def test_interval_jitter_does_not_halve_recovery_speed(monkeypatch):
+    """调度抖动几毫秒不应把每轮恢复拖成每两轮一次。"""
+    p, tr, _, _, _ = clients(monkeypatch)
+    apply(p, 100_000)
+    p._recovering = True
+    now = module.time.monotonic()
+    p._last_raise = now - 4.99
+    old = tr.session.speed_limit_up
+    p._SpeedLimiter__set_limiter(limit_type='未播放', upload_limit=0, download_limit=0)
+    assert tr.session.speed_limit_up > old

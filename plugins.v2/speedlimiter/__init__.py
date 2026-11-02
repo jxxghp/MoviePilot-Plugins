@@ -67,6 +67,7 @@ class SpeedLimiter(_PluginBase):
         self._applied = {}
         self._last_playing = None
         self._playback_started = None
+        self._session_positions = {}
         self._recovering = False
         self._last_raise = 0
         self._unlimited_ips = {}
@@ -574,11 +575,13 @@ class SpeedLimiter(_PluginBase):
                         if not self.__allow_access(self._unlimited_ips, session.get("RemoteEndPoint")) \
                                 and session.get("NowPlayingItem", {}).get("MediaType") == "Video":
                             has_remote_playback = True
+                            self._note_playback(server, session)
                             total_bit_rate += self.__get_jellyfin_bitrate(session, session.get("NowPlayingItem", {})) or self._bandwidth
                     # 未设置不限速范围，则默认不限速内网ip
                     elif not IpUtils.is_private_ip(session.get("RemoteEndPoint")) \
                             and session.get("NowPlayingItem", {}).get("MediaType") == "Video":
                         has_remote_playback = True
+                        self._note_playback(server, session)
                         total_bit_rate += self.__get_jellyfin_bitrate(session, session.get("NowPlayingItem", {})) or self._bandwidth
             elif service.type == "jellyfin":
                 req_url = (f"[HOST]Sessions?api_key=[APIKEY]&"
@@ -594,6 +597,7 @@ class SpeedLimiter(_PluginBase):
                             if bit_rate is None:
                                 continue
                             has_remote_playback = True
+                            self._note_playback(server, session)
                             total_bit_rate += bit_rate or self._bandwidth
                 except Exception as e:
                     logger.error(f"获取Jellyfin播放会话失败：{str(e)}")
@@ -648,6 +652,24 @@ class SpeedLimiter(_PluginBase):
             # 暂停或换集保留限速一段时间，再逐步恢复。
             self.__set_limiter(limit_type="未播放", upload_limit=self._noplay_up_speed,
                                download_limit=self._noplay_down_speed)
+
+    def _note_playback(self, server: str, session: dict):
+        """新会话、恢复播放或明显跳转时重新预留缓存带宽。"""
+        state = self.__get_compatible_value(session, "PlayState", "playState") or {}
+        item = self.__get_compatible_value(session, "NowPlayingItem", "nowPlayingItem") or {}
+        key = (server, session.get("Id") or session.get("DeviceId") or session.get("RemoteEndPoint"),
+               item.get("Id") or item.get("Path"))
+        position = self.__get_compatible_value(state, "PositionTicks", "positionTicks")
+        now = time.monotonic()
+        previous = self._session_positions.get(key)
+        if position is not None:
+            position = float(position) / 10000000
+        if (previous is None or now - previous[0] > self._interval * 2.5
+                or (position is not None and previous[1] is not None
+                    and abs(position - previous[1] - (now - previous[0])) > 10)):
+            self._playback_started = now
+        self._session_positions[key] = (now, position)
+        self._session_positions = {k: v for k, v in self._session_positions.items() if now - v[0] < 300}
 
     @staticmethod
     def __get_compatible_value(data: dict, *keys: str) -> Any:
@@ -984,7 +1006,7 @@ class SpeedLimiter(_PluginBase):
                 else:
                     value = min(upload_limit, cap / unit) if upload_limit else self._caps.get(name, self._original[name]["upload"])
                 targets.append(value * unit)
-        can_raise = time.monotonic() - self._last_raise >= self._interval
+        can_raise = time.monotonic() - self._last_raise >= self._interval * .9
         raised = False
         all_restored = True
         for name, target, unit in zip(valid, targets, units):
