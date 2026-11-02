@@ -970,8 +970,9 @@ class SpeedLimiter(_PluginBase):
             try:
                 actual = self._read_limits(service)
                 if name not in self._original:
-                    self._original[name] = actual
-                    self.save_data("original_limits", self._original)
+                    original = {**self._original, name: actual}
+                    self.save_data("original_limits", original)
+                    self._original = original
                 cap = self._caps.get(name, self._original[name]["upload"] or self._noplay_up_speed)
                 unit = 1000 if service.type == "transmission" else 1024
                 # 没有原始上限时以本轮总预算作为该下载器的上限。

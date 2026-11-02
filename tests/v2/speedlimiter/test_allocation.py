@@ -278,3 +278,19 @@ def test_interval_jitter_does_not_halve_recovery_speed(monkeypatch):
     old = tr.session.speed_limit_up
     p._SpeedLimiter__set_limiter(limit_type='未播放', upload_limit=0, download_limit=0)
     assert tr.session.speed_limit_up > old
+
+
+def test_snapshot_failure_never_leaves_unrecoverable_limits(monkeypatch):
+    """原始设置落盘失败时不能写入限速，也不能在下一轮跳过保存。"""
+    p, tr, qb, _, data = clients(monkeypatch)
+    save = p.save_data
+    p.save_data = Mock(side_effect=OSError())
+    apply(p, 100_000)
+    assert p._original == {}
+    assert tr.session.speed_limit_up == 3000 and qb.upload_limit == 512000
+    p.save_data = save
+    apply(p, 100_000)
+    assert data['original_limits']['TR']['upload'] == 3000
+    assert data['original_limits']['QB']['upload'] == 500
+    p.stop_service()
+    assert tr.session.speed_limit_up == 3000 and qb.upload_limit == 512000
