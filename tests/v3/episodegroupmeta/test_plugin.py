@@ -26,10 +26,10 @@ def test_v3_metadata_and_legacy_indexes_are_aligned() -> None:
     v3 = json.loads((ROOT / "package.v3.json").read_text(encoding="utf-8"))
     legacy = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
 
-    assert module.EpisodeGroupMeta.plugin_version == "3.2.0"
-    assert v3["EpisodeGroupMeta"]["version"] == "3.2.0"
+    assert module.EpisodeGroupMeta.plugin_version == "3.2.1"
+    assert v3["EpisodeGroupMeta"]["version"] == "3.2.1"
     assert v3["EpisodeGroupMeta"]["system_version"] == ">=3.0.0"
-    assert v3["EpisodeGroupMeta"]["history"]["v3.2.0"]
+    assert v3["EpisodeGroupMeta"]["history"]["v3.2.1"]
     assert legacy["EpisodeGroupMeta"]["v3"] is False
 
 
@@ -138,3 +138,158 @@ def test_reload_does_not_clear_previous_stop_signal() -> None:
 
     assert old_event.is_set()
     assert not plugin._event.is_set()
+
+
+class _FakeResponse:
+    """只提供详情读取所需的 json()/status_code。"""
+
+    def __init__(self, payload: dict) -> None:
+        self._payload = payload
+        self.status_code = 200
+
+    def json(self) -> dict:
+        return self._payload
+
+
+class _FakeJellyfinAdapter:
+    """模拟 V3 宿主 Jellyfin 适配器：只有实例级 get_data，没有 jellyfin 子客户端。"""
+
+    def __init__(self, payload: dict) -> None:
+        self._payload = payload
+        self.requested_urls: list = []
+
+    def get_data(self, url: str) -> _FakeResponse:
+        self.requested_urls.append(url)
+        return _FakeResponse(self._payload)
+
+
+def test_jellyfin_iteminfo_uses_adapter_get_data() -> None:
+    """V3 Jellyfin 详情必须走适配器自身的 get_data，不能依赖已移除的嵌套子客户端。"""
+    module = _load_plugin()
+    plugin = object.__new__(module.EpisodeGroupMeta)
+    plugin.log_error = lambda *_args, **_kwargs: None
+    adapter = _FakeJellyfinAdapter({"Id": "item", "Name": "旧标题", "Path": "/media/示例.S01E01.mkv"})
+
+    iteminfo = plugin.get_iteminfo(
+        server_type="jellyfin", itemid="item", mediaserver_instance=adapter
+    )
+
+    assert adapter.requested_urls == [
+        "[HOST]Users/[USER]/Items/item?Fields=ChannelMappingInfo&api_key=[APIKEY]"
+    ]
+    assert iteminfo["Name"] == "旧标题"
+    assert iteminfo["FileName"] == "示例.S01E01.mkv"
+
+
+def _position_plugin(module, group_episodes: list):
+    """装配按剧集组分集列表定位所需的插件替身，并收集写入媒体服务器的字段。"""
+    plugin = object.__new__(module.EpisodeGroupMeta)
+    plugin._ignorelock = True
+    plugin._notify = False
+    plugin.log_info = lambda *_args, **_kwargs: None
+    plugin.log_warn = lambda *_args, **_kwargs: None
+    plugin.log_error = lambda *_args, **_kwargs: None
+    plugin.tv = SimpleNamespace(
+        group_episodes=lambda _group_id: [{"order": 1, "episodes": group_episodes}]
+    )
+    plugin.get_iteminfo = lambda **_kwargs: {"Id": "item", "Name": "旧标题", "Overview": "旧简介"}
+    plugin.set_item_image = lambda **_kwargs: True
+    written: list = []
+    plugin.set_iteminfo = lambda **kwargs: (written.append(kwargs["iteminfo"]), True)[1]
+    return plugin, written
+
+
+def test_zero_numbered_season_is_mapped_by_position() -> None:
+    """媒体库集号从 0 开始（含特别篇）时按序号配对，第 0 集也要正常刮削。"""
+    module = _load_plugin()
+    plugin, written = _position_plugin(module, [
+        {"name": "特别篇", "overview": "组内第 1 位"},
+        {"name": "第一集", "overview": "组内第 2 位"},
+        {"name": "第二集", "overview": "组内第 3 位"},
+    ])
+    exists = module.ExistMediaInfo(
+        groupep={1: [0, 1, 2]},
+        groupid={1: [["id0"], ["id1"], ["id2"]]},
+        server_type="jellyfin",
+        server="测试",
+    )
+
+    assert plugin._EpisodeGroupMeta__start_rt_mediaserver(
+        SimpleNamespace(title_year="示例剧 (2026)"),
+        exists,
+        [{"id": "group", "name": "剧集组"}],
+    ) is True
+    assert [(w["IndexNumber"], w["Name"]) for w in written] == [
+        ("0", "特别篇"),
+        ("1", "第一集"),
+        ("2", "第二集"),
+    ]
+
+
+def test_one_numbered_season_keeps_legacy_position_mapping() -> None:
+    """集号从 1 开始且连续时，序号配对与原先的 ep_num-1 定位结果完全一致。"""
+    module = _load_plugin()
+    plugin, written = _position_plugin(module, [
+        {"name": "第一集", "overview": "o1"},
+        {"name": "第二集", "overview": "o2"},
+    ])
+    exists = module.ExistMediaInfo(
+        groupep={1: [1, 2]},
+        groupid={1: [["id1"], ["id2"]]},
+        server_type="jellyfin",
+        server="测试",
+    )
+
+    assert plugin._EpisodeGroupMeta__start_rt_mediaserver(
+        SimpleNamespace(title_year="示例剧 (2026)"),
+        exists,
+        [{"id": "group", "name": "剧集组"}],
+    ) is True
+    assert [(w["IndexNumber"], w["Name"]) for w in written] == [("1", "第一集"), ("2", "第二集")]
+
+
+def test_items_beyond_group_length_are_skipped_without_wraparound() -> None:
+    """指定剧集组且媒体库条目多于剧集组时，多出的项跳过，不得回绕取用最后一集。"""
+    module = _load_plugin()
+    plugin, written = _position_plugin(module, [
+        {"name": "特别篇", "overview": "o0"},
+        {"name": "第一集", "overview": "o1"},
+    ])
+    exists = module.ExistMediaInfo(
+        groupep={1: [0, 1, 2]},
+        groupid={1: [["id0"], ["id1"], ["id2"]]},
+        server_type="jellyfin",
+        server="测试",
+    )
+
+    plugin._EpisodeGroupMeta__start_rt_mediaserver(
+        SimpleNamespace(title_year="示例剧 (2026)"),
+        exists,
+        [{"id": "group", "name": "剧集组"}],
+        "group",
+    )
+    assert [w["IndexNumber"] for w in written] == ["0", "1"]
+
+
+def test_iteminfo_without_locked_fields_still_updates() -> None:
+    """详情缺少 LockedFields 时不得抛 KeyError，应照常写入并锁定字段。"""
+    module = _load_plugin()
+    plugin = _media_server_plugin(module, set_iteminfo_result=True)
+    plugin.get_iteminfo = lambda **_kwargs: {
+        "Id": "item",
+        "Name": "旧标题",
+        "Overview": "旧简介",
+    }
+    written: list = []
+    plugin.set_iteminfo = lambda **kwargs: (written.append(kwargs["iteminfo"]), True)[1]
+    exists = module.ExistMediaInfo(
+        groupep={1: [1]}, groupid={1: [["item"]]}, server_type="jellyfin", server="测试"
+    )
+    media = SimpleNamespace(title_year="示例剧 (2026)")
+
+    assert plugin._EpisodeGroupMeta__start_rt_mediaserver(
+        media,
+        exists,
+        [{"id": "group", "name": "剧集组"}],
+    ) is True
+    assert written[0]["LockedFields"] == ["Name", "Overview"]

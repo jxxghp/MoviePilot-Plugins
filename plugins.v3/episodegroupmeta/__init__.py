@@ -48,7 +48,7 @@ class EpisodeGroupMeta(_PluginBase):
     # 主题色
     plugin_color = "#098663"
     # 插件版本
-    plugin_version = "3.2.0"
+    plugin_version = "3.2.1"
     # 插件作者
     plugin_author = "叮叮当"
     # 作者主页
@@ -844,9 +844,10 @@ class EpisodeGroupMeta(_PluginBase):
                     if existsinfo.groupid.get(order) is None:
                         self.log_info(f"媒体库中不存在: {mediainfo.title_year}, 第 {order} 季")
                         continue
-                    for _index, _ids in enumerate(existsinfo.groupid.get(order)):
-                        # 提取出媒体库中集id对应的集数index
-                        ep_num = ep[_index]
+                    # 媒体库该季按集号升序排列后, 第 _index 项对应剧集组第 _index 集;
+                    # 集号可以从 0 开始 (含特别篇), 不能直接把集号当作剧集组内的位置
+                    for _index, (ep_num, _ids) in enumerate(
+                            sorted(zip(ep, existsinfo.groupid.get(order)), key=lambda _pair: _pair[0])):
                         for _id in _ids:
                             # 获取媒体服务器媒体项
                             iteminfo = self.get_iteminfo(server_type=existsinfo.server_type, itemid=_id,
@@ -862,8 +863,13 @@ class EpisodeGroupMeta(_PluginBase):
                                     self.log_warn(
                                         f"已锁定媒体项 - itemid: {_id},  第 {order} 季,  第 {ep_num} 集, 如果需要刮削请打开设置中的“锁定的剧集也刮削”选项")
                                     continue
-                            # 替换项目数据
-                            episode = episodes[ep_num - 1]
+                            # 替换项目数据：用排序后的序号定位，媒体库条目多于剧集组时跳过，
+                            # 不得用负索引回绕取到剧集组最后一集的数据
+                            if _index >= len(episodes):
+                                self.log_info(
+                                    f"剧集组只有 {len(episodes)} 集, 跳过 - itemid: {_id},  第 {order} 季,  第 {ep_num} 集")
+                                continue
+                            episode = episodes[_index]
                             new_dict = {}
                             new_dict.update({k: v for k, v in iteminfo.items() if k in copy_keys})
                             new_dict["Name"] = episode["name"]
@@ -873,7 +879,7 @@ class EpisodeGroupMeta(_PluginBase):
                             new_dict["LockData"] = True
                             if episode.get("vote_average"):
                                 new_dict["CommunityRating"] = episode.get("vote_average")
-                            if not new_dict["LockedFields"]:
+                            if not new_dict.get("LockedFields"):
                                 new_dict["LockedFields"] = []
                             self.__append_to_list(new_dict["LockedFields"], "Name")
                             self.__append_to_list(new_dict["LockedFields"], "Overview")
@@ -1144,8 +1150,8 @@ class EpisodeGroupMeta(_PluginBase):
         获得媒体项详情。
 
         媒体服务器适配器的实例方法属于本插件必须承担的运行态侵入；宿主
-        ``>=3.0.0`` 需保持对应 ``get_data``、``jellyfin.get_data`` 与 Plex
-        library 访问协议，调用失败统一返回空字典并跳过当前媒体项。
+        ``>=3.0.0`` 需保持对应 ``get_data`` 与 Plex library 访问协议，
+        调用失败统一返回空字典并跳过当前媒体项。
         """
 
         def __get_emby_iteminfo() -> dict:
@@ -1170,7 +1176,7 @@ class EpisodeGroupMeta(_PluginBase):
             try:
                 instance = mediaserver_instance
                 url = f'[HOST]Users/[USER]/Items/{itemid}?Fields=ChannelMappingInfo&api_key=[APIKEY]'
-                res = instance.jellyfin.get_data(url=url)
+                res = instance.get_data(url=url)
                 if res:
                     result = res.json()
                     if result:
