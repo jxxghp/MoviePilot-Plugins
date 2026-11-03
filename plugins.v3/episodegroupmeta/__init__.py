@@ -48,7 +48,7 @@ class EpisodeGroupMeta(_PluginBase):
     # 主题色
     plugin_color = "#098663"
     # 插件版本
-    plugin_version = "3.2.1"
+    plugin_version = "3.2.2"
     # 插件作者
     plugin_author = "叮叮当"
     # 作者主页
@@ -855,21 +855,28 @@ class EpisodeGroupMeta(_PluginBase):
                             if not iteminfo:
                                 self.log_info(f"未找到媒体项 - itemid: {_id},  第 {order} 季,  第 {ep_num} 集")
                                 continue
+                            # 用排序后的序号定位剧集组分集，媒体库条目多于剧集组时为 None，
+                            # 不得用负索引回绕取到剧集组最后一集的数据
+                            episode = episodes[_index] if _index < len(episodes) else None
                             # 锁定的剧集是否也刮削?
-                            if not self._ignorelock:
-                                if iteminfo.get("LockData") or (
-                                        "Name" in iteminfo.get("LockedFields", [])
-                                        and "Overview" in iteminfo.get("LockedFields", [])):
+                            if not self._ignorelock and self.__is_locked_item(iteminfo):
+                                # 已锁定：不改元数据、不改锁定状态，仅在剧集组该位置有分集图时补图
+                                if episode and episode.get("still_path"):
+                                    self.set_item_image(
+                                        server_type=existsinfo.server_type,
+                                        itemid=_id,
+                                        imageurl=f"https://{settings.TMDB_IMAGE_DOMAIN}/t/p/original{episode['still_path']}",
+                                        mediaserver_instance=mediaserver_instance)
+                                    self.log_info(
+                                        f"已锁定媒体项, 仅补充分集图片 - itemid: {_id},  第 {order} 季,  第 {ep_num} 集")
+                                else:
                                     self.log_warn(
                                         f"已锁定媒体项 - itemid: {_id},  第 {order} 季,  第 {ep_num} 集, 如果需要刮削请打开设置中的“锁定的剧集也刮削”选项")
-                                    continue
-                            # 替换项目数据：用排序后的序号定位，媒体库条目多于剧集组时跳过，
-                            # 不得用负索引回绕取到剧集组最后一集的数据
-                            if _index >= len(episodes):
+                                continue
+                            if episode is None:
                                 self.log_info(
                                     f"剧集组只有 {len(episodes)} 集, 跳过 - itemid: {_id},  第 {order} 季,  第 {ep_num} 集")
                                 continue
-                            episode = episodes[_index]
                             new_dict = {}
                             new_dict.update({k: v for k, v in iteminfo.items() if k in copy_keys})
                             new_dict["Name"] = episode["name"]
@@ -903,6 +910,21 @@ class EpisodeGroupMeta(_PluginBase):
 
         self.log_info(f"{mediainfo.title_year} 已经运行完毕了..")
         return updated
+
+    @staticmethod
+    def __is_locked_item(iteminfo: dict) -> bool:
+        """
+        判断媒体项是否已被锁定：整项锁定，或标题与简介都被列为锁定字段。
+
+        ``LockedFields`` 可能缺失或为空，这里按缺省处理，不能因字段缺失报错。
+        """
+
+        if not iteminfo:
+            return False
+        if iteminfo.get("LockData"):
+            return True
+        locked_fields = iteminfo.get("LockedFields") or []
+        return "Name" in locked_fields and "Overview" in locked_fields
 
     @staticmethod
     def __append_to_list(list, item):

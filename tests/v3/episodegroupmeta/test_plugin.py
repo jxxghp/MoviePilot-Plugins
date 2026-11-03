@@ -26,10 +26,10 @@ def test_v3_metadata_and_legacy_indexes_are_aligned() -> None:
     v3 = json.loads((ROOT / "package.v3.json").read_text(encoding="utf-8"))
     legacy = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
 
-    assert module.EpisodeGroupMeta.plugin_version == "3.2.1"
-    assert v3["EpisodeGroupMeta"]["version"] == "3.2.1"
+    assert module.EpisodeGroupMeta.plugin_version == "3.2.2"
+    assert v3["EpisodeGroupMeta"]["version"] == "3.2.2"
     assert v3["EpisodeGroupMeta"]["system_version"] == ">=3.0.0"
-    assert v3["EpisodeGroupMeta"]["history"]["v3.2.1"]
+    assert v3["EpisodeGroupMeta"]["history"]["v3.2.2"]
     assert legacy["EpisodeGroupMeta"]["v3"] is False
 
 
@@ -293,3 +293,131 @@ def test_iteminfo_without_locked_fields_still_updates() -> None:
         [{"id": "group", "name": "剧集组"}],
     ) is True
     assert written[0]["LockedFields"] == ["Name", "Overview"]
+
+
+def _lock_plugin(module, group_episodes: list, iteminfo: dict, ignorelock: bool = False):
+    """装配锁定分支替身，分别收集元数据写入与分集图推送。"""
+    plugin = object.__new__(module.EpisodeGroupMeta)
+    plugin._ignorelock = ignorelock
+    plugin._notify = False
+    plugin.log_info = lambda *_args, **_kwargs: None
+    plugin.log_warn = lambda *_args, **_kwargs: None
+    plugin.log_error = lambda *_args, **_kwargs: None
+    plugin.tv = SimpleNamespace(
+        group_episodes=lambda _group_id: [{"order": 1, "episodes": group_episodes}]
+    )
+    plugin.get_iteminfo = lambda **_kwargs: dict(iteminfo)
+    written: list = []
+    images: list = []
+    plugin.set_iteminfo = lambda **kwargs: (written.append(kwargs["iteminfo"]), True)[1]
+    plugin.set_item_image = lambda **kwargs: (images.append(kwargs["imageurl"]), True)[1]
+    return plugin, written, images
+
+
+def _still_url(module, still_path: str) -> str:
+    return f"https://{module.settings.TMDB_IMAGE_DOMAIN}/t/p/original{still_path}"
+
+
+def test_is_locked_item_detects_lock_states() -> None:
+    """锁定判定：整项锁定或标题+简介同时锁定，缺少 LockedFields 视为未锁定。"""
+    module = _load_plugin()
+    is_locked = module.EpisodeGroupMeta._EpisodeGroupMeta__is_locked_item
+
+    assert is_locked({"LockData": True}) is True
+    assert is_locked({"LockedFields": ["Name", "Overview"]}) is True
+    assert is_locked({"LockedFields": ["Name"]}) is False
+    assert is_locked({"LockedFields": []}) is False
+    assert is_locked({"Name": "标题"}) is False
+    assert is_locked({}) is False
+
+
+def test_locked_item_only_backfills_still_image() -> None:
+    """已锁定条目：不写元数据、不改锁定状态，但补剧集组已有的分集图。"""
+    module = _load_plugin()
+    plugin, written, images = _lock_plugin(
+        module,
+        [{"name": "第一集", "overview": "o1", "still_path": "/still1.jpg"}],
+        {"Id": "item", "Name": "旧标题", "LockData": True},
+    )
+    exists = module.ExistMediaInfo(
+        groupep={1: [1]}, groupid={1: [["item"]]}, server_type="jellyfin", server="测试"
+    )
+
+    assert plugin._EpisodeGroupMeta__start_rt_mediaserver(
+        SimpleNamespace(title_year="示例剧 (2026)"),
+        exists,
+        [{"id": "group", "name": "剧集组"}],
+    ) is False
+    assert written == []
+    assert images == [_still_url(module, "/still1.jpg")]
+
+
+def test_locked_item_without_new_still_does_nothing() -> None:
+    """已锁定且剧集组该位置没有分集图时，既不写元数据也不推图。"""
+    module = _load_plugin()
+    plugin, written, images = _lock_plugin(
+        module,
+        [{"name": "第一集", "overview": "o1"}],
+        {"Id": "item", "LockedFields": ["Name", "Overview"]},
+    )
+    exists = module.ExistMediaInfo(
+        groupep={1: [1]}, groupid={1: [["item"]]}, server_type="jellyfin", server="测试"
+    )
+
+    assert plugin._EpisodeGroupMeta__start_rt_mediaserver(
+        SimpleNamespace(title_year="示例剧 (2026)"),
+        exists,
+        [{"id": "group", "name": "剧集组"}],
+    ) is False
+    assert written == []
+    assert images == []
+
+
+def test_locked_item_beyond_group_length_is_not_backfilled() -> None:
+    """锁定条目多于剧集组时只补范围内的图，越界条目不得回绕取用最后一集。"""
+    module = _load_plugin()
+    plugin, written, images = _lock_plugin(
+        module,
+        [{"name": "特别篇", "overview": "o0", "still_path": "/still0.jpg"}],
+        {"Id": "item", "LockData": True},
+    )
+    exists = module.ExistMediaInfo(
+        groupep={1: [0, 1]},
+        groupid={1: [["id0"], ["id1"]]},
+        server_type="jellyfin",
+        server="测试",
+    )
+
+    plugin._EpisodeGroupMeta__start_rt_mediaserver(
+        SimpleNamespace(title_year="示例剧 (2026)"),
+        exists,
+        [{"id": "group", "name": "剧集组"}],
+        "group",
+    )
+    assert written == []
+    assert images == [_still_url(module, "/still0.jpg")]
+
+
+def test_ignorelock_overrides_lock_and_writes_metadata() -> None:
+    """开启“锁定的剧集也刮削”后仍走全量写入，并照常重新锁定标题与简介。"""
+    module = _load_plugin()
+    plugin, written, images = _lock_plugin(
+        module,
+        [{"name": "新标题", "overview": "o1", "still_path": "/still1.jpg"}],
+        {"Id": "item", "Name": "旧标题", "LockData": True},
+        ignorelock=True,
+    )
+    exists = module.ExistMediaInfo(
+        groupep={1: [1]}, groupid={1: [["item"]]}, server_type="jellyfin", server="测试"
+    )
+
+    assert plugin._EpisodeGroupMeta__start_rt_mediaserver(
+        SimpleNamespace(title_year="示例剧 (2026)"),
+        exists,
+        [{"id": "group", "name": "剧集组"}],
+    ) is True
+    assert written[0]["Name"] == "新标题"
+    assert written[0]["LockData"] is True
+    assert written[0]["LockedFields"] == ["Name", "Overview"]
+    assert images == [_still_url(module, "/still1.jpg")]
+
