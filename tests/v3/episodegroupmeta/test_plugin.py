@@ -26,10 +26,10 @@ def test_v3_metadata_and_legacy_indexes_are_aligned() -> None:
     v3 = json.loads((ROOT / "package.v3.json").read_text(encoding="utf-8"))
     legacy = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
 
-    assert module.EpisodeGroupMeta.plugin_version == "3.2.3"
-    assert v3["EpisodeGroupMeta"]["version"] == "3.2.3"
+    assert module.EpisodeGroupMeta.plugin_version == "3.2.4"
+    assert v3["EpisodeGroupMeta"]["version"] == "3.2.4"
     assert v3["EpisodeGroupMeta"]["system_version"] == ">=3.0.0"
-    assert v3["EpisodeGroupMeta"]["history"]["v3.2.3"]
+    assert v3["EpisodeGroupMeta"]["history"]["v3.2.4"]
     assert legacy["EpisodeGroupMeta"]["v3"] is False
 
 

@@ -50,7 +50,7 @@ class EpisodeGroupMeta(_PluginBase):
     # 主题色
     plugin_color = "#098663"
     # 插件版本
-    plugin_version = "3.2.3"
+    plugin_version = "3.2.4"
     # 插件作者
     plugin_author = "叮叮当"
     # 作者主页
@@ -468,7 +468,35 @@ class EpisodeGroupMeta(_PluginBase):
                                             'variant': 'tonal',
                                             'text': '注意：分集图按 MoviePilot 命名（视频文件名.jpg）写入媒体目录；'
                                                     '媒体服务器与 MoviePilot 挂载路径不一致时，每行配置一条'
-                                                    '「媒体服务器前缀=MoviePilot前缀」；路径访问不到时自动改用媒体服务器写入，不会创建目录。'
+                                                    '「媒体服务器前缀=MoviePilot前缀」。'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '「落盘存储标识」填 MoviePilot「存储」配置里的类型标识（local、rclone、alist、alipan、u115 等），'
+                                                    '不是存储项的显示名称，留空按 local 处理。'
+                                                    '「覆盖已有分集图」关闭时，媒体目录已存在同名图片就跳过不覆盖。'
+                                                    '「优先写入媒体目录，失败时回退」只有在本地写入不成功时才会向媒体服务器发写图指令，'
+                                                    '本地写入成功（包括同名图已存在被跳过）就不再惊动媒体服务器；'
+                                                    '「只写入媒体目录」写入失败也不回退，该集图片保持原样。'
+                                                    '与视频文件同名的 .jpg 就是媒体服务器读取的条目主图，'
+                                                    '带 -thumb 后缀的同名图片属于另一个图位，插件只提示不删除。'
                                         }
                                     }
                                 ]
