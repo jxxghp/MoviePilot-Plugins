@@ -26,10 +26,10 @@ def test_v3_metadata_and_legacy_indexes_are_aligned() -> None:
     v3 = json.loads((ROOT / "package.v3.json").read_text(encoding="utf-8"))
     legacy = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
 
-    assert module.EpisodeGroupMeta.plugin_version == "3.2.4"
-    assert v3["EpisodeGroupMeta"]["version"] == "3.2.4"
+    assert module.EpisodeGroupMeta.plugin_version == "3.2.3"
+    assert v3["EpisodeGroupMeta"]["version"] == "3.2.3"
     assert v3["EpisodeGroupMeta"]["system_version"] == ">=3.0.0"
-    assert v3["EpisodeGroupMeta"]["history"]["v3.2.4"]
+    assert v3["EpisodeGroupMeta"]["history"]["v3.2.3"]
     assert legacy["EpisodeGroupMeta"]["v3"] is False
 
 
@@ -332,7 +332,7 @@ def test_is_locked_item_detects_lock_states() -> None:
 
 
 def test_locked_item_only_backfills_still_image() -> None:
-    """已锁定条目：不写元数据、不改锁定状态，但补剧集组已有的分集图。"""
+    """已锁定条目：不写元数据、不改锁定状态，但补剧集组已有的分集图，补图成功即算执行成功。"""
     module = _load_plugin()
     plugin, written, images = _lock_plugin(
         module,
@@ -347,7 +347,7 @@ def test_locked_item_only_backfills_still_image() -> None:
         SimpleNamespace(title_year="示例剧 (2026)"),
         exists,
         [{"id": "group", "name": "剧集组"}],
-    ) is False
+    ) is True
     assert written == []
     assert images == [_still_url(module, "/still1.jpg")]
 
@@ -619,7 +619,7 @@ def test_overwrite_mode_replaces_existing_image() -> None:
 
 
 def test_locked_backfill_prefers_local_image_when_enabled() -> None:
-    """已锁定条目补图同样走本地落盘，成功后不再推送媒体服务器图片接口。"""
+    """已锁定条目补图同样走本地落盘，成功后不再推送媒体服务器图片接口，并算作执行成功。"""
     module = _load_plugin()
     plugin, written, images = _lock_plugin(
         module,
@@ -640,7 +640,7 @@ def test_locked_backfill_prefers_local_image_when_enabled() -> None:
         SimpleNamespace(title_year="示例剧 (2026)"),
         exists,
         [{"id": "group", "name": "剧集组"}],
-    ) is False
+    ) is True
     assert written == []
     assert images == []
     assert [call["name"] for call in plugin._storage_chain.upload_calls] == ["示例.S01E01.jpg"]
@@ -699,4 +699,3 @@ def test_legacy_bare_tmdb_key_is_still_migrated() -> None:
     assert migrated_dict["media_source"] == "themoviedb"
     assert migrated_dict["media_id"] == "69367"
     assert "tmdb_id" not in migrated_dict
-
