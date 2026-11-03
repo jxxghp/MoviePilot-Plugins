@@ -1,5 +1,7 @@
 import ipaddress
 import math
+import os
+import subprocess
 import threading
 import time
 from datetime import datetime, timezone
@@ -25,7 +27,7 @@ class SpeedLimiter(_PluginBase):
     # 插件图标
     plugin_icon = "Librespeed_A.png"
     # 插件版本
-    plugin_version = "2.3.0"
+    plugin_version = "2.3.1"
     # 插件作者
     plugin_author = "Shurelol"
     # 作者主页
@@ -78,6 +80,11 @@ class SpeedLimiter(_PluginBase):
         self._overhead = 1.25
         self._recovery_delay = 30
         self._stopping = False
+        self._segment_prediction = False
+        self._media_paths = ""
+        self._probe_cache = {}
+        self._probe_pending = False
+        self._probe_generation = 0
 
     def init_plugin(self, config: dict = None):
         """串行更新配置，保留未恢复的快照供失败重试。"""
@@ -93,6 +100,8 @@ class SpeedLimiter(_PluginBase):
         self._stopping = False
         self._caps = {}
         config = config or {}
+        self._segment_prediction = bool(config.get("segment_prediction"))
+        self._media_paths = config.get("media_paths") or ""
         self._enabled = bool(config.get("enabled"))
         self._allocation_mode = config.get("allocation_mode") or "ratio"
         self._interval = max(3, int(config.get("interval") or 60))
@@ -442,6 +451,8 @@ class SpeedLimiter(_PluginBase):
             }
         ] + self._allocation_form(), {
             "enabled": False,
+            "segment_prediction": False,
+            "media_paths": "",
             "allocation_mode": "ratio",
             "downloader_limits": "",
             "interval": 60,
@@ -471,6 +482,8 @@ class SpeedLimiter(_PluginBase):
             ("VTextField", "interval", "检查间隔（秒）", {"type": "number", "min": 3}),
             ("VTextField", "headroom", "预留带宽（Mbps）", {"type": "number", "min": 0}),
             ("VTextField", "overhead", "播放带宽系数", {"type": "number", "min": 1, "step": .05}),
+            ("VSwitch", "segment_prediction", "按播放片段预留", {}),
+            ("VTextarea", "media_paths", "媒体路径映射", {"placeholder": "媒体服务器路径=MP路径", "rows": 2}),
             ("VTextField", "recovery_delay", "停止后等待（秒）", {"type": "number", "min": 0}),
             ("VTextarea", "downloader_limits", "下载器上传上限（KB/s）", {
                 "placeholder": "下载器名称=3000", "rows": 2}),
@@ -576,13 +589,13 @@ class SpeedLimiter(_PluginBase):
                                 and session.get("NowPlayingItem", {}).get("MediaType") == "Video":
                             has_remote_playback = True
                             self._note_playback(server, session)
-                            total_bit_rate += self.__get_jellyfin_bitrate(session, session.get("NowPlayingItem", {})) or self._bandwidth
+                            total_bit_rate += self._playback_bitrate(session) or self._bandwidth
                     # 未设置不限速范围，则默认不限速内网ip
                     elif not IpUtils.is_private_ip(session.get("RemoteEndPoint")) \
                             and session.get("NowPlayingItem", {}).get("MediaType") == "Video":
                         has_remote_playback = True
                         self._note_playback(server, session)
-                        total_bit_rate += self.__get_jellyfin_bitrate(session, session.get("NowPlayingItem", {})) or self._bandwidth
+                        total_bit_rate += self._playback_bitrate(session) or self._bandwidth
             elif service.type == "jellyfin":
                 req_url = (f"[HOST]Sessions?api_key=[APIKEY]&"
                            f"activeWithinSeconds={self._jellyfin_session_timeout}")
@@ -652,6 +665,106 @@ class SpeedLimiter(_PluginBase):
             # 暂停或换集保留限速一段时间，再逐步恢复。
             self.__set_limiter(limit_type="未播放", upload_limit=self._noplay_up_speed,
                                download_limit=self._noplay_down_speed)
+
+    @staticmethod
+    def segment_rate(buckets: list, offset: float) -> float:
+        """按未来一分钟内的30秒窗口预留，覆盖片段峰值。"""
+        start = max(0, int(offset))
+        if start + 60 > len(buckets):
+            return 0
+        return max(sum(buckets[i:i + 30]) * 8 / 30
+                   for i in range(start, start + 31))
+
+    def _mapped_media_path(self, path: str) -> Optional[str]:
+        if not isinstance(path, str) or not os.path.isabs(path):
+            return None
+        mappings = []
+        for line in self._media_paths.splitlines():
+            source, sep, target = line.partition("=")
+            if sep and os.path.isabs(source.strip()) and os.path.isabs(target.strip()):
+                mappings.append((source.strip().rstrip("/"), target.strip().rstrip("/")))
+        for source, target in sorted(mappings, key=lambda row: len(row[0]), reverse=True):
+            if path == source or path.startswith(source + "/"):
+                return target + path[len(source):]
+        return path
+
+    @staticmethod
+    def _probe_segment(path: str, start: int, duration: float) -> list:
+        """只读取附近压缩包；不解码，不启动网络请求。"""
+        result = subprocess.run([
+            "ffprobe", "-v", "error", "-read_intervals", f"{start}%+120",
+            "-show_packets", "-show_entries", "packet=pts_time,size",
+            "-of", "compact=p=0:nk=0", path,
+        ], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=20,
+            check=True)
+        buckets = [0] * 120
+        valid = False
+        last_timestamp = float(start)
+        for line in result.stdout.splitlines():
+            values = dict(part.split("=", 1) for part in line.split("|") if "=" in part)
+            try:
+                timestamp, size = float(values["pts_time"]), int(values["size"])
+                index = math.floor(timestamp - start)
+                if 0 <= index < 120 and size >= 0:
+                    buckets[index] += size
+                    valid = True
+                    last_timestamp = max(last_timestamp, timestamp)
+            except (KeyError, ValueError, OverflowError):
+                continue
+        if not valid:
+            raise ValueError("没有可用的片段数据")
+        # seek可能落在前一个关键帧，read_intervals的时长也从那里计算。
+        # 未覆盖的尾部不得按零码率处理；片尾之外才允许补零。
+        covered = min(120, max(0, math.floor(last_timestamp - start) + 1))
+        if duration and duration <= start + covered:
+            covered = 120
+        return buckets[:covered]
+
+    def _playback_bitrate(self, session: dict) -> float:
+        item = session.get("NowPlayingItem") or {}
+        fallback = self.__get_jellyfin_bitrate(session, item)
+        state = session.get("PlayState") or {}
+        # 转码、未知传输方式和不可读文件沿用媒体服务器码率。
+        if (not self._segment_prediction or not self._auto_limit
+                or session.get("TranscodingInfo")
+                or state.get("PlayMethod") not in ("DirectPlay", "DirectStream")):
+            return fallback
+        try:
+            position = float(state["PositionTicks"]) / 10000000
+            duration = float(item.get("RunTimeTicks") or 0) / 10000000
+            path = self._mapped_media_path(item.get("Path"))
+            if not path or not os.path.isfile(path) or position < 0 or not duration:
+                return fallback
+            stat = os.stat(path)
+            start = int(position // 30) * 30
+            key = (path, stat.st_size, stat.st_mtime_ns, start)
+            cached = self._probe_cache.get(key)
+            if cached is not None:
+                rate = self.segment_rate(cached, position - start)
+                # 单独留15%传输余量，避免再套用整片的保守系数。
+                if rate:
+                    return rate * 1.15 / self._overhead
+                return fallback
+            if self._probe_pending:
+                return fallback
+            self._probe_pending = True
+            generation = self._probe_generation
+            def probe():
+                try:
+                    buckets = self._probe_segment(path, start, duration)
+                except (OSError, ValueError, subprocess.SubprocessError):
+                    buckets = []
+                with self._lock:
+                    if generation != self._probe_generation:
+                        return
+                    self._probe_pending = False
+                    self._probe_cache[key] = buckets
+                    while len(self._probe_cache) > 32:
+                        self._probe_cache.pop(next(iter(self._probe_cache)))
+            threading.Thread(target=probe, name="playback-bitrate", daemon=True).start()
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        return fallback
 
     def _note_playback(self, server: str, session: dict):
         """新会话、恢复播放或明显跳转时重新预留缓存带宽。"""
@@ -1088,6 +1201,9 @@ class SpeedLimiter(_PluginBase):
         """恢复本插件修改的限速；保留失败项，供重载后继续恢复。"""
         with self._lock:
             self._stopping = True
+            self._probe_generation += 1
+            self._probe_pending = False
+            self._probe_cache.clear()
             services = self.service_infos if self._downloader else {}
             for name in list(self._original):
                 if name not in (services or {}):
