@@ -1579,13 +1579,14 @@ class EpisodeGroupMeta(_PluginBase):
         try:
             chain = self._get_storage_chain()
             existing = chain.get_file_item(storage=storage, path=folder_path / new_name)
-            legacy = chain.get_file_item(storage=storage,
-                                         path=folder_path / f"{video_stem}-thumb{suffix}")
+            thumb = chain.get_file_item(storage=storage,
+                                        path=folder_path / f"{video_stem}-thumb{suffix}")
         except Exception as err:
             self.log_warn(f"检查分集图现状失败：{err}")
             return False
-        if legacy:
-            self.log_warn(f"媒体目录存在旧命名分集图，建议删除以免重复：{legacy.path}")
+        if thumb:
+            # 同名图片是 Primary（条目主图），-thumb 是媒体服务器按 Thumb 图位另存的同一张图
+            self.log_warn(f"媒体目录另有 Thumb 图位的重复分集图，可自行删除：{thumb.path}")
         if existing and not self._local_image_overwrite:
             self.log_info(f"分集图已存在，跳过本地写入：{existing.path}")
             return True

@@ -594,8 +594,8 @@ def test_off_mode_keeps_media_server_write_without_storage_access() -> None:
     assert len(server_calls) == 1
 
 
-def test_existing_image_is_kept_and_legacy_thumb_is_warned() -> None:
-    """同名分集图已存在时跳过写入仍算成功，旧命名 -thumb 图给出清理提示。"""
+def test_existing_image_is_kept_and_duplicate_thumb_is_warned() -> None:
+    """同名 Primary 图已存在时跳过写入仍算成功，Thumb 图位的重复副本给出清理提示。"""
     module = _load_plugin()
     plugin, chain, warnings = _local_plugin(
         module,
@@ -604,7 +604,7 @@ def test_existing_image_is_kept_and_legacy_thumb_is_warned() -> None:
 
     assert plugin.save_item_image_local({"Path": VIDEO}, "https://image/still1.jpg") is True
     assert chain.upload_calls == []
-    assert any("旧命名分集图" in w for w in warnings)
+    assert any("Thumb 图位" in w for w in warnings)
 
 
 def test_overwrite_mode_replaces_existing_image() -> None:
