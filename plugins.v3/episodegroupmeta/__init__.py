@@ -844,9 +844,10 @@ class EpisodeGroupMeta(_PluginBase):
                     if existsinfo.groupid.get(order) is None:
                         self.log_info(f"媒体库中不存在: {mediainfo.title_year}, 第 {order} 季")
                         continue
-                    for _index, _ids in enumerate(existsinfo.groupid.get(order)):
-                        # 提取出媒体库中集id对应的集数index
-                        ep_num = ep[_index]
+                    # 媒体库该季按集号升序排列后, 第 _index 项对应剧集组第 _index 集;
+                    # 集号可以从 0 开始 (含特别篇), 不能直接把集号当作剧集组内的位置
+                    for _index, (ep_num, _ids) in enumerate(
+                            sorted(zip(ep, existsinfo.groupid.get(order)), key=lambda _pair: _pair[0])):
                         for _id in _ids:
                             # 获取媒体服务器媒体项
                             iteminfo = self.get_iteminfo(server_type=existsinfo.server_type, itemid=_id,
@@ -862,13 +863,13 @@ class EpisodeGroupMeta(_PluginBase):
                                     self.log_warn(
                                         f"已锁定媒体项 - itemid: {_id},  第 {order} 季,  第 {ep_num} 集, 如果需要刮削请打开设置中的“锁定的剧集也刮削”选项")
                                     continue
-                            # 替换项目数据：按剧集组内的位置定位
-                            # 集号越界（含媒体库中的第 0 集）时跳过，避免负索引取到剧集组最后一集的数据
-                            if ep_num < 1 or ep_num > len(episodes):
+                            # 替换项目数据：用排序后的序号定位，媒体库条目多于剧集组时跳过，
+                            # 不得用负索引回绕取到剧集组最后一集的数据
+                            if _index >= len(episodes):
                                 self.log_info(
-                                    f"剧集中没有第 {ep_num} 集的位置 - itemid: {_id},  第 {order} 季")
+                                    f"剧集组只有 {len(episodes)} 集, 跳过 - itemid: {_id},  第 {order} 季,  第 {ep_num} 集")
                                 continue
-                            episode = episodes[ep_num - 1]
+                            episode = episodes[_index]
                             new_dict = {}
                             new_dict.update({k: v for k, v in iteminfo.items() if k in copy_keys})
                             new_dict["Name"] = episode["name"]

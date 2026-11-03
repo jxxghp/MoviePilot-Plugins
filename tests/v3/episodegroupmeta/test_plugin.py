@@ -181,23 +181,94 @@ def test_jellyfin_iteminfo_uses_adapter_get_data() -> None:
     assert iteminfo["FileName"] == "示例.S01E01.mkv"
 
 
-def test_out_of_range_episode_number_is_skipped_without_update() -> None:
-    """媒体库第 0 集等越界集数必须跳过，不得取用剧集组最后一集的标题与简介。"""
-    module = _load_plugin()
-    plugin = _media_server_plugin(module, set_iteminfo_result=True)
+def _position_plugin(module, group_episodes: list):
+    """装配按剧集组分集列表定位所需的插件替身，并收集写入媒体服务器的字段。"""
+    plugin = object.__new__(module.EpisodeGroupMeta)
+    plugin._ignorelock = True
+    plugin._notify = False
+    plugin.log_info = lambda *_args, **_kwargs: None
+    plugin.log_warn = lambda *_args, **_kwargs: None
+    plugin.log_error = lambda *_args, **_kwargs: None
+    plugin.tv = SimpleNamespace(
+        group_episodes=lambda _group_id: [{"order": 1, "episodes": group_episodes}]
+    )
+    plugin.get_iteminfo = lambda **_kwargs: {"Id": "item", "Name": "旧标题", "Overview": "旧简介"}
+    plugin.set_item_image = lambda **_kwargs: True
     written: list = []
     plugin.set_iteminfo = lambda **kwargs: (written.append(kwargs["iteminfo"]), True)[1]
+    return plugin, written
+
+
+def test_zero_numbered_season_is_mapped_by_position() -> None:
+    """媒体库集号从 0 开始（含特别篇）时按序号配对，第 0 集也要正常刮削。"""
+    module = _load_plugin()
+    plugin, written = _position_plugin(module, [
+        {"name": "特别篇", "overview": "组内第 1 位"},
+        {"name": "第一集", "overview": "组内第 2 位"},
+        {"name": "第二集", "overview": "组内第 3 位"},
+    ])
     exists = module.ExistMediaInfo(
-        groupep={1: [0]}, groupid={1: [["item0"]]}, server_type="jellyfin", server="测试"
+        groupep={1: [0, 1, 2]},
+        groupid={1: [["id0"], ["id1"], ["id2"]]},
+        server_type="jellyfin",
+        server="测试",
     )
-    media = SimpleNamespace(title_year="示例剧 (2026)")
 
     assert plugin._EpisodeGroupMeta__start_rt_mediaserver(
-        media,
+        SimpleNamespace(title_year="示例剧 (2026)"),
         exists,
         [{"id": "group", "name": "剧集组"}],
-    ) is False
-    assert written == []
+    ) is True
+    assert [(w["IndexNumber"], w["Name"]) for w in written] == [
+        ("0", "特别篇"),
+        ("1", "第一集"),
+        ("2", "第二集"),
+    ]
+
+
+def test_one_numbered_season_keeps_legacy_position_mapping() -> None:
+    """集号从 1 开始且连续时，序号配对与原先的 ep_num-1 定位结果完全一致。"""
+    module = _load_plugin()
+    plugin, written = _position_plugin(module, [
+        {"name": "第一集", "overview": "o1"},
+        {"name": "第二集", "overview": "o2"},
+    ])
+    exists = module.ExistMediaInfo(
+        groupep={1: [1, 2]},
+        groupid={1: [["id1"], ["id2"]]},
+        server_type="jellyfin",
+        server="测试",
+    )
+
+    assert plugin._EpisodeGroupMeta__start_rt_mediaserver(
+        SimpleNamespace(title_year="示例剧 (2026)"),
+        exists,
+        [{"id": "group", "name": "剧集组"}],
+    ) is True
+    assert [(w["IndexNumber"], w["Name"]) for w in written] == [("1", "第一集"), ("2", "第二集")]
+
+
+def test_items_beyond_group_length_are_skipped_without_wraparound() -> None:
+    """指定剧集组且媒体库条目多于剧集组时，多出的项跳过，不得回绕取用最后一集。"""
+    module = _load_plugin()
+    plugin, written = _position_plugin(module, [
+        {"name": "特别篇", "overview": "o0"},
+        {"name": "第一集", "overview": "o1"},
+    ])
+    exists = module.ExistMediaInfo(
+        groupep={1: [0, 1, 2]},
+        groupid={1: [["id0"], ["id1"], ["id2"]]},
+        server_type="jellyfin",
+        server="测试",
+    )
+
+    plugin._EpisodeGroupMeta__start_rt_mediaserver(
+        SimpleNamespace(title_year="示例剧 (2026)"),
+        exists,
+        [{"id": "group", "name": "剧集组"}],
+        "group",
+    )
+    assert [w["IndexNumber"] for w in written] == ["0", "1"]
 
 
 def test_iteminfo_without_locked_fields_still_updates() -> None:
