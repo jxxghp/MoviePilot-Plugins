@@ -1,5 +1,6 @@
 import base64
 import json
+import re
 import threading
 import time
 from pathlib import Path
@@ -25,6 +26,11 @@ from app.sdk.media import (
     parse_media_key,
     resolve_media_identity,
 )
+
+# 从媒体文件路径解析季集号：文件名优先，其次季目录
+_SEASON_EPISODE_PATTERN = re.compile(r"(?<![0-9A-Za-z])[Ss](\d{1,2})[ ._-]?[Ee](\d{1,4})(?![0-9])")
+_SEASON_FOLDER_PATTERN = re.compile(r"(?:^|/)(?:Season|Saison|Staffel)[ ._-]?(\d{1,3})(?:/|$)",
+                                    re.IGNORECASE)
 
 
 class ExistMediaInfo(BaseModel):
@@ -1065,6 +1071,57 @@ class EpisodeGroupMeta(_PluginBase):
         return updated
 
     @staticmethod
+    def _parse_season_episode(path: Any) -> Tuple[Optional[int], Optional[int]]:
+        """从媒体文件路径解析季集号，无法判定的一侧返回 None。"""
+        if not path:
+            return None, None
+        normalized = str(path).replace("\\", "/")
+        name = normalized.rsplit("/", 1)[-1]
+        matched = _SEASON_EPISODE_PATTERN.search(name)
+        if matched:
+            return int(matched.group(1)), int(matched.group(2))
+        folder_matched = _SEASON_FOLDER_PATTERN.search(normalized)
+        if folder_matched:
+            return int(folder_matched.group(1)), None
+        return None, None
+
+    def _build_group_buckets(self, res_items: List[dict]) -> Tuple[Dict[int, list], Dict[int, List[list]]]:
+        """按季集把媒体服务器条目分桶，文件路径中的季集号优先于条目记录。"""
+        group_ep: Dict[int, list] = {}
+        group_id: Dict[int, List[list]] = {}
+        for res_item in res_items:
+            path = res_item.get("Path")
+            file_season, file_episode = self._parse_season_episode(path)
+            recorded_season = res_item.get("ParentIndexNumber")
+            recorded_episode = res_item.get("IndexNumber")
+            season_index = file_season if file_season is not None else recorded_season
+            episode_index = file_episode if file_episode is not None else recorded_episode
+            if season_index is None or episode_index is None:
+                continue
+            if (season_index, episode_index) != (recorded_season, recorded_episode):
+                self.log_info(
+                    f"按文件名纠正季集：{Path(str(path)).name} "
+                    f"第 {recorded_season} 季第 {recorded_episode} 集 -> "
+                    f"第 {season_index} 季第 {episode_index} 集")
+            group_ep.setdefault(season_index, [])
+            group_id.setdefault(season_index, [])
+            if episode_index in group_ep[season_index]:
+                index = group_ep[season_index].index(episode_index)
+                exist_ids = group_id[season_index][index]
+                if res_item.get("Id") in exist_ids:
+                    continue
+                self.log_warn(f"第 {season_index} 季第 {episode_index} 集存在多个条目，"
+                              f"已跳过 {path}（保留 {exist_ids[0]}）")
+                continue
+            group_ep[season_index].append(episode_index)
+            group_id[season_index].append([res_item.get("Id")])
+        for season, episodes in group_ep.items():
+            order = sorted(range(len(episodes)), key=lambda position: episodes[position])
+            group_ep[season] = [episodes[position] for position in order]
+            group_id[season] = [group_id[season][position] for position in order]
+        return group_ep, group_id
+
+    @staticmethod
     def __is_locked_item(iteminfo: dict) -> bool:
         """
         判断媒体项是否已被锁定：整项锁定，或标题与简介都被列为锁定字段。
@@ -1128,29 +1185,11 @@ class EpisodeGroupMeta(_PluginBase):
                         return None
             try:
                 res_json = instance.get_data(
-                    "[HOST]emby/Shows/%s/Episodes?Season=&IsMissing=false&api_key=[APIKEY]" % item_id)
+                    "[HOST]emby/Shows/%s/Episodes?Season=&IsMissing=false&Fields=Path"
+                    "&api_key=[APIKEY]" % item_id)
                 if res_json:
                     tv_item = res_json.json()
-                    res_items = tv_item.get("Items")
-                    group_ep = {}
-                    group_id = {}
-                    for res_item in res_items:
-                        season_index = res_item.get("ParentIndexNumber")
-                        if season_index is None:
-                            continue
-                        episode_index = res_item.get("IndexNumber")
-                        if episode_index is None:
-                            continue
-                        if season_index not in group_ep:
-                            group_ep[season_index] = []
-                            group_id[season_index] = []
-                        if episode_index not in group_ep[season_index]:
-                            group_ep[season_index].append(episode_index)
-                            group_id[season_index].append([])
-                        # 找到准确的插入索引
-                        _index = group_ep[season_index].index(episode_index)
-                        if res_item.get("Id") not in group_id[season_index][_index]:
-                            group_id[season_index][_index].append(res_item.get("Id"))
+                    group_ep, group_id = self._build_group_buckets(tv_item.get("Items") or [])
                     # 返回
                     return ExistMediaInfo(
                         itemid=item_id,
@@ -1194,29 +1233,11 @@ class EpisodeGroupMeta(_PluginBase):
                         return None
             try:
                 res_json = instance.get_data(
-                    "[HOST]Shows/%s/Episodes?Season=&IsMissing=false&api_key=[APIKEY]" % item_id)
+                    "[HOST]Shows/%s/Episodes?Season=&IsMissing=false&Fields=Path"
+                    "&api_key=[APIKEY]" % item_id)
                 if res_json:
                     tv_item = res_json.json()
-                    res_items = tv_item.get("Items")
-                    group_ep = {}
-                    group_id = {}
-                    for res_item in res_items:
-                        season_index = res_item.get("ParentIndexNumber")
-                        if season_index is None:
-                            continue
-                        episode_index = res_item.get("IndexNumber")
-                        if episode_index is None:
-                            continue
-                        if season_index not in group_ep:
-                            group_ep[season_index] = []
-                            group_id[season_index] = []
-                        if episode_index not in group_ep[season_index]:
-                            group_ep[season_index].append(episode_index)
-                            group_id[season_index].append([])
-                        # 找到准确的插入索引
-                        _index = group_ep[season_index].index(episode_index)
-                        if res_item.get("Id") not in group_id[season_index][_index]:
-                            group_id[season_index][_index].append(res_item.get("Id"))
+                    group_ep, group_id = self._build_group_buckets(tv_item.get("Items") or [])
                     # 返回
                     return ExistMediaInfo(
                         itemid=item_id,
