@@ -26,10 +26,10 @@ def test_v3_metadata_and_legacy_indexes_are_aligned() -> None:
     v3 = json.loads((ROOT / "package.v3.json").read_text(encoding="utf-8"))
     legacy = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
 
-    assert module.EpisodeGroupMeta.plugin_version == "3.2.2"
-    assert v3["EpisodeGroupMeta"]["version"] == "3.2.2"
+    assert module.EpisodeGroupMeta.plugin_version == "3.2.3"
+    assert v3["EpisodeGroupMeta"]["version"] == "3.2.3"
     assert v3["EpisodeGroupMeta"]["system_version"] == ">=3.0.0"
-    assert v3["EpisodeGroupMeta"]["history"]["v3.2.2"]
+    assert v3["EpisodeGroupMeta"]["history"]["v3.2.3"]
     assert legacy["EpisodeGroupMeta"]["v3"] is False
 
 
@@ -420,4 +420,228 @@ def test_ignorelock_overrides_lock_and_writes_metadata() -> None:
     assert written[0]["LockData"] is True
     assert written[0]["LockedFields"] == ["Name", "Overview"]
     assert images == [_still_url(module, "/still1.jpg")]
+
+
+VIDEO = "/media/动漫/示例/Season 01/示例.S01E01.mkv"
+FOLDER = "/media/动漫/示例/Season 01"
+
+
+class _FakeStorageChain:
+    """假存储链：只登记已知路径并记录上传参数，不触碰真实文件系统也不创建目录。"""
+
+    def __init__(self, existing: list, upload_ok: bool = True) -> None:
+        self.existing = [str(item) for item in existing]
+        self.upload_ok = upload_ok
+        self.parent_calls: list = []
+        self.upload_calls: list = []
+
+    def get_file_item(self, storage: str, path):
+        """只有已登记的路径才返回条目，其余一律视为不可见。"""
+        if str(path) in self.existing:
+            return SimpleNamespace(path=str(path), storage=storage)
+        return None
+
+    def get_parent_item(self, fileitem):
+        """由已验证的文件项反推上级目录，并记录被反推过的文件路径。"""
+        self.parent_calls.append(str(fileitem.path))
+        return SimpleNamespace(path=str(Path(str(fileitem.path)).parent), storage="local")
+
+    def upload_file(self, fileitem, path, new_name=None):
+        """模拟上传：记录目标目录与文件名，成功时让目标路径变为可见。"""
+        self.upload_calls.append({
+            "folder": str(fileitem.path),
+            "source": str(path),
+            "name": new_name,
+        })
+        if not self.upload_ok:
+            return None
+        target = str(Path(str(fileitem.path)) / str(new_name))
+        self.existing.append(target)
+        return SimpleNamespace(path=target, storage="local")
+
+
+def _local_plugin(module, existing: list, mode: str = "auto",
+                  overwrite: bool = False, upload_ok: bool = True):
+    """装配本地落盘替身：替换存储链与图片下载，返回插件、假存储链和告警文本。"""
+    warnings: list = []
+    plugin = object.__new__(module.EpisodeGroupMeta)
+    plugin._local_image_mode = mode
+    plugin._local_image_storage = "local"
+    plugin._local_image_overwrite = overwrite
+    plugin._local_image_mappings = []
+    plugin._storage_chain = _FakeStorageChain(existing, upload_ok=upload_ok)
+    plugin.log_info = lambda *_args, **_kwargs: None
+    plugin.log_warn = lambda msg, *_args, **_kwargs: warnings.append(str(msg))
+    plugin.log_error = lambda *_args, **_kwargs: None
+    plugin._download_image_bytes = lambda _url: b"IMAGE"
+    return plugin, plugin._storage_chain, warnings
+
+
+def test_local_image_maps_longest_prefix_first() -> None:
+    """路径映射按最长前缀优先命中，未命中的路径原样返回，坏行与空行忽略。"""
+    module = _load_plugin()
+    plugin = object.__new__(module.EpisodeGroupMeta)
+    plugin._local_image_mappings = plugin._parse_local_image_mappings(
+        "/media=/base\n/media/links=/media/视频媒体库/links\n/data/media=/media\n\n缺少等号"
+    )
+
+    assert plugin._local_image_mappings == [
+        ("/media/links", "/media/视频媒体库/links"),
+        ("/data/media", "/media"),
+        ("/media", "/base"),
+    ]
+    assert plugin._map_media_server_path("/media/links/剧/S01/E01.mkv") == \
+        "/media/视频媒体库/links/剧/S01/E01.mkv"
+    assert plugin._map_media_server_path("/data/media/剧/E01.mkv") == "/media/剧/E01.mkv"
+    assert plugin._map_media_server_path("/media/剧/E01.mkv") == "/base/剧/E01.mkv"
+    # 前缀必须是完整路径段，/mediaother 不能被子串命中
+    assert plugin._map_media_server_path("/mediaother/剧/E01.mkv") == "/mediaother/剧/E01.mkv"
+
+
+def test_local_image_skips_unverified_path_without_creating_directories() -> None:
+    """MoviePilot 看不见该路径时不写本地、不反推目录，只提示配置路径映射。"""
+    module = _load_plugin()
+    plugin, chain, warnings = _local_plugin(module, existing=[])
+
+    assert plugin.save_item_image_local({"Path": VIDEO}, "https://image/still1.jpg") is False
+    assert chain.parent_calls == []
+    assert chain.upload_calls == []
+    assert any("路径映射" in w for w in warnings)
+
+
+def test_local_image_writes_mp_named_file_into_video_folder() -> None:
+    """本地落盘按 <视频文件名>.jpg 写入视频所在目录，成功后不再调用媒体服务器接口。"""
+    module = _load_plugin()
+    plugin, chain, _ = _local_plugin(module, existing=[VIDEO])
+    server_calls: list = []
+    plugin.set_item_image = lambda **kwargs: (server_calls.append(kwargs), True)[1]
+
+    assert plugin.apply_episode_image(
+        server_type="jellyfin",
+        itemid="item",
+        imageurl="https://image/still1.jpg",
+        iteminfo={"Path": VIDEO},
+    ) is True
+    assert chain.parent_calls == [VIDEO]
+    assert [call["name"] for call in chain.upload_calls] == ["示例.S01E01.jpg"]
+    assert chain.upload_calls[0]["folder"] == FOLDER
+    assert server_calls == []
+    # 临时文件在上传后必须被清理，不能在容器里留下垃圾
+    assert not Path(chain.upload_calls[0]["source"]).exists()
+
+
+def test_local_image_uploads_to_mapped_storage_path() -> None:
+    """配置映射后按 MoviePilot 视角校验路径，写入目标是映射后的目录。"""
+    module = _load_plugin()
+    mapped_video = "/media-mp/动漫/示例/Season 01/示例.S01E01.mkv"
+    plugin, chain, _ = _local_plugin(module, existing=[mapped_video])
+    plugin._local_image_mappings = [("/media/动漫", "/media-mp/动漫")]
+
+    assert plugin.save_item_image_local({"Path": VIDEO}, "https://image/still1.jpg") is True
+    assert chain.parent_calls == [mapped_video]
+    assert chain.upload_calls[0]["folder"] == "/media-mp/动漫/示例/Season 01"
+
+
+def test_auto_mode_falls_back_to_media_server_when_local_fails() -> None:
+    """auto 模式本地写入失败后回退媒体服务器，保证分集图仍有去处。"""
+    module = _load_plugin()
+    plugin, chain, _ = _local_plugin(module, existing=[VIDEO], upload_ok=False)
+    server_calls: list = []
+    plugin.set_item_image = lambda **kwargs: (server_calls.append(kwargs), True)[1]
+
+    assert plugin.apply_episode_image(
+        server_type="emby",
+        itemid="item",
+        imageurl="https://image/still1.jpg",
+        iteminfo={"Path": VIDEO},
+    ) is True
+    assert len(chain.upload_calls) == 1
+    assert len(server_calls) == 1
+
+
+def test_local_only_mode_never_touches_media_server_api() -> None:
+    """local_only 模式落盘失败也不得调用媒体服务器图片接口。"""
+    module = _load_plugin()
+    plugin, _chain, warnings = _local_plugin(module, existing=[], mode="local_only")
+    server_calls: list = []
+    plugin.set_item_image = lambda **kwargs: (server_calls.append(kwargs), True)[1]
+
+    assert plugin.apply_episode_image(
+        server_type="emby",
+        itemid="item",
+        imageurl="https://image/still1.jpg",
+        iteminfo={"Path": VIDEO},
+    ) is False
+    assert server_calls == []
+    assert any("跳过媒体服务器" in w for w in warnings)
+
+
+def test_off_mode_keeps_media_server_write_without_storage_access() -> None:
+    """默认 off 模式完全不接触存储链，与历史版本行为一致。"""
+    module = _load_plugin()
+    plugin, chain, _ = _local_plugin(module, existing=[VIDEO], mode="off")
+    server_calls: list = []
+    plugin.set_item_image = lambda **kwargs: (server_calls.append(kwargs), True)[1]
+
+    assert plugin.apply_episode_image(
+        server_type="jellyfin",
+        itemid="item",
+        imageurl="https://image/still1.jpg",
+        iteminfo={"Path": VIDEO},
+    ) is True
+    assert chain.parent_calls == []
+    assert chain.upload_calls == []
+    assert len(server_calls) == 1
+
+
+def test_existing_image_is_kept_and_legacy_thumb_is_warned() -> None:
+    """同名分集图已存在时跳过写入仍算成功，旧命名 -thumb 图给出清理提示。"""
+    module = _load_plugin()
+    plugin, chain, warnings = _local_plugin(
+        module,
+        existing=[VIDEO, f"{FOLDER}/示例.S01E01.jpg", f"{FOLDER}/示例.S01E01-thumb.jpg"],
+    )
+
+    assert plugin.save_item_image_local({"Path": VIDEO}, "https://image/still1.jpg") is True
+    assert chain.upload_calls == []
+    assert any("旧命名分集图" in w for w in warnings)
+
+
+def test_overwrite_mode_replaces_existing_image() -> None:
+    """开启覆盖后同名分集图也会被重新写入，并沿用图片自身的后缀。"""
+    module = _load_plugin()
+    plugin, chain, _ = _local_plugin(
+        module, existing=[VIDEO, f"{FOLDER}/示例.S01E01.jpg"], overwrite=True
+    )
+
+    assert plugin.save_item_image_local({"Path": VIDEO}, "https://image/still1.png") is True
+    assert [call["name"] for call in chain.upload_calls] == ["示例.S01E01.png"]
+
+
+def test_locked_backfill_prefers_local_image_when_enabled() -> None:
+    """已锁定条目补图同样走本地落盘，成功后不再推送媒体服务器图片接口。"""
+    module = _load_plugin()
+    plugin, written, images = _lock_plugin(
+        module,
+        [{"name": "第一集", "overview": "o1", "still_path": "/still1.jpg"}],
+        {"Id": "item", "Name": "旧标题", "LockData": True, "Path": VIDEO},
+    )
+    plugin._local_image_mode = "auto"
+    plugin._local_image_storage = "local"
+    plugin._local_image_overwrite = False
+    plugin._local_image_mappings = []
+    plugin._storage_chain = _FakeStorageChain([VIDEO])
+    plugin._download_image_bytes = lambda _url: b"IMAGE"
+    exists = module.ExistMediaInfo(
+        groupep={1: [1]}, groupid={1: [["item"]]}, server_type="jellyfin", server="测试"
+    )
+
+    assert plugin._EpisodeGroupMeta__start_rt_mediaserver(
+        SimpleNamespace(title_year="示例剧 (2026)"),
+        exists,
+        [{"id": "group", "name": "剧集组"}],
+    ) is False
+    assert written == []
+    assert images == []
+    assert [call["name"] for call in plugin._storage_chain.upload_calls] == ["示例.S01E01.jpg"]
 
