@@ -3,10 +3,12 @@ import json
 import threading
 import time
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Any, List, Dict, Tuple, Optional, Union
 from pydantic import BaseModel
 from requests import RequestException
 from app import schemas
+from app.chain.storage import StorageChain
 from app.sdk.config import settings
 from app.sdk.events import eventmanager, Event
 from app.sdk.media import MetaBase
@@ -48,7 +50,7 @@ class EpisodeGroupMeta(_PluginBase):
     # 主题色
     plugin_color = "#098663"
     # 插件版本
-    plugin_version = "3.2.2"
+    plugin_version = "3.2.3"
     # 插件作者
     plugin_author = "叮叮当"
     # 作者主页
@@ -73,6 +75,16 @@ class EpisodeGroupMeta(_PluginBase):
     _ignorelock = False
     _delay = 0
     _allowlist = []
+    # 分集图本地落盘模式：off 沿用媒体服务器写入，auto 本地失败时回退，local_only 只写本地
+    _local_image_mode = "off"
+    # 分集图落盘使用的存储标识，远程挂载用户可改成对应的存储名称
+    _local_image_storage = "local"
+    # 已存在同名分集图时是否覆盖
+    _local_image_overwrite = False
+    # 媒体服务器路径到 MoviePilot 存储路径的前缀映射，按源前缀长度倒序
+    _local_image_mappings: List[Tuple[str, str]] = []
+    # 延迟创建的存储处理链，重载插件时重建
+    _storage_chain = None
 
     def init_plugin(self, config: dict = None):
         # 每次装配使用独立取消令牌，避免重载时清除旧实例仍在等待的停止信号。
@@ -80,6 +92,9 @@ class EpisodeGroupMeta(_PluginBase):
         self.tv = TV()
         self.mediaserver_helper = MediaServerHelper()
         self.__migrate_media_identity_data()
+        # 存储链与路径映射随配置重建，避免重载后继续沿用旧实例
+        self._storage_chain = None
+        self._local_image_mappings = []
         if config:
             self._enabled = config.get("enabled")
             self._notify = config.get("notify")
@@ -91,6 +106,12 @@ class EpisodeGroupMeta(_PluginBase):
                 s = s.strip()
                 if s and s not in self._allowlist:
                     self._allowlist.append(s)
+            self._local_image_mode = str(config.get("local_image_mode") or "off")
+            self._local_image_storage = str(config.get("local_image_storage") or "local")
+            self._local_image_overwrite = bool(config.get("local_image_overwrite"))
+            self._local_image_mappings = self._parse_local_image_mappings(
+                config.get("local_image_mapping")
+            )
             self.log_info(f"白名单数量: {len(self._allowlist)} > {self._allowlist}")
             if not ("notify" in config):
                 # 新版本v2.0更新插件配置默认配置
@@ -357,6 +378,110 @@ class EpisodeGroupMeta(_PluginBase):
                                 ]
                             }
                         ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSelect',
+                                        'props': {
+                                            'model': 'local_image_mode',
+                                            'label': '分集图落盘方式',
+                                            'items': [
+                                                {'title': '仅媒体服务器写入（默认）', 'value': 'off'},
+                                                {'title': '优先写入媒体目录，失败时回退', 'value': 'auto'},
+                                                {'title': '只写入媒体目录', 'value': 'local_only'}
+                                            ]
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'local_image_storage',
+                                            'label': '落盘存储标识',
+                                            'placeholder': 'local'
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VCheckboxBtn',
+                                        'props': {
+                                            'model': 'local_image_overwrite',
+                                            'label': '覆盖已有分集图'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextarea',
+                                        'props': {
+                                            'model': 'local_image_mapping',
+                                            'label': '分集图落盘路径映射',
+                                            'rows': 3,
+                                            'placeholder': '/data/media=/media'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '注意：分集图按 MoviePilot 命名（视频文件名.jpg）写入媒体目录；'
+                                                    '媒体服务器与 MoviePilot 挂载路径不一致时，每行配置一条'
+                                                    '「媒体服务器前缀=MoviePilot前缀」；路径访问不到时自动改用媒体服务器写入，不会创建目录。'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
                     }
                 ]
             }
@@ -366,7 +491,11 @@ class EpisodeGroupMeta(_PluginBase):
             "autorun": True,
             "ignorelock": False,
             "allowlist": "",
-            "delay": 120
+            "delay": 120,
+            "local_image_mode": "off",
+            "local_image_storage": "local",
+            "local_image_overwrite": False,
+            "local_image_mapping": ""
         }
 
     def is_objstr(self, obj: Any):
@@ -862,10 +991,11 @@ class EpisodeGroupMeta(_PluginBase):
                             if not self._ignorelock and self.__is_locked_item(iteminfo):
                                 # 已锁定：不改元数据、不改锁定状态，仅在剧集组该位置有分集图时补图
                                 if episode and episode.get("still_path"):
-                                    self.set_item_image(
+                                    self.apply_episode_image(
                                         server_type=existsinfo.server_type,
                                         itemid=_id,
                                         imageurl=f"https://{settings.TMDB_IMAGE_DOMAIN}/t/p/original{episode['still_path']}",
+                                        iteminfo=iteminfo,
                                         mediaserver_instance=mediaserver_instance)
                                     self.log_info(
                                         f"已锁定媒体项, 仅补充分集图片 - itemid: {_id},  第 {order} 季,  第 {ep_num} 集")
@@ -896,9 +1026,10 @@ class EpisodeGroupMeta(_PluginBase):
                                 updated = True
                             # still_path 图片
                             if episode.get("still_path"):
-                                self.set_item_image(server_type=existsinfo.server_type, itemid=_id,
-                                                    imageurl=f"https://{settings.TMDB_IMAGE_DOMAIN}/t/p/original{episode['still_path']}",
-                                                    mediaserver_instance=mediaserver_instance)
+                                self.apply_episode_image(server_type=existsinfo.server_type, itemid=_id,
+                                                         imageurl=f"https://{settings.TMDB_IMAGE_DOMAIN}/t/p/original{episode['still_path']}",
+                                                         iteminfo=iteminfo,
+                                                         mediaserver_instance=mediaserver_instance)
                             self.log_info(f"已修改剧集 - itemid: {_id},  第 {order} 季,  第 {ep_num} 集")
                     # 移除已经处理成功的季
                     existsinfo.groupep.pop(order, 0)
@@ -1342,6 +1473,175 @@ class EpisodeGroupMeta(_PluginBase):
         else:
             return __set_plex_iteminfo()
 
+    def _parse_local_image_mappings(self, raw: Any) -> List[Tuple[str, str]]:
+        """
+        解析「媒体服务器路径前缀=MoviePilot存储路径前缀」映射配置。
+
+        每行一条，按源前缀长度倒序返回，保证嵌套前缀（如 /media 与 /media/links）
+        始终由更长的一条命中，避免替换出错误路径。
+        """
+        mappings: List[Tuple[str, str]] = []
+        for line in str(raw or "").splitlines():
+            line = line.strip()
+            if not line or "=" not in line:
+                continue
+            source, _, target = line.partition("=")
+            source = source.strip().rstrip("/")
+            target = target.strip().rstrip("/")
+            if not source or not target:
+                continue
+            if (source, target) not in mappings:
+                mappings.append((source, target))
+        return sorted(mappings, key=lambda pair: len(pair[0]), reverse=True)
+
+    def _map_media_server_path(self, server_path: str) -> str:
+        """
+        把媒体服务器视角的路径换算成 MoviePilot 存储视角的路径。
+
+        未配置或未命中映射时原样返回，交由后续存在性校验判断能否写入；
+        这里不猜测目录，映射缺失只会退回媒体服务器写入，不会凭空创建路径。
+        """
+        path = str(server_path or "")
+        for source, target in (self._local_image_mappings or []):
+            if path == source or path.startswith(source + "/"):
+                return target + path[len(source):]
+        return path
+
+    def _get_storage_chain(self):
+        """
+        取得存储处理链实例，单独抽出便于插件重载与测试替换。
+        """
+        if self._storage_chain is None:
+            self._storage_chain = StorageChain()
+        return self._storage_chain
+
+    def _resolve_local_image_target(self, iteminfo: Any) -> Optional[Tuple[Any, str]]:
+        """
+        由媒体项详情反推可写入的目标目录项与视频文件名主干。
+
+        顺序是硬约束：先用视频文件本身证明 MoviePilot 能访问该路径，再由文件项取上级目录；
+        全程不使用会递归创建缺失路径的 get_folder，避免映射写错时在存储里长出假目录树。
+        """
+        if self._local_image_mode == "off":
+            return None
+        server_path = iteminfo.get("Path") if isinstance(iteminfo, dict) else None
+        if not server_path:
+            self.log_info("媒体项缺少路径信息，分集图改用媒体服务器写入")
+            return None
+        storage = self._local_image_storage or "local"
+        mapped_path = self._map_media_server_path(str(server_path))
+        try:
+            chain = self._get_storage_chain()
+            video_item = chain.get_file_item(storage=storage, path=Path(mapped_path))
+        except Exception as err:
+            self.log_warn(f"查询媒体文件失败：{err}")
+            return None
+        if not video_item or not video_item.path:
+            self.log_warn(f"MoviePilot 无法访问媒体路径，请配置路径映射：{mapped_path}")
+            return None
+        try:
+            folder_item = chain.get_parent_item(video_item)
+        except Exception as err:
+            self.log_warn(f"查询媒体文件上级目录失败：{err}")
+            return None
+        if not folder_item or not folder_item.path:
+            self.log_warn(f"未取到分集图目标目录：{mapped_path}")
+            return None
+        return folder_item, Path(video_item.path).stem
+
+    def _download_image_bytes(self, imageurl: str) -> Optional[bytes]:
+        """
+        下载图片并返回原始字节，失败时返回 None。
+        """
+        try:
+            if "doubanio.com" in imageurl:
+                r = RequestUtils(headers={
+                    'Referer': "https://movie.douban.com/"
+                }, ua=settings.USER_AGENT).get_res(url=imageurl, raise_exception=True)
+            else:
+                r = RequestUtils().get_res(url=imageurl, raise_exception=True)
+            if r:
+                return r.content
+            self.log_error(f"{imageurl} 图片下载失败，请检查网络连通性")
+        except Exception as err:
+            self.log_error(f"下载图片失败：{str(err)}")
+        return None
+
+    def save_item_image_local(self, iteminfo: Any, imageurl: str) -> bool:
+        """
+        按 MoviePilot 命名规则把分集图直接写入媒体目录。
+
+        目标文件名固定为 <视频文件名>.<图片后缀>，与核心刮削产物同名，
+        Jellyfin 读取端同样识别这个名字，因此不再需要 RemoteImages 下载指令。
+        """
+        target = self._resolve_local_image_target(iteminfo)
+        if not target:
+            return False
+        folder_item, video_stem = target
+        storage = self._local_image_storage or "local"
+        suffix = Path(str(imageurl).split("?")[0]).suffix.lower()
+        if suffix not in (".jpg", ".jpeg", ".png", ".webp"):
+            suffix = ".jpg"
+        new_name = f"{video_stem}{suffix}"
+        folder_path = Path(str(folder_item.path).rstrip("/"))
+        try:
+            chain = self._get_storage_chain()
+            existing = chain.get_file_item(storage=storage, path=folder_path / new_name)
+            legacy = chain.get_file_item(storage=storage,
+                                         path=folder_path / f"{video_stem}-thumb{suffix}")
+        except Exception as err:
+            self.log_warn(f"检查分集图现状失败：{err}")
+            return False
+        if legacy:
+            self.log_warn(f"媒体目录存在旧命名分集图，建议删除以免重复：{legacy.path}")
+        if existing and not self._local_image_overwrite:
+            self.log_info(f"分集图已存在，跳过本地写入：{existing.path}")
+            return True
+        image_bytes = self._download_image_bytes(imageurl)
+        if not image_bytes:
+            return False
+        tmp_path = None
+        try:
+            # delete_on_close 仅 Python 3.12 支持，统一使用 delete=False 后手动清理
+            with NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
+                tmp_file.write(image_bytes)
+                tmp_file.flush()
+                tmp_path = Path(tmp_file.name)
+            tmp_path.chmod(0o644)
+            saved = chain.upload_file(fileitem=folder_item, path=tmp_path, new_name=new_name)
+            if not saved:
+                self.log_warn(f"分集图写入失败：{new_name}")
+                return False
+            self.log_info(f"已保存图片：{saved.path}")
+            return True
+        except Exception as err:
+            self.log_warn(f"分集图本地落盘失败：{err}")
+            return False
+        finally:
+            # 本地存储上传成功后会自行删除源文件，这里只兜底清理异常残留
+            if tmp_path and tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
+
+    def apply_episode_image(self, server_type: str, itemid: str, imageurl: str,
+                            iteminfo: Any = None, mediaserver_instance: Any = None) -> bool:
+        """
+        按配置写入分集图：本地落盘、媒体服务器写入，或本地失败后回退媒体服务器。
+
+        默认模式 off 完整保留历史行为，只有开启本地落盘才会改变写入路径。
+        """
+        if self._local_image_mode in ("auto", "local_only"):
+            if self.save_item_image_local(iteminfo, imageurl):
+                return True
+            if self._local_image_mode == "local_only":
+                self.log_warn("分集图本地落盘未成功，已按配置跳过媒体服务器写入")
+                return False
+        return bool(self.set_item_image(server_type=server_type, itemid=itemid,
+                                        imageurl=imageurl,
+                                        mediaserver_instance=mediaserver_instance))
+
     @retry(RequestException, logger=logger)
     def set_item_image(self, server_type: str, itemid: str, imageurl: str, mediaserver_instance: Any = None):
         """
@@ -1352,20 +1652,10 @@ class EpisodeGroupMeta(_PluginBase):
             """
             下载图片
             """
-            try:
-                if "doubanio.com" in imageurl:
-                    r = RequestUtils(headers={
-                        'Referer': "https://movie.douban.com/"
-                    }, ua=settings.USER_AGENT).get_res(url=imageurl, raise_exception=True)
-                else:
-                    r = RequestUtils().get_res(url=imageurl, raise_exception=True)
-                if r:
-                    return base64.b64encode(r.content).decode()
-                else:
-                    self.log_error(f"{imageurl} 图片下载失败，请检查网络连通性")
-            except Exception as err:
-                self.log_error(f"下载图片失败：{str(err)}")
-            return None
+            image_bytes = self._download_image_bytes(imageurl)
+            if image_bytes is None:
+                return None
+            return base64.b64encode(image_bytes).decode()
 
         def __set_emby_item_image(_base64: str):
             """
