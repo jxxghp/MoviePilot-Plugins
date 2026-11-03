@@ -646,11 +646,9 @@ def test_locked_backfill_prefers_local_image_when_enabled() -> None:
     assert [call["name"] for call in plugin._storage_chain.upload_calls] == ["示例.S01E01.jpg"]
 
 
-def test_v2_compatibility_paths_are_removed() -> None:
-    """V3 实现不再迁移 V2 遗留的裸 TMDB key，也不再为补默认值回写用户配置。"""
+def test_legacy_config_keys_are_not_rewritten() -> None:
+    """旧配置缺少 notify/autorun 时按当前默认值生效，不再为补默认值回写用户配置。"""
     source = SOURCE.read_text(encoding="utf-8")
-    assert "__migrate_media_identity_data" not in source
-    assert "parse_media_key" not in source
     assert "更新插件配置默认配置" not in source
 
     module = _load_plugin()
@@ -658,10 +656,11 @@ def test_v2_compatibility_paths_are_removed() -> None:
     plugin.log_info = lambda *_args, **_kwargs: None
     plugin.log_warn = lambda *_args, **_kwargs: None
     plugin.log_error = lambda *_args, **_kwargs: None
+    # 隔离数据层：本用例只关注配置读取，不触发身份迁移
+    plugin.get_data = lambda *_args, **_kwargs: []
     rewritten: list = []
     plugin.update_config = lambda config: rewritten.append(dict(config))
 
-    # 旧配置缺少 notify/autorun 时按当前默认值生效，不触发写回
     plugin.init_plugin({"enabled": True, "ignorelock": False, "allowlist": "A, B", "delay": 60})
 
     assert plugin._notify is True
@@ -670,4 +669,34 @@ def test_v2_compatibility_paths_are_removed() -> None:
     assert plugin._allowlist == ["A", "B"]
     assert plugin._local_image_mode == "off"
     assert rewritten == []
+
+
+def test_legacy_bare_tmdb_key_is_still_migrated() -> None:
+    """V2 遗留的裸 TMDB key 在加载时仍迁移为带来源前缀的统一身份，旧记录随之清除。"""
+    module = _load_plugin()
+    legacy = {
+        "episode_groups": [{"id": "g1", "name": "组一"}],
+        "mediainfo_dict": {"title": "旧记录", "year": "2015", "tmdb_id": 69367},
+    }
+    plugin = object.__new__(module.EpisodeGroupMeta)
+    plugin.log_info = lambda *_args, **_kwargs: None
+    plugin.log_warn = lambda *_args, **_kwargs: None
+    plugin.log_error = lambda *_args, **_kwargs: None
+    plugin.get_data = lambda *_args, **_kwargs: [
+        SimpleNamespace(key="69367", value=json.dumps(legacy))
+    ]
+    saved: dict = {}
+    deleted: list = []
+    plugin.save_data = lambda key, data: saved.setdefault(key, data)
+    plugin.del_data = lambda key: deleted.append(key)
+
+    plugin.init_plugin({"enabled": False, "notify": False, "autorun": False, "delay": 60})
+
+    assert list(saved) == ["tmdb:69367"]
+    assert deleted == ["69367"]
+    migrated_dict = saved["tmdb:69367"]["mediainfo_dict"]
+    # 存储 key 用来源别名 tmdb，mediainfo_dict 里保存的是枚举值 themoviedb
+    assert migrated_dict["media_source"] == "themoviedb"
+    assert migrated_dict["media_id"] == "69367"
+    assert "tmdb_id" not in migrated_dict
 
