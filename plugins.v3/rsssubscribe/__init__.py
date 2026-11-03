@@ -17,6 +17,7 @@ from app.sdk.media import MediaInfo, TorrentInfo, Context
 from app.sdk.media import MetaInfo
 from app.sdk.network import RssHelper
 from app.sdk.logging import logger
+from app.sdk.queries import MAX_QUERY_PAGE_SIZE, list_download_history
 from app.plugins import _PluginBase
 from app.schemas import ExistMediaInfo
 from app.schemas.types import MediaSource, SystemConfigKey, MediaType
@@ -26,6 +27,10 @@ lock = Lock()
 
 
 class RssSubscribe(_PluginBase):
+    """
+    定时识别自定义 RSS 内容，添加订阅或下载缺失剧集。
+    """
+
     # 插件名称
     plugin_name = "自定义订阅"
     # 插件描述
@@ -33,7 +38,7 @@ class RssSubscribe(_PluginBase):
     # 插件图标
     plugin_icon = "rss.png"
     # 插件版本
-    plugin_version = "3.1.0"
+    plugin_version = "3.1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -66,7 +71,9 @@ class RssSubscribe(_PluginBase):
     _size_range: str = ""
 
     def init_plugin(self, config: dict = None):
-
+        """
+        加载配置、迁移历史并注册一次性刷新任务。
+        """
         # 停止现有任务
         self.stop_service()
 
@@ -113,6 +120,9 @@ class RssSubscribe(_PluginBase):
             self.__update_config()
 
     def get_state(self) -> bool:
+        """
+        返回插件是否启用。
+        """
         return self._enabled
 
     def __migrate_history_identity(self) -> None:
@@ -633,7 +643,60 @@ class RssSubscribe(_PluginBase):
 
     def check(self):
         """
-        通过用户RSS同步豆瓣想看数据
+        串行刷新 RSS，避免定时任务与立即运行交错提交同一集。
+        """
+        with lock:
+            self.__check()
+
+    def __get_pending_episodes(self, mediainfo: MediaInfo, season: int,
+                              episodes: set[int], pending_tasks: set[tuple[Optional[str], str]]) -> set[int]:
+        """
+        按媒体身份与季号，从仍在下载器中且未整理的任务恢复已提交集数。
+
+        下载历史仅用于恢复身份和实际选集，必须匹配下载器与 hash，避免已删除任务的
+        旧记录永久拦截补集。分别解析不连续的 E 区间，不能将未下载的间隔集视为已覆盖。
+        """
+        if not pending_tasks:
+            return set()
+        pending: set[int] = set()
+        page = 1
+        while True:
+            histories = list_download_history(
+                filters={
+                    "media_source": mediainfo.media_source,
+                    "media_id": str(mediainfo.media_id),
+                    "media_types": (MediaType.TV,),
+                },
+                page={
+                    "page": page, "count": MAX_QUERY_PAGE_SIZE,
+                    "sort": {"field": "id", "direction": "asc"},
+                },
+            )
+            for history in histories.items:
+                if (history.downloader, history.download_hash) not in pending_tasks:
+                    continue
+                if (history.episode_group or "") != (mediainfo.episode_group or ""):
+                    continue
+                # 历史季号已完成识别，直接读取规范区间，避免再次应用用户识别词。
+                seasons = re.finditer(r"S(\d+)(?:-S?(\d+))?", history.seasons or "", re.IGNORECASE)
+                if not any(int(match.group(1)) <= season <= int(match.group(2) or match.group(1))
+                           for match in seasons):
+                    continue
+                if not history.episodes:
+                    # 未限定集号的整季任务覆盖该季本次请求的所有集数。
+                    pending.update(episodes)
+                    continue
+                for match in re.finditer(r"E(\d+)(?:-E?(\d+))?", history.episodes, re.IGNORECASE):
+                    begin = int(match.group(1))
+                    end = int(match.group(2) or match.group(1))
+                    pending.update(episode for episode in episodes if begin <= episode <= end)
+            if not histories.has_next:
+                return pending
+            page += 1
+
+    def __check(self):
+        """
+        识别 RSS 内容并结合媒体库、未整理任务与本轮成功提交范围执行动作。
         """
         if not self._address:
             return
@@ -644,6 +707,8 @@ class RssSubscribe(_PluginBase):
             history: List[dict] = self.get_data('history') or []
         downloadchain = DownloadChain()
         subscribechain = SubscribeChain()
+        pending_tasks: Optional[set[tuple[Optional[str], str]]] = None
+        downloaded_episodes: Dict[Tuple[MediaSource, str, int, Optional[str]], set[int]] = {}
         for url in self._address.split("\n"):
             # 处理每一个RSS链接
             if not url:
@@ -715,11 +780,14 @@ class RssSubscribe(_PluginBase):
                             continue
                     # 媒体库已存在的剧集
                     exist_info: Optional[ExistMediaInfo] = self.chain.media_exists(mediainfo=mediainfo)
+                    exist_episodes = []
                     if mediainfo.type == MediaType.TV:
                         if exist_info:
                             exist_season = exist_info.seasons
                             if exist_season:
-                                exist_episodes = exist_season.get(meta.begin_season)
+                                # 蜜柑等条目常省略季号，沿用电视剧默认第一季的口径。
+                                season = meta.begin_season if meta.begin_season is not None else 1
+                                exist_episodes = exist_season.get(season)
                                 if exist_episodes and set(meta.episode_list).issubset(set(exist_episodes)):
                                     logger.info(f'{mediainfo.title_year} {meta.season_episode} 己存在')
                                     continue
@@ -729,6 +797,35 @@ class RssSubscribe(_PluginBase):
                         continue
                     # 下载或订阅
                     if self._action == "download":
+                        download_key = None
+                        episodes = set(meta.episode_list)
+                        download_options = {}
+                        if mediainfo.type == MediaType.TV and episodes and len(meta.season_list) == 1:
+                            season = meta.season_list[0]
+                            download_key = (mediainfo.media_source, str(mediainfo.media_id),
+                                            season, mediainfo.episode_group or None)
+                            if pending_tasks is None:
+                                tasks = downloadchain.list_torrents()
+                                if tasks is None:
+                                    raise RuntimeError("无法查询下载器任务，暂不提交本次下载")
+                                pending_tasks = {
+                                    (task.downloader, task.hash)
+                                    for task in tasks
+                                    if task.hash and "已整理" not in {
+                                        tag.strip() for tag in (task.tags or "").split(",")
+                                    }
+                                }
+                            pending = self.__get_pending_episodes(mediainfo, season, episodes, pending_tasks)
+                            covered = (set(exist_episodes or []) | pending
+                                       | downloaded_episodes.get(download_key, set()))
+                            missing = episodes - covered
+                            if not missing:
+                                logger.info(f'{mediainfo.title_year} {meta.season_episode} 已存在或已提交下载')
+                                continue
+                            if missing != episodes:
+                                # 合集部分重叠时只选择缺集文件，不能整包重复下载或丢弃其中的新集。
+                                download_options["episodes"] = missing
+                            episodes = missing
                         # 添加下载
                         result = downloadchain.download_single(
                             context=Context(
@@ -737,11 +834,15 @@ class RssSubscribe(_PluginBase):
                                 torrent_info=torrentinfo,
                             ),
                             save_path=self._save_path,
-                            username="RSS订阅"
+                            username="RSS订阅",
+                            **download_options,
                         )
                         if not result:
                             logger.error(f'{title} 下载失败')
                             continue
+                        if download_key is not None:
+                            # 下载器列表可能延迟更新；仅在成功提交后占用本轮集数。
+                            downloaded_episodes.setdefault(download_key, set()).update(episodes)
                     else:
                         # 检查是否在订阅中
                         subflag = subscribechain.exists(mediainfo=mediainfo, meta=meta)
