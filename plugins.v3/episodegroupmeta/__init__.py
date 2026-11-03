@@ -50,7 +50,7 @@ class EpisodeGroupMeta(_PluginBase):
     # 主题色
     plugin_color = "#098663"
     # 插件版本
-    plugin_version = "3.2.4"
+    plugin_version = "3.2.3"
     # 插件作者
     plugin_author = "叮叮当"
     # 作者主页
@@ -1011,12 +1011,14 @@ class EpisodeGroupMeta(_PluginBase):
                             if not self._ignorelock and self.__is_locked_item(iteminfo):
                                 # 已锁定：不改元数据、不改锁定状态，仅在剧集组该位置有分集图时补图
                                 if episode and episode.get("still_path"):
-                                    self.apply_episode_image(
-                                        server_type=existsinfo.server_type,
-                                        itemid=_id,
-                                        imageurl=f"https://{settings.TMDB_IMAGE_DOMAIN}/t/p/original{episode['still_path']}",
-                                        iteminfo=iteminfo,
-                                        mediaserver_instance=mediaserver_instance)
+                                    # 补图成功同样属于本次执行的有效写入，否则只补图的锁定项会被判为执行失败
+                                    if self.apply_episode_image(
+                                            server_type=existsinfo.server_type,
+                                            itemid=_id,
+                                            imageurl=f"https://{settings.TMDB_IMAGE_DOMAIN}/t/p/original{episode['still_path']}",
+                                            iteminfo=iteminfo,
+                                            mediaserver_instance=mediaserver_instance):
+                                        updated = True
                                     self.log_info(
                                         f"已锁定媒体项, 仅补充分集图片 - itemid: {_id},  第 {order} 季,  第 {ep_num} 集")
                                 else:
