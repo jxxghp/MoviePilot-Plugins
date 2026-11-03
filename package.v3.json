@@ -27,6 +27,20 @@
       "v1.7": "支持多个tracker替换配置"
     }
   },
+  "TorrentBlacklist": {
+    "name": "种子黑名单",
+    "description": "按关键词、站点或下载历史的同站同名种子永久屏蔽下载。",
+    "labels": "下载,过滤",
+    "version": "1.0.0",
+    "icon": "Moviepilot_A.png",
+    "author": "cwd0204",
+    "level": 1,
+    "release": true,
+    "system_version": ">=3.2.3",
+    "history": {
+      "v1.0.0": "新增永久关键词、站点及历史同站同名规则，支持管理页面与资源选择、下载前拦截。"
+    }
+  },
   "AutoSignIn": {
     "name": "站点自动签到",
     "description": "自动模拟登录、签到站点。",

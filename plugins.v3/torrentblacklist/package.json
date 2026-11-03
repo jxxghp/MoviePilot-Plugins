@@ -1,0 +1,24 @@
+{
+  "name": "moviepilot-torrentblacklist-plugin",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {"vue": "3.5.44", "vuetify": "3.7.3"},
+  "devDependencies": {
+    "@originjs/vite-plugin-federation": "1.4.1",
+    "@vitejs/plugin-vue": "5.2.3",
+    "@vue/test-utils": "2.4.11",
+    "@testing-library/vue": "8.1.0",
+    "@testing-library/user-event": "14.6.1",
+    "jsdom": "26.1.0",
+    "typescript": "5.8.3",
+    "vite": "5.4.21",
+    "vitest": "3.2.7",
+    "vue-tsc": "2.2.10"
+  }
+}
