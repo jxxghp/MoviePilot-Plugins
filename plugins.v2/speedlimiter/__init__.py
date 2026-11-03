@@ -27,7 +27,7 @@ class SpeedLimiter(_PluginBase):
     # 插件图标
     plugin_icon = "Librespeed_A.png"
     # 插件版本
-    plugin_version = "2.3.1"
+    plugin_version = "2.3.2"
     # 插件作者
     plugin_author = "Shurelol"
     # 作者主页
@@ -72,6 +72,7 @@ class SpeedLimiter(_PluginBase):
         self._session_positions = {}
         self._recovering = False
         self._last_raise = 0
+        self._recovery_step = 256
         self._unlimited_ips = {}
         self._downloader = []
         self._caps = {}
@@ -108,6 +109,7 @@ class SpeedLimiter(_PluginBase):
         self._headroom = max(0, float(config.get("headroom") or 0)) * 1000000
         self._overhead = max(1, float(config.get("overhead") or 1.25))
         self._recovery_delay = max(0, int(config.get("recovery_delay", 30)))
+        self._recovery_step = max(1, min(4096, int(config.get("recovery_step") or 256)))
         for line in (config.get("downloader_limits") or "").splitlines():
             if not line.strip():
                 continue
@@ -451,6 +453,7 @@ class SpeedLimiter(_PluginBase):
             }
         ] + self._allocation_form(), {
             "enabled": False,
+            "recovery_step": 256,
             "segment_prediction": False,
             "media_paths": "",
             "allocation_mode": "ratio",
@@ -484,6 +487,7 @@ class SpeedLimiter(_PluginBase):
             ("VTextField", "overhead", "播放带宽系数", {"type": "number", "min": 1, "step": .05}),
             ("VSwitch", "segment_prediction", "按播放片段预留", {}),
             ("VTextarea", "media_paths", "媒体路径映射", {"placeholder": "媒体服务器路径=MP路径", "rows": 2}),
+            ("VTextField", "recovery_step", "每次恢复上传（KB/s）", {"type": "number", "min": 1, "max": 4096}),
             ("VTextField", "recovery_delay", "停止后等待（秒）", {"type": "number", "min": 0}),
             ("VTextarea", "downloader_limits", "下载器上传上限（KB/s）", {
                 "placeholder": "下载器名称=3000", "rows": 2}),
@@ -739,14 +743,18 @@ class SpeedLimiter(_PluginBase):
             start = int(position // 30) * 30
             key = (path, stat.st_size, stat.st_mtime_ns, start)
             cached = self._probe_cache.get(key)
-            if cached is not None:
-                rate = self.segment_rate(cached, position - start)
-                # 单独留15%传输余量，避免再套用整片的保守系数。
+            estimate = fallback
+            # 新区间尚未扫描完时，复用仍覆盖未来一分钟的相邻区间。
+            candidates = sorted((k for k in self._probe_cache
+                                 if k[:3] == key[:3] and k[3] <= position),
+                                key=lambda k: k[3], reverse=True)
+            for candidate in candidates:
+                rate = self.segment_rate(self._probe_cache[candidate], position - candidate[3])
                 if rate:
-                    return rate * 1.15 / self._overhead
-                return fallback
-            if self._probe_pending:
-                return fallback
+                    estimate = rate * 1.15 / self._overhead
+                    break
+            if cached is not None or self._probe_pending:
+                return estimate
             self._probe_pending = True
             generation = self._probe_generation
             def probe():
@@ -762,6 +770,7 @@ class SpeedLimiter(_PluginBase):
                     while len(self._probe_cache) > 32:
                         self._probe_cache.pop(next(iter(self._probe_cache)))
             threading.Thread(target=probe, name="playback-bitrate", daemon=True).start()
+            return estimate
         except (OSError, ValueError, KeyError, TypeError):
             pass
         return fallback
@@ -1132,7 +1141,7 @@ class SpeedLimiter(_PluginBase):
             if previous and self._recovering and previous["upload"] > 0 and (up == 0 or up > previous["upload"]):
                 unlimited = up == 0
                 ceiling = up or self._bandwidth / 8 / unit
-                next_up = min(ceiling, previous["upload"] + 256) if can_raise else previous["upload"]
+                next_up = min(ceiling, previous["upload"] + self._recovery_step) if can_raise else previous["upload"]
                 up = 0 if unlimited and next_up >= ceiling else int(next_up)
                 raised |= up == 0 or up > previous["upload"]
             all_restored &= int(target / unit) == up

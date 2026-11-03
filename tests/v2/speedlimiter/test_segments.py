@@ -133,3 +133,22 @@ def test_probe_timeout_is_cached_as_failure_without_limit_changes(tmp_path, monk
     assert not p._probe_pending
     assert p._playback_bitrate(session(path)) == 20_000_000
     assert len(jobs) == 1
+
+
+def test_adjacent_probe_keeps_valid_scene_budget_while_refreshing(tmp_path, monkeypatch):
+    path = tmp_path / 'a.mkv'
+    path.write_bytes(b'x')
+    p = SpeedLimiter()
+    p._segment_prediction = p._auto_limit = True
+    p._overhead = 1.75
+    st = path.stat()
+    p._probe_cache[(str(path), st.st_size, st.st_mtime_ns, 0)] = [1_000_000] * 120
+    jobs = []
+    monkeypatch.setattr(module.threading, 'Thread', lambda **kw: SimpleNamespace(start=lambda: jobs.append(kw['target'])))
+    s = session(path)  # 35s, starts a new 30s probe
+    expected = 8_000_000 * 1.15 / p._overhead
+    assert p._playback_bitrate(s) == pytest.approx(expected)
+    assert len(jobs) == 1
+    assert p._playback_bitrate(s) == pytest.approx(expected)
+    s['PlayState']['PositionTicks'] = 100 * 10_000_000
+    assert p._playback_bitrate(s) == 20_000_000  # 旧区间不足以覆盖拖动后的需求
