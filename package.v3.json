@@ -1,4 +1,17 @@
 {
+  "MediaDownloadFolder": {
+    "name": "媒体下载目录",
+    "description": "按整理命名格式把同一影视作品的下载归入一个目录。",
+    "labels": "下载",
+    "version": "1.0.0",
+    "icon": "Moviepilot_A.png",
+    "author": "cwd0204",
+    "level": 1,
+    "system_version": ">=3.2.3",
+    "history": {
+      "v1.0.0": "下载提交前按现有整理格式归组作品目录，支持电影和电视剧独立选择下载根目录。"
+    }
+  },
   "TrackerEditor": {
     "name": "Tracker替换",
     "description": "批量替换修改种子tracker。",
