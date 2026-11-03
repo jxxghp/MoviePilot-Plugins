@@ -646,6 +646,82 @@ def test_locked_backfill_prefers_local_image_when_enabled() -> None:
     assert [call["name"] for call in plugin._storage_chain.upload_calls] == ["示例.S01E01.jpg"]
 
 
+def _bucket_plugin(module):
+    """装配只用于分组构造的替身，收集 info/warn 日志。"""
+    plugin = object.__new__(module.EpisodeGroupMeta)
+    plugin.logs = []
+    plugin.log_info = lambda msg, *_args, **_kwargs: plugin.logs.append(("info", msg))
+    plugin.log_warn = lambda msg, *_args, **_kwargs: plugin.logs.append(("warn", msg))
+    return plugin
+
+
+def test_season_episode_is_parsed_from_file_path() -> None:
+    """文件名中的 SxxExx 直接决定季集号，包含第 0 集。"""
+    module = _load_plugin()
+    plugin = _bucket_plugin(module)
+
+    assert plugin._parse_season_episode("/media/x/Season 02/示例 S02E12 1080p.mkv") == (2, 12)
+    assert plugin._parse_season_episode("/media/x/Season 01/示例 S01E00 1080p.mkv") == (1, 0)
+
+
+def test_season_folder_is_used_when_filename_lacks_season() -> None:
+    """文件名没有季集号时退回季目录，集号仍由条目记录决定。"""
+    module = _load_plugin()
+    plugin = _bucket_plugin(module)
+
+    assert plugin._parse_season_episode("/media/x/Season 03/示例 - 05.mkv") == (3, None)
+    assert plugin._parse_season_episode("/media/x/不规范的标题.mkv") == (None, None)
+
+
+def test_buckets_follow_file_path_over_recorded_numbers() -> None:
+    """条目记录成第 1 季第 12 集、文件却是 Season 02 的 S02E12 时，按文件归入第 2 季。"""
+    module = _load_plugin()
+    plugin = _bucket_plugin(module)
+    items = [
+        {"Id": "a", "ParentIndexNumber": 1, "IndexNumber": 12,
+         "Path": "/media/x/Season 01/示例 S01E12.mkv"},
+        {"Id": "b", "ParentIndexNumber": 1, "IndexNumber": 12,
+         "Path": "/media/x/Season 02/示例 S02E12.mkv"},
+    ]
+
+    group_ep, group_id = plugin._build_group_buckets(items)
+
+    assert group_ep == {1: [12], 2: [12]}
+    assert group_id == {1: [["a"]], 2: [["b"]]}
+    assert any(kind == "info" and "按文件名纠正季集" in msg for kind, msg in plugin.logs)
+
+
+def test_duplicate_episode_number_keeps_first_and_warns() -> None:
+    """同季同集号只保留第一个条目，其余跳过并告警，避免同一份数据写进多个 NFO。"""
+    module = _load_plugin()
+    plugin = _bucket_plugin(module)
+    items = [
+        {"Id": "first", "ParentIndexNumber": 1, "IndexNumber": 12,
+         "Path": "/media/x/Season 01/示例 S01E12.mkv"},
+        {"Id": "dup", "ParentIndexNumber": 1, "IndexNumber": 12,
+         "Path": "/media/x/Season 01/示例 S01E12 副本.mkv"},
+    ]
+
+    group_ep, group_id = plugin._build_group_buckets(items)
+
+    assert group_ep == {1: [12]}
+    assert group_id == {1: [["first"]]}
+    assert any(kind == "warn" and "存在多个条目" in msg for kind, msg in plugin.logs)
+
+
+def test_buckets_fall_back_to_recorded_numbers_without_path() -> None:
+    """缺少路径时沿用条目自带的季集号，行为与历史一致。"""
+    module = _load_plugin()
+    plugin = _bucket_plugin(module)
+
+    group_ep, group_id = plugin._build_group_buckets(
+        [{"Id": "a", "ParentIndexNumber": 2, "IndexNumber": 3}]
+    )
+
+    assert group_ep == {2: [3]}
+    assert group_id == {2: [["a"]]}
+
+
 def test_legacy_config_keys_are_not_rewritten() -> None:
     """旧配置缺少 notify/autorun 时按当前默认值生效，不再为补默认值回写用户配置。"""
     source = SOURCE.read_text(encoding="utf-8")
