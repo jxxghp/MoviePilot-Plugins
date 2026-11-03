@@ -645,3 +645,29 @@ def test_locked_backfill_prefers_local_image_when_enabled() -> None:
     assert images == []
     assert [call["name"] for call in plugin._storage_chain.upload_calls] == ["示例.S01E01.jpg"]
 
+
+def test_v2_compatibility_paths_are_removed() -> None:
+    """V3 实现不再迁移 V2 遗留的裸 TMDB key，也不再为补默认值回写用户配置。"""
+    source = SOURCE.read_text(encoding="utf-8")
+    assert "__migrate_media_identity_data" not in source
+    assert "parse_media_key" not in source
+    assert "更新插件配置默认配置" not in source
+
+    module = _load_plugin()
+    plugin = object.__new__(module.EpisodeGroupMeta)
+    plugin.log_info = lambda *_args, **_kwargs: None
+    plugin.log_warn = lambda *_args, **_kwargs: None
+    plugin.log_error = lambda *_args, **_kwargs: None
+    rewritten: list = []
+    plugin.update_config = lambda config: rewritten.append(dict(config))
+
+    # 旧配置缺少 notify/autorun 时按当前默认值生效，不触发写回
+    plugin.init_plugin({"enabled": True, "ignorelock": False, "allowlist": "A, B", "delay": 60})
+
+    assert plugin._notify is True
+    assert plugin._autorun is True
+    assert plugin._ignorelock is False
+    assert plugin._allowlist == ["A", "B"]
+    assert plugin._local_image_mode == "off"
+    assert rewritten == []
+
