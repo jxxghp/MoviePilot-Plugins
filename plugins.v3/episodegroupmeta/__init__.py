@@ -22,6 +22,7 @@ from app.sdk.network import RequestUtils
 from app.sdk.media import (
     build_media_key,
     normalize_media_source,
+    parse_media_key,
     resolve_media_identity,
 )
 
@@ -90,6 +91,7 @@ class EpisodeGroupMeta(_PluginBase):
         self._event = threading.Event()
         self.tv = TV()
         self.mediaserver_helper = MediaServerHelper()
+        self.__migrate_media_identity_data()
         # 存储链与路径映射随配置重建，避免重载后继续沿用旧实例
         self._storage_chain = None
         self._local_image_mappings = []
@@ -527,6 +529,54 @@ class EpisodeGroupMeta(_PluginBase):
         sanitized["media_source"] = media_source.value
         sanitized["media_id"] = str(media_id)
         return sanitized
+
+    def __migrate_media_identity_data(self) -> None:
+        """将旧裸 TMDB key 和冗余 ID 字段迁移为统一媒体身份结构。"""
+        for plugin_data in self.get_data() or []:
+            try:
+                data = json.loads(plugin_data.value) if self.is_objstr(plugin_data.value) else plugin_data.value
+                if not isinstance(data, dict):
+                    continue
+                mediainfo_dict = data.get("mediainfo_dict")
+                if not isinstance(mediainfo_dict, dict):
+                    continue
+                media_source, media_id = resolve_media_identity(
+                    media_source=mediainfo_dict.get("media_source"),
+                    media_id=mediainfo_dict.get("media_id"),
+                )
+                key_source, key_media_id = parse_media_key(plugin_data.key)
+                if not media_source:
+                    media_source, media_id = resolve_media_identity(
+                        media_source=key_source,
+                        media_id=key_media_id,
+                    )
+                if not media_source:
+                    media_source, media_id = resolve_media_identity(
+                        media_source=MediaSource.TMDB,
+                        media_id=mediainfo_dict.get("tmdb_id"),
+                    )
+                if not media_source and ":" not in str(plugin_data.key):
+                    media_source, media_id = resolve_media_identity(
+                        media_source=MediaSource.TMDB,
+                        media_id=plugin_data.key,
+                    )
+                if media_source != MediaSource.TMDB:
+                    continue
+                media_key = build_media_key(media_source, media_id)
+                if not media_key:
+                    continue
+                migrated = dict(data)
+                migrated["mediainfo_dict"] = self.__sanitize_mediainfo_dict(
+                    mediainfo_dict,
+                    media_source,
+                    media_id,
+                )
+                if media_key != plugin_data.key or migrated != data:
+                    self.save_data(media_key, migrated)
+                    if media_key != plugin_data.key:
+                        self.del_data(plugin_data.key)
+            except Exception as err:
+                self.log_warn(f"迁移待处理媒体身份失败：{plugin_data.key} - {err}")
 
     def get_page(self) -> List[dict]:
         """
