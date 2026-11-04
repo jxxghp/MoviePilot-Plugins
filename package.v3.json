@@ -1090,6 +1090,20 @@
       "v1.0.0": "首个版本：支持通过NapCat HTTP接口发送私聊、群聊通知，支持消息类型过滤、@全体成员与图片消息"
     }
   },
+  "PromotionTag": {
+    "name": "促销标签",
+    "description": "自动为下载任务打上 PT 站点促销标签（免费/2X免费/50%/2X等），并在限时促销到期后自动移除标签。",
+    "labels": "下载器,站点",
+    "version": "3.0.0",
+    "icon": "seed.png",
+    "author": "Guoyin-Wen",
+    "level": 1,
+    "system_version": ">=3.0.0",
+    "release": true,
+    "history": {
+      "v3.0.0": "适配 MoviePilot V3：由 V2 版促销标签（v1.0）升级，功能不变，V2 用户配置自动继承"
+    }
+  },
   "SiteUserDetail": {
     "name": "站点用户详情采集",
     "description": "定时采集 PT 站用户详情页的 BT 客户端信息与下载中种子明细，并提供插件 API 供三方调用。",
