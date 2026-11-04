@@ -26,10 +26,10 @@ def test_v3_metadata_and_legacy_indexes_are_aligned() -> None:
     v3 = json.loads((ROOT / "package.v3.json").read_text(encoding="utf-8"))
     legacy = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
 
-    assert module.EpisodeGroupMeta.plugin_version == "3.2.3"
-    assert v3["EpisodeGroupMeta"]["version"] == "3.2.3"
+    assert module.EpisodeGroupMeta.plugin_version == "3.2.4"
+    assert v3["EpisodeGroupMeta"]["version"] == "3.2.4"
     assert v3["EpisodeGroupMeta"]["system_version"] == ">=3.0.0"
-    assert v3["EpisodeGroupMeta"]["history"]["v3.2.3"]
+    assert v3["EpisodeGroupMeta"]["history"]["v3.2.4"]
     assert legacy["EpisodeGroupMeta"]["v3"] is False
 
 
@@ -775,3 +775,136 @@ def test_legacy_bare_tmdb_key_is_still_migrated() -> None:
     assert migrated_dict["media_source"] == "themoviedb"
     assert migrated_dict["media_id"] == "69367"
     assert "tmdb_id" not in migrated_dict
+
+
+def test_debounce_merges_events_inside_window() -> None:
+    """同一媒体在窗口内的连续事件只保留最后一次，并且只登记一次任务。"""
+    module = _load_plugin()
+    debounce = module._MediaDebounce(delay=120, max_wait=600)
+
+    assert debounce.submit("tmdb:69367", "第一次", now=0) is True
+    assert debounce.submit("tmdb:69367", "第二次", now=50) is False
+    assert debounce.submit("tmdb:69367", "第三次", now=100) is False
+
+    assert debounce.due("tmdb:69367", now=150) is None
+    # 最后一次事件在 100，截止时间为 220
+    assert debounce.due("tmdb:69367", now=219) is None
+    assert debounce.due("tmdb:69367", now=220) == "第三次"
+
+
+def test_debounce_slides_window_with_new_event() -> None:
+    """窗口内继续到达的事件会推迟执行时间。"""
+    module = _load_plugin()
+    debounce = module._MediaDebounce(delay=120, max_wait=600)
+
+    debounce.submit("tmdb:69367", "第一次", now=0)
+    debounce.submit("tmdb:69367", "第二次", now=119)
+
+    # 原截止时间 120 已被顺延到 239
+    assert debounce.due("tmdb:69367", now=200) is None
+    assert debounce.due("tmdb:69367", now=239) == "第二次"
+
+
+def test_debounce_max_wait_forces_execution() -> None:
+    """持续不断的入库不能无限推迟，超过窗口上限就执行。"""
+    module = _load_plugin()
+    debounce = module._MediaDebounce(delay=120, max_wait=300)
+
+    debounce.submit("tmdb:69367", "一", now=0)
+    debounce.submit("tmdb:69367", "二", now=100)
+    debounce.submit("tmdb:69367", "三", now=200)
+    debounce.submit("tmdb:69367", "四", now=250)
+
+    assert debounce.due("tmdb:69367", now=299) is None
+    assert debounce.due("tmdb:69367", now=300) == "四"
+
+
+def test_debounce_reruns_when_event_arrives_while_running() -> None:
+    """执行期间到达的新事件在本轮结束后补跑，不会丢失。"""
+    module = _load_plugin()
+    debounce = module._MediaDebounce(delay=120, max_wait=600)
+
+    debounce.submit("tmdb:69367", "本轮", now=0)
+    assert debounce.due("tmdb:69367", now=120) == "本轮"
+    # 执行中再来事件：只置待补跑，不额外登记
+    assert debounce.submit("tmdb:69367", "补跑", now=130) is False
+    assert debounce.finish("tmdb:69367", now=140) is True
+    assert debounce.due("tmdb:69367", now=200) is None
+    assert debounce.due("tmdb:69367", now=260) == "补跑"
+    assert debounce.finish("tmdb:69367", now=270) is False
+    assert debounce.has("tmdb:69367") is False
+
+
+def test_debounce_new_batch_starts_after_finish() -> None:
+    """一批事件执行完毕后状态被清理，后续入库会重新开始一轮。"""
+    module = _load_plugin()
+    debounce = module._MediaDebounce(delay=120, max_wait=600)
+
+    assert debounce.submit("tmdb:69367", "第一批", now=0) is True
+    assert debounce.due("tmdb:69367", now=120) == "第一批"
+    assert debounce.finish("tmdb:69367", now=121) is False
+    assert debounce.has("tmdb:69367") is False
+
+    # 之后又入库了新集，需要重新调度
+    assert debounce.submit("tmdb:69367", "新入库", now=3600) is True
+    assert debounce.due("tmdb:69367", now=3720) == "新入库"
+
+
+def test_debounce_keys_are_independent() -> None:
+    """不同媒体的任务互不影响，也都可以被丢弃。"""
+    module = _load_plugin()
+    debounce = module._MediaDebounce(delay=60, max_wait=600)
+
+    assert debounce.submit("tmdb:1", "A", now=0) is True
+    assert debounce.submit("tmdb:2", "B", now=0) is True
+    assert debounce.due("tmdb:1", now=60) == "A"
+    assert debounce.has("tmdb:2") is True
+    debounce.discard("tmdb:2")
+    assert debounce.has("tmdb:2") is False
+
+
+def test_transfer_events_are_debounced_per_media() -> None:
+    """事件入口按媒体合并，并保留无延迟时直接执行的分支。"""
+    import inspect
+
+    module = _load_plugin()
+    source = inspect.getsource(module.EpisodeGroupMeta.scrap_rt)
+
+    assert "_debounce.submit(" in source
+    assert "build_media_key(MediaSource.TMDB, tmdb_media_id)" in source
+    assert "__debounce_worker" in inspect.getsource(module.EpisodeGroupMeta)
+
+
+def test_debounce_window_cap_can_be_widened() -> None:
+    """大包入库时窗口上限可调大，避免每 10 分钟整剧重扫一次。"""
+    module = _load_plugin()
+    debounce = module._MediaDebounce(delay=120, max_wait=1800)
+
+    debounce.submit("tmdb:69367", "一", now=0)
+    # 事件一直续到 1700，截止时间被顺延到 1820，但上限 1800 会强制执行
+    debounce.submit("tmdb:69367", "二", now=1700)
+
+    assert debounce.due("tmdb:69367", now=1799) is None
+    assert debounce.due("tmdb:69367", now=1800) == "二"
+
+
+def test_debounce_max_minutes_is_configurable() -> None:
+    """合并窗口上限按配置的分钟数生效，并提供默认值。"""
+    module = _load_plugin()
+    plugin = object.__new__(module.EpisodeGroupMeta)
+    plugin.log_info = lambda *_args, **_kwargs: None
+    plugin.log_warn = lambda *_args, **_kwargs: None
+    plugin.log_error = lambda *_args, **_kwargs: None
+    plugin.get_data = lambda *_args, **_kwargs: []
+    plugin.save_data = lambda *_args, **_kwargs: None
+    plugin.del_data = lambda *_args, **_kwargs: None
+
+    plugin.init_plugin({"enabled": True, "notify": False, "autorun": True,
+                        "delay": 60, "debounce_max": 30})
+    assert plugin._debounce_max_minutes == 30
+    assert plugin._debounce._max_wait == 1800
+
+    # 非法值回落到默认 10 分钟
+    plugin.init_plugin({"enabled": True, "delay": 60, "debounce_max": "abc"})
+    assert plugin._debounce_max_minutes == 10
+    assert plugin._debounce._max_wait == 600
