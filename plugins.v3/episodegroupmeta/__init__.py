@@ -32,6 +32,94 @@ _SEASON_EPISODE_PATTERN = re.compile(r"(?<![0-9A-Za-z])[Ss](\d{1,2})[ ._-]?[Ee](
 _SEASON_FOLDER_PATTERN = re.compile(r"(?:^|/)(?:Season|Saison|Staffel)[ ._-]?(\d{1,3})(?:/|$)",
                                     re.IGNORECASE)
 
+# 去抖线程的轮询间隔
+_DEBOUNCE_POLL_SECONDS = 0.5
+
+
+class _MediaDebounce:
+    """
+    同一媒体的事件去抖状态机。
+
+    窗口内连续事件只保留最后一次待处理数据，等最后一次事件之后再执行；
+    执行期间到达的事件记为待补跑，本轮结束后再执行一次，避免漏掉新入库的集。
+    执行结束且无待补跑时删除该媒体的状态，之后的新事件会重新开始一轮。
+    """
+
+    def __init__(self, delay: float, max_wait: float):
+        self._delay = max(0.0, float(delay or 0))
+        self._max_wait = max(self._delay, float(max_wait or 0))
+        self._lock = threading.Lock()
+        self._entries: Dict[str, Dict[str, Any]] = {}
+
+    def submit(self, key: str, payload: Any, now: float) -> bool:
+        """
+        登记一次事件，返回调用方是否需要为该媒体启动工作线程。
+
+        :param key: 媒体合并键
+        :param payload: 最近一次事件对应的待处理数据
+        :param now: 单调时钟读数
+        """
+        with self._lock:
+            entry = self._entries.get(key)
+            if entry is None:
+                self._entries[key] = {
+                    "payload": payload,
+                    "deadline": now + self._delay,
+                    "first": now,
+                    "running": False,
+                    "dirty": False,
+                }
+                return True
+            entry["payload"] = payload
+            if entry["running"]:
+                # 已在本轮执行中，记待补跑而不是另起一个线程
+                entry["dirty"] = True
+            else:
+                # 滑动窗口：下一次事件会推迟执行截止时间
+                entry["deadline"] = now + self._delay
+            return False
+
+    def due(self, key: str, now: float) -> Optional[Any]:
+        """
+        到达截止时间或窗口上限时返回待执行数据，并标记为执行中。
+        """
+        with self._lock:
+            entry = self._entries.get(key)
+            if not entry or entry["running"]:
+                return None
+            if now < entry["deadline"] and now - entry["first"] < self._max_wait:
+                return None
+            entry["running"] = True
+            entry["dirty"] = False
+            return entry["payload"]
+
+    def finish(self, key: str, now: float) -> bool:
+        """
+        标记本轮执行结束；执行期间有新事件时重新计时并返回 ``True``。
+        """
+        with self._lock:
+            entry = self._entries.get(key)
+            if not entry:
+                return False
+            entry["running"] = False
+            if entry["dirty"]:
+                entry["dirty"] = False
+                entry["deadline"] = now + self._delay
+                entry["first"] = now
+                return True
+            self._entries.pop(key, None)
+            return False
+
+    def has(self, key: str) -> bool:
+        """该媒体是否仍有待处理任务。"""
+        with self._lock:
+            return key in self._entries
+
+    def discard(self, key: str) -> None:
+        """丢弃该媒体的待处理任务。"""
+        with self._lock:
+            self._entries.pop(key, None)
+
 
 class ExistMediaInfo(BaseModel):
     # 季, 集
@@ -56,7 +144,7 @@ class EpisodeGroupMeta(_PluginBase):
     # 主题色
     plugin_color = "#098663"
     # 插件版本
-    plugin_version = "3.2.3"
+    plugin_version = "3.2.4"
     # 插件作者
     plugin_author = "叮叮当"
     # 作者主页
@@ -80,6 +168,8 @@ class EpisodeGroupMeta(_PluginBase):
     _autorun = True
     _ignorelock = False
     _delay = 0
+    # 同一媒体的合并窗口上限（分钟），大包入库时可调大以减少重复整剧刮削
+    _debounce_max_minutes = 10
     _allowlist = []
     # 分集图本地落盘模式：off 沿用媒体服务器写入，auto 本地失败时回退，local_only 只写本地
     _local_image_mode = "off"
@@ -91,6 +181,8 @@ class EpisodeGroupMeta(_PluginBase):
     _local_image_mappings: List[Tuple[str, str]] = []
     # 延迟创建的存储处理链，重载插件时重建
     _storage_chain = None
+    # 同一媒体的连续事件去抖状态，随配置重建
+    _debounce = None
 
     def init_plugin(self, config: dict = None):
         # 每次装配使用独立取消令牌，避免重载时清除旧实例仍在等待的停止信号。
@@ -107,6 +199,10 @@ class EpisodeGroupMeta(_PluginBase):
             self._autorun = config.get("autorun", True)
             self._ignorelock = config.get("ignorelock")
             self._delay = config.get("delay") or 120
+            try:
+                self._debounce_max_minutes = max(1, int(config.get("debounce_max") or 10))
+            except (TypeError, ValueError):
+                self._debounce_max_minutes = 10
             self._allowlist = []
             for s in str(config.get("allowlist", "")).split(","):
                 s = s.strip()
@@ -119,6 +215,11 @@ class EpisodeGroupMeta(_PluginBase):
                 config.get("local_image_mapping")
             )
             self.log_info(f"白名单数量: {len(self._allowlist)} > {self._allowlist}")
+        # 同一媒体的连续事件在窗口内合并，避免一季入库触发多次整剧刮削
+        self._debounce = _MediaDebounce(
+            self._delay,
+            max(float(self._debounce_max_minutes or 10) * 60, float(self._delay or 0) * 2),
+        )
 
     def get_state(self) -> bool:
         return self._enabled
@@ -299,6 +400,7 @@ class EpisodeGroupMeta(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
+                                    'md': 6
                                 },
                                 'content': [
                                     {
@@ -307,6 +409,23 @@ class EpisodeGroupMeta(_PluginBase):
                                             'model': 'delay',
                                             'label': '入库延迟时间（秒）',
                                             'placeholder': '120'
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'debounce_max',
+                                            'label': '合并窗口上限（分钟）',
+                                            'placeholder': '10'
                                         }
                                     }
                                 ]
@@ -518,6 +637,7 @@ class EpisodeGroupMeta(_PluginBase):
             "ignorelock": False,
             "allowlist": "",
             "delay": 120,
+            "debounce_max": 10,
             "local_image_mode": "off",
             "local_image_storage": "local",
             "local_image_overwrite": False,
@@ -878,21 +998,64 @@ class EpisodeGroupMeta(_PluginBase):
                     text=f"媒体名称：{mediainfo.title}\n发行年份: {mediainfo.year}\n剧集组数: {len(episode_groups)}"
                 )
             return
-        # 延迟
-        if self._delay:
-            self.log_warn(f"{mediainfo.title} 将在 {self._delay} 秒后开始处理..")
-            if self._event.wait(int(self._delay)):
-                return
-        # 开始处理
-        if self.start_rt(mediainfo=mediainfo, episode_groups=episode_groups):
-            # 处理完成时， 属于自动匹配的, 发送通知
-            if self._notify and mediainfo_dict:
-                self.post_message(
-                    mtype=schemas.NotificationType.Manual,
-                    title="【已自动匹配的剧集组】",
-                    text=f"媒体名称：{mediainfo.title}\n发行年份: {mediainfo.year}\n剧集组数: {len(episode_groups)}"
-                )
+        # 未设置延迟时直接处理
+        if not self._delay or self._debounce is None:
+            if self.start_rt(mediainfo=mediainfo, episode_groups=episode_groups):
+                # 处理完成时， 属于自动匹配的, 发送通知
+                if self._notify and mediainfo_dict:
+                    self.post_message(
+                        mtype=schemas.NotificationType.Manual,
+                        title="【已自动匹配的剧集组】",
+                        text=f"媒体名称：{mediainfo.title}\n发行年份: {mediainfo.year}\n剧集组数: {len(episode_groups)}"
+                    )
             return
+        # 同一媒体的连续事件合并为一次整剧刮削
+        debounce_key = build_media_key(MediaSource.TMDB, tmdb_media_id)
+        scheduled = self._debounce.submit(
+            debounce_key,
+            (mediainfo, episode_groups, mediainfo_dict),
+            time.monotonic(),
+        )
+        if not scheduled:
+            self.log_info(f"{mediainfo.title} 的新事件已合并到待处理任务，执行时间顺延")
+            return
+        self.log_warn(f"{mediainfo.title} 将在 {self._delay} 秒后开始处理..")
+        threading.Thread(
+            target=self.__debounce_worker,
+            args=(debounce_key,),
+            name=f"episodegroupmeta-{debounce_key}",
+            daemon=True,
+        ).start()
+
+    def __debounce_worker(self, debounce_key: str) -> None:
+        """
+        等待去抖窗口结束后执行一次刮削；执行期间的新事件在本轮结束后补跑。
+
+        :param debounce_key: 媒体合并键
+        """
+        try:
+            while not self._event.is_set():
+                payload = self._debounce.due(debounce_key, time.monotonic())
+                if payload is None:
+                    if not self._debounce.has(debounce_key):
+                        return
+                    time.sleep(_DEBOUNCE_POLL_SECONDS)
+                    continue
+                mediainfo, episode_groups, mediainfo_dict = payload
+                success = bool(self.start_rt(mediainfo=mediainfo, episode_groups=episode_groups))
+                again = self._debounce.finish(debounce_key, time.monotonic())
+                # 补跑存在时等最后一轮结束再通知，一批事件只提示一次
+                if success and self._notify and mediainfo_dict and not again:
+                    self.post_message(
+                        mtype=schemas.NotificationType.Manual,
+                        title="【已自动匹配的剧集组】",
+                        text=f"媒体名称：{mediainfo.title}\n发行年份: {mediainfo.year}\n剧集组数: {len(episode_groups)}"
+                    )
+                if not again:
+                    return
+        except Exception as err:
+            self.log_error(f"剧集组刮削任务异常: {str(err)}")
+            self._debounce.discard(debounce_key)
 
     def start_rt(self, mediainfo: schemas.MediaInfo, episode_groups: Any | None, group_id: str = None) -> bool:
         """
