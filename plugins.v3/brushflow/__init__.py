@@ -220,7 +220,7 @@ class BrushFlow(_PluginBase):
     plugin_name = "站点刷流"
     plugin_desc = "自动托管多个站点刷流任务，并独立调度、统计与诊断。"
     plugin_icon = "brush-flow.png"
-    plugin_version = "6.1.4"
+    plugin_version = "6.1.5"
     plugin_author = "jxxghp,InfinityPacer,Seed680"
     author_url = "https://github.com/InfinityPacer"
     plugin_config_prefix = "brushflow_"
@@ -1796,7 +1796,11 @@ class BrushFlow(_PluginBase):
         if hit_and_run and (task.hr_seed_time or task.seed_ratio):
             if task.hr_seed_time and torrent_info.get("seeding_time", 0) >= float(task.hr_seed_time) * 3600:
                 return True, f"H&R 做种时间达到 {task.hr_seed_time} 小时"
-            if task.seed_ratio and torrent_info.get("ratio", 0) >= float(task.seed_ratio):
+            if (
+                task.seed_ratio
+                and self._torrent_complete(torrent_info)
+                and torrent_info.get("ratio", 0) >= float(task.seed_ratio)
+            ):
                 return True, f"H&R 分享率达到 {task.seed_ratio}"
             return False, "H&R 种子尚未满足删除条件"
         promotion_expired, promotion_reason = self.__promotion_expired(torrent_info, torrent_task)
@@ -1804,7 +1808,11 @@ class BrushFlow(_PluginBase):
             return True, promotion_reason
         if task.seed_time and torrent_info.get("seeding_time", 0) >= float(task.seed_time) * 3600:
             return True, f"做种时间达到 {task.seed_time} 小时"
-        if task.seed_ratio and torrent_info.get("ratio", 0) >= float(task.seed_ratio):
+        if (
+            task.seed_ratio
+            and self._torrent_complete(torrent_info)
+            and torrent_info.get("ratio", 0) >= float(task.seed_ratio)
+        ):
             return True, f"分享率达到 {task.seed_ratio}"
         if task.seed_size and torrent_info.get("uploaded", 0) >= float(task.seed_size) * 1024 ** 3:
             return True, f"上传量达到 {task.seed_size} GB"
