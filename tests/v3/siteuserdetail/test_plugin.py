@@ -426,3 +426,54 @@ class TestAdapterFactory:
         from app.plugins.siteuserdetail.adapters import get_adapter
         adapter = get_adapter(site_info, uid_map={"example.org": "555"})
         assert adapter._uid == "555"
+
+
+class TestNotifyIpDistribution:
+    """采集通知的 IP-站点分布：逐 IP 列出站点，站点数少的 IP 排前。"""
+
+    @staticmethod
+    def snapshot():
+        return {
+            "update_time": 1,
+            "clients": [
+                {"site": "站A", "domain": "a.org", "agent": "qB/5.0", "ipv4": "1.1.1.1", "ipv6": "", "port": 1},
+                {"site": "站B", "domain": "b.org", "agent": "qB/5.0", "ipv4": "1.1.1.1", "ipv6": "2001:db8::1", "port": 2},
+                {"site": "站C", "domain": "c.org", "agent": "qB/5.0", "ipv4": "1.1.1.1", "ipv6": "2001:db8::1", "port": 3},
+                {"site": "站D", "domain": "d.org", "agent": "qB/5.0", "ipv4": "2.2.2.2", "ipv6": "", "port": 4},
+                {"site": "站E", "domain": "e.org", "agent": "", "ipv4": "", "ipv6": "", "port": None},
+            ],
+            "torrents": [],
+            "errors": [],
+        }
+
+    def notify_text(self, plugin):
+        plugin._SiteUserDetail__notify(self.snapshot())
+        assert plugin.post_message.called
+        return plugin.post_message.call_args.kwargs["text"]
+
+    def test_ip_site_lines_listed(self, plugin):
+        text = self.notify_text(plugin)
+        assert "IPv4 分布（站点数升序）：" in text
+        # 每个 IP 一行：IP（N站）：站点列表
+        assert "2.2.2.2（1站）：站D" in text
+        assert "1.1.1.1（3站）：站A、站B、站C" in text
+        assert "IPv6 分布（站点数升序）：" in text
+        assert "2001:db8::1（2站）：站B、站C" in text
+
+    def test_fewer_sites_first(self, plugin):
+        """站点数少的 IP 排在前面（1 站的 2.2.2.2 在 3 站的 1.1.1.1 之前）。"""
+        text = self.notify_text(plugin)
+        assert text.index("2.2.2.2") < text.index("1.1.1.1（")
+
+    def test_empty_client_entry_not_listed(self, plugin):
+        """全空值条目（站E）不进入 IP 分布。"""
+        text = self.notify_text(plugin)
+        assert "站E" not in text
+
+    def test_no_ip_section_when_all_empty(self, plugin):
+        text = plugin._SiteUserDetail__notify({
+            "update_time": 1, "clients": [{"site": "站X", "domain": "x.org",
+                                           "agent": "", "ipv4": "", "ipv6": "", "port": None}],
+            "torrents": [], "errors": []})
+        text = plugin.post_message.call_args.kwargs["text"]
+        assert "IPv4 分布" not in text and "IPv6 分布" not in text

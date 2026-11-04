@@ -25,6 +25,10 @@ leeching_url 等），基类能力自动继承。示例：
 from typing import Dict, Type
 
 from ..base import SiteAdapter
+from .xloli import XloliAdapter
 
 # 站点域名（小写）→ 站点适配器
-SITE_ADAPTERS: Dict[str, Type[SiteAdapter]] = {}
+SITE_ADAPTERS: Dict[str, Type[SiteAdapter]] = {
+    # 萝莉（mua.xloli.cc）：UUID 用户标识 + useruuid ajax 参数
+    "xloli.cc": XloliAdapter,
+}

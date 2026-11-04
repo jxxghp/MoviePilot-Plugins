@@ -87,6 +87,7 @@ adapters/
 ├── nexusphp.py     # NexusPHP 通用适配器（绝大多数站点的默认）
 ├── mteam.py        # M-Team API 适配器（x-api-key）
 └── sites/          # 站点级微调适配器：新增站点适配 = 加一个小文件 + 注册一行
+    └── xloli.py    # xloli（萝莉）：UUID 用户标识 + useruuid 列表参数
 ```
 
 **新增一个站点的小适配**：在 `adapters/sites/` 下新建文件，继承架构适配器并只覆写差异钩子
@@ -120,4 +121,7 @@ SITE_ADAPTERS["hdsky.me"] = HdskyAdapter
   均不返回 infohash）。若站点调整 API 字段，只需修改 `adapters/mteam.py` 的映射常量；
 - NexusPHP 客户端表格解析为通用启发式（表头列名定位 + 单元格 IP/UA 特征识别），
   覆盖不到的站点请通过站点适配器微调；
+- xloli（萝莉，mua.xloli.cc）：用户标识为 UUID（首页 `userdetails.php?uuid=` 链接、
+  列表 ajax `useruuid=` 参数），由 `adapters/sites/xloli.py` 适配，客户端表格与种子列表
+  走通用解析；
 - 种子详情页兜底会访问 `details.php`，注意配置合理的 `detail_limit` 与请求间隔，避免请求过多。

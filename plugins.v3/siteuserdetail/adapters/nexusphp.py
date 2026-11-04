@@ -80,7 +80,7 @@ class NexusPhpAdapter(SiteAdapter):
         优先表格解析（agent/ipv4/ipv6/port 列或特征单元格）；表格结果没有
         agent 条目时（布局表格的 IP 值单元格、无表格行内模板），改用行内文本解析。
         """
-        html = self._fetch(urljoin(self.base_url, f"{self.user_detail_page}?id={uid}"))
+        html = self._fetch(self.user_detail_url(uid))
         if not html:
             return []
         clients: List[Dict[str, Any]] = []
@@ -225,6 +225,10 @@ class NexusPhpAdapter(SiteAdapter):
             if entry["agent"] or entry["ipv4"] or entry["ipv6"] or entry["port"]:
                 clients.append(entry)
         return clients
+
+    def user_detail_url(self, uid: str) -> str:
+        """用户详情页地址（部分站点以 UUID 等非数字 ID 标识用户，覆写此钩子）。"""
+        return urljoin(self.base_url, f"{self.user_detail_page}?id={uid}")
 
     def leeching_url(self, uid: str, page: int = 0) -> str:
         """下载中列表页地址。"""
