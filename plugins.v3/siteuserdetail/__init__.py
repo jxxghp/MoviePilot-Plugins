@@ -49,7 +49,7 @@ class SiteUserDetail(_PluginBase):
     # 插件图标
     plugin_icon = "siteuserdetail.png"
     # 插件版本
-    plugin_version = "1.0.5"
+    plugin_version = "1.0.6"
     # 插件作者
     plugin_author = "Guoyin-Wen"
     # 作者主页
@@ -656,19 +656,25 @@ class SiteUserDetail(_PluginBase):
             })
         return self._table(["站点", "Agent", "IPv4", "IPv6", "端口"], rows)
 
+    @classmethod
+    def _group_ips(cls, clients: list, field: str) -> Dict[str, Dict[str, set]]:
+        """按 IP 字段（ipv4/ipv6）聚合：IP → {sites, agents}。"""
+        groups: Dict[str, Dict[str, set]] = {}
+        for client in clients:
+            ip = str(client.get(field) or "").strip()
+            if not ip:
+                continue
+            group = groups.setdefault(ip, {"sites": set(), "agents": set()})
+            group["sites"].add(cls._site_label(client))
+            if client.get("agent"):
+                group["agents"].add(str(client["agent"]))
+        return groups
+
     def _ip_sections(self, clients: list) -> List[dict]:
         """按 IPv4 / IPv6 聚合：同一 IP 出现在哪些站点（跨站关联视图）。"""
         sections = []
         for field, title, icon in (("ipv4", "IPv4 聚合", "mdi-ip-network"), ("ipv6", "IPv6 聚合", "mdi-ip-network-outline")):
-            groups: Dict[str, Dict[str, set]] = {}
-            for client in clients:
-                ip = str(client.get(field) or "").strip()
-                if not ip:
-                    continue
-                group = groups.setdefault(ip, {"sites": set(), "agents": set()})
-                group["sites"].add(self._site_label(client))
-                if client.get("agent"):
-                    group["agents"].add(str(client["agent"]))
+            groups = self._group_ips(clients, field)
             if not groups:
                 continue
             rows = []
@@ -930,15 +936,26 @@ class SiteUserDetail(_PluginBase):
         return custom_sites
 
     def __notify(self, snapshot: Dict[str, Any]):
-        """发送采集结果汇总通知。"""
+        """发送采集结果汇总通知（含 IP-站点分布，站点数少的 IP 排前）。"""
         try:
-            site_count = len({c.get("site") for c in snapshot.get("clients", [])})
+            clients = snapshot.get("clients", [])
+            site_count = len({c.get("site") for c in clients})
             errors = snapshot.get("errors") or []
             lines = [
                 f"站点数：{site_count}",
-                f"客户端记录：{len(snapshot.get('clients', []))} 条",
+                f"客户端记录：{len(clients)} 条",
                 f"下载中种子：{len(snapshot.get('torrents', []))} 个",
             ]
+            # IP-站点分布：逐条列出每个 IP 出现在的站点，站点数少的 IP 排前
+            # （站点少的 IP 更可能是单一客户端/独占出口，便于优先排查）
+            for field, label in (("ipv4", "IPv4"), ("ipv6", "IPv6")):
+                groups = self._group_ips(clients, field)
+                if not groups:
+                    continue
+                lines.append(f"{label} 分布（站点数升序）：")
+                for ip, group in sorted(groups.items(), key=lambda kv: (len(kv[1]["sites"]), kv[0])):
+                    sites = "、".join(sorted(group["sites"]))
+                    lines.append(f"{ip}（{len(group['sites'])}站）：{sites}")
             if errors:
                 lines.append(f"失败站点：{len(errors)} 个")
                 lines.extend(f"  - {e.get('site')}: {e.get('error')}" for e in errors[:10])
