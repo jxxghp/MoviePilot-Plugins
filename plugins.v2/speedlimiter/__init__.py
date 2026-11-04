@@ -1,6 +1,8 @@
 import ipaddress
 import math
 import os
+import selectors
+import stat
 import subprocess
 import threading
 import time
@@ -27,7 +29,7 @@ class SpeedLimiter(_PluginBase):
     # 插件图标
     plugin_icon = "Librespeed_A.png"
     # 插件版本
-    plugin_version = "2.3.2"
+    plugin_version = "2.3.3"
     # 插件作者
     plugin_author = "Shurelol"
     # 作者主页
@@ -86,6 +88,12 @@ class SpeedLimiter(_PluginBase):
         self._probe_cache = {}
         self._probe_pending = False
         self._probe_generation = 0
+        self._probe_cancel = threading.Event()
+        self._probe_process_lock = threading.Lock()
+        self._probe_process = None
+        self._probe_checked = {}
+        self._probe_signatures = {}
+        self._budget_log = None
 
     def init_plugin(self, config: dict = None):
         """串行更新配置，保留未恢复的快照供失败重试。"""
@@ -99,6 +107,7 @@ class SpeedLimiter(_PluginBase):
         self._downloader = list(dict.fromkeys(self._downloader + list(self._original)))
         self.stop_service()
         self._stopping = False
+        self._probe_cancel = threading.Event()
         self._caps = {}
         config = config or {}
         self._segment_prediction = bool(config.get("segment_prediction"))
@@ -692,35 +701,92 @@ class SpeedLimiter(_PluginBase):
                 return target + path[len(source):]
         return path
 
-    @staticmethod
-    def _probe_segment(path: str, start: int, duration: float) -> list:
-        """只读取附近压缩包；不解码，不启动网络请求。"""
-        result = subprocess.run([
-            "ffprobe", "-v", "error", "-read_intervals", f"{start}%+120",
-            "-show_packets", "-show_entries", "packet=pts_time,size",
-            "-of", "compact=p=0:nk=0", path,
-        ], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=20,
-            check=True)
+    def _read_probe(self, command: list, consume, cancel, deadline=None):
+        """逐行处理输出，限制时间、输出量，并允许停用时中止。"""
+        with self._probe_process_lock:
+            if cancel.is_set():
+                raise ValueError("探测已取消")
+            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            self._probe_process = process
+        deadline = deadline or time.monotonic() + 20
+        pending = b""
+        received = 0
+        try:
+            with selectors.DefaultSelector() as selector:
+                selector.register(process.stdout, selectors.EVENT_READ)
+                while True:
+                    if cancel.is_set():
+                        raise ValueError("探测已取消")
+                    if time.monotonic() >= deadline:
+                        raise subprocess.TimeoutExpired(command[0], 20)
+                    if not selector.select(.25):
+                        continue
+                    chunk = os.read(process.stdout.fileno(), 65536)
+                    if not chunk:
+                        if pending:
+                            consume(pending.decode("utf-8", errors="replace"))
+                        break
+                    received += len(chunk)
+                    if received > 16 * 1024 * 1024:
+                        raise ValueError("探测输出超过16MiB")
+                    pending += chunk
+                    lines = pending.split(b"\n")
+                    pending = lines.pop()
+                    if len(pending) > 65536:
+                        raise ValueError("探测输出行过长")
+                    for line in lines:
+                        consume(line.decode("utf-8", errors="replace"))
+            if process.wait(timeout=1):
+                raise ValueError("ffprobe探测失败")
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.wait(timeout=1)
+            process.stdout.close()
+            with self._probe_process_lock:
+                if self._probe_process is process:
+                    self._probe_process = None
+
+    def _probe_segment(self, path: str, start: int, duration: float, cancel=None) -> list:
+        """读取本地文件压缩包，统一到播放器使用的相对时间轴。"""
+        cancel = cancel or self._probe_cancel
+        deadline = time.monotonic() + 20
+        origin = []
+        self._read_probe([
+            "ffprobe", "-v", "error", "-protocol_whitelist", "file",
+            "-show_entries", "format=start_time", "-of", "default=nw=1:nk=1", path,
+        ], origin.append, cancel, deadline)
+        timestamp_origin = float(origin[0])
+        if not math.isfinite(timestamp_origin):
+            raise ValueError("媒体起始时间无效")
         buckets = [0] * 120
-        valid = False
-        last_timestamp = float(start)
-        for line in result.stdout.splitlines():
+        first_timestamp = float("inf")
+        last_timestamp = float("-inf")
+
+        def packet(line):
+            nonlocal first_timestamp, last_timestamp
             values = dict(part.split("=", 1) for part in line.split("|") if "=" in part)
             try:
-                timestamp, size = float(values["pts_time"]), int(values["size"])
+                timestamp = float(values["pts_time"]) - timestamp_origin
+                size = int(values["size"])
                 index = math.floor(timestamp - start)
                 if 0 <= index < 120 and size >= 0:
                     buckets[index] += size
-                    valid = True
+                    first_timestamp = min(first_timestamp, timestamp)
                     last_timestamp = max(last_timestamp, timestamp)
             except (KeyError, ValueError, OverflowError):
-                continue
-        if not valid:
-            raise ValueError("没有可用的片段数据")
-        # seek可能落在前一个关键帧，read_intervals的时长也从那里计算。
-        # 未覆盖的尾部不得按零码率处理；片尾之外才允许补零。
-        covered = min(120, max(0, math.floor(last_timestamp - start) + 1))
-        if duration and duration <= start + covered:
+                return
+
+        self._read_probe([
+            "ffprobe", "-v", "error", "-protocol_whitelist", "file",
+            "-read_intervals", f"{start + timestamp_origin}%+120",
+            "-show_packets", "-show_entries", "packet=pts_time,size",
+            "-of", "compact=p=0:nk=0", path,
+        ], packet, cancel, deadline)
+        if not math.isfinite(last_timestamp) or first_timestamp > start + 2:
+            raise ValueError("片段起始数据不完整")
+        covered = min(120, math.floor(last_timestamp - start) + 1)
+        if duration <= start + covered:
             covered = 120
         return buckets[:covered]
 
@@ -737,38 +803,58 @@ class SpeedLimiter(_PluginBase):
             position = float(state["PositionTicks"]) / 10000000
             duration = float(item.get("RunTimeTicks") or 0) / 10000000
             path = self._mapped_media_path(item.get("Path"))
-            if not path or not os.path.isfile(path) or position < 0 or not duration:
+            if (not path or not math.isfinite(position) or not math.isfinite(duration)
+                    or position < 0 or duration <= 0):
                 return fallback
-            stat = os.stat(path)
             start = int(position // 30) * 30
-            key = (path, stat.st_size, stat.st_mtime_ns, start)
+            key = (path, start)
             cached = self._probe_cache.get(key)
             estimate = fallback
             # 新区间尚未扫描完时，复用仍覆盖未来一分钟的相邻区间。
             candidates = sorted((k for k in self._probe_cache
-                                 if k[:3] == key[:3] and k[3] <= position),
-                                key=lambda k: k[3], reverse=True)
+                                 if k[0] == path and k[1] <= position),
+                                key=lambda k: k[1], reverse=True)
             for candidate in candidates:
-                rate = self.segment_rate(self._probe_cache[candidate], position - candidate[3])
+                rate = self.segment_rate(self._probe_cache[candidate], position - candidate[1])
                 if rate:
                     estimate = rate * 1.15 / self._overhead
                     break
-            if cached is not None or self._probe_pending:
+            fresh = time.monotonic() - self._probe_checked.get(key, 0) < 30
+            if (cached is not None and fresh) or self._probe_pending:
                 return estimate
             self._probe_pending = True
             generation = self._probe_generation
+            cancel = self._probe_cancel
             def probe():
+                signature = None
                 try:
-                    buckets = self._probe_segment(path, start, duration)
-                except (OSError, ValueError, subprocess.SubprocessError):
+                    info = os.stat(path)
+                    if not stat.S_ISREG(info.st_mode) or cancel.is_set():
+                        raise ValueError("媒体文件不可读")
+                    signature = (info.st_size, info.st_mtime_ns)
+                    buckets = self._probe_segment(path, start, duration, cancel)
+                except (OSError, ValueError, IndexError, subprocess.SubprocessError) as error:
+                    logger.info(f"片段探测回退，位置{start}秒：{type(error).__name__}")
                     buckets = []
                 with self._lock:
                     if generation != self._probe_generation:
                         return
                     self._probe_pending = False
+                    if self._probe_signatures.get(path) != signature:
+                        for old in list(self._probe_cache):
+                            if old[0] == path:
+                                self._probe_cache.pop(old)
+                                self._probe_checked.pop(old, None)
+                    self._probe_signatures[path] = signature
                     self._probe_cache[key] = buckets
+                    self._probe_checked[key] = time.monotonic()
+                    if buckets:
+                        logger.info(f"片段探测完成，位置{start}秒，预计码率{self.segment_rate(buckets, 0) / 1000000:.1f}Mbps")
                     while len(self._probe_cache) > 32:
-                        self._probe_cache.pop(next(iter(self._probe_cache)))
+                        old = next(iter(self._probe_cache))
+                        self._probe_cache.pop(old)
+                        self._probe_checked.pop(old, None)
+                    self._probe_signatures = {k[0]: self._probe_signatures.get(k[0]) for k in self._probe_cache}
             threading.Thread(target=probe, name="playback-bitrate", daemon=True).start()
             return estimate
         except (OSError, ValueError, KeyError, TypeError):
@@ -1005,7 +1091,13 @@ class SpeedLimiter(_PluginBase):
     
     def __calc_limit(self, total_bit_rate: float) -> float:
         """扣除播放预算及预留带宽，返回 KiB/s；零预算也不能写成不限速。"""
-        return max(0, (self._bandwidth - total_bit_rate * self._overhead - self._headroom) / 8192)
+        demand = total_bit_rate * self._overhead
+        budget = max(0, (self._bandwidth - demand - self._headroom) / 8192)
+        stamp = (round(demand / 1000000), round(budget / 256))
+        if stamp != self._budget_log:
+            logger.info(f"播放预留{demand / 1000000:.1f}Mbps，下载器可用上传{budget:.0f}KiB/s")
+            self._budget_log = stamp
+        return budget
 
     @staticmethod
     def allocate_uploads(budget: float, ceilings: list, weights: list = None, priority: bool = False) -> list:
@@ -1210,9 +1302,17 @@ class SpeedLimiter(_PluginBase):
         """恢复本插件修改的限速；保留失败项，供重载后继续恢复。"""
         with self._lock:
             self._stopping = True
+            self._probe_cancel.set()
+            with self._probe_process_lock:
+                process = self._probe_process
+                if process is not None and process.poll() is None:
+                    process.kill()
+                    process.wait(timeout=1)
             self._probe_generation += 1
             self._probe_pending = False
             self._probe_cache.clear()
+            self._probe_checked.clear()
+            self._probe_signatures.clear()
             services = self.service_infos if self._downloader else {}
             for name in list(self._original):
                 if name not in (services or {}):
