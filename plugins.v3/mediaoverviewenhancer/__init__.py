@@ -28,7 +28,7 @@ class MediaOverviewEnhancer(_PluginBase):
         "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/"
         "src/assets/images/misc/edit.png"
     )
-    plugin_version = "1.12.0"
+    plugin_version = "1.13.0"
     plugin_label = "元数据,媒体库,AI"
     plugin_author = "miguelito39721"
     plugin_config_prefix = "mediaoverviewenhancer_"
@@ -217,6 +217,14 @@ class MediaOverviewEnhancer(_PluginBase):
         if not self.get_state():
             return {"started": False, "message": "插件未启用"}
         return self._engine.start_run(payload or {})
+
+    def engine_write_sample(self, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """把试跑中选定的样张文案直接写入对应条目。"""
+        if self._engine is None:
+            return {"written": False, "message": "引擎未初始化"}
+        if not self.get_state():
+            return {"written": False, "message": "插件未启用"}
+        return self._engine.write_sample(payload or {})
 
     def engine_cancel(self) -> Dict[str, Any]:
         """停止当前任务。"""

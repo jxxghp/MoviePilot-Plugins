@@ -17,6 +17,14 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 from uuid import uuid4
 
+from .quality import (
+    ai_flavor_score,
+    classify_failure,
+    max_similarity,
+    summarize_failure_kinds,
+    suspicious_names,
+)
+
 from app.sdk.logging import logger
 from app.sdk.network import RequestUtils
 
@@ -25,6 +33,9 @@ from app.agent.llm.helper import LLMHelper
 # 三种处理目标：电影、剧集分集、MV（音乐视频）
 MOVIE = "movie"
 EPISODE = "episode"
+# 剧集与季：整剧简介（Series Overview）与整季简介（Season Overview）
+SERIES = "series"
+SEASON = "season"
 # MV 没有 TMDB/IMDb 条目，简介只能由 AI 依据曲目线索生成
 MV = "mv"
 
@@ -131,6 +142,38 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "max_items_per_run": 200,
     # 增量扫描天数（0 表示全库；只对电影/剧集生效）
     "scan_days": 0,
+    # 增量过滤：只处理未锁定字段 / 只处理占位简介（如「暂无简介」）
+    "scan_only_unlocked": False,
+    "scan_placeholder_only": False,
+    # 质量增强：AI 味评分、人名校验、跨集相似度
+    "quality_ai_flavor_gate": True,
+    "quality_ai_flavor_min_score": 60,
+    "quality_name_check": True,
+    "quality_similarity_threshold": 0.85,
+    # 文风模板与剧透策略
+    "style_preset": "objective",
+    "allow_spoiler": False,
+    # 分集标题美化：把「第 3 集」改成有辨识度的标题
+    "episode_title_enabled": False,
+    "episode_title_mode": "numeric_only",
+    "episode_title_max_chars": 14,
+    # 整剧 / 整季简介
+    "series_enabled": False,
+    "season_enabled": False,
+    "series_mode": "expand",
+    "series_min_chars": 120,
+    "series_target_chars": 260,
+    # 演职员简介补全
+    "people_bio_enabled": False,
+    "people_bio_max_chars": 300,
+    # NFO 扩展到电影 / 分集
+    "nfo_movie_enabled": False,
+    "nfo_episode_enabled": False,
+    # 头像保守写入：只在人物没有头像时写，避免覆盖手动设置的图
+    "avatar_only_missing": True,
+    # 大模型节奏：最小调用间隔与限流自适应降并发
+    "llm_min_interval_ms": 0,
+    "adaptive_concurrency": True,
     "notify": True,
     "notify_failure": True,
     "notify_daily": False,
@@ -243,6 +286,27 @@ def normalize_config(config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     data["concurrency"] = _bounded_int(data.get("concurrency"), 2, 1, 8)
     data["max_items_per_run"] = _bounded_int(data.get("max_items_per_run"), 200, 1, 5000)
     data["scan_days"] = _bounded_int(data.get("scan_days"), 0, 0, 3650)
+    data["quality_ai_flavor_min_score"] = _bounded_int(
+        data.get("quality_ai_flavor_min_score"), 60, 0, 100
+    )
+    data["quality_similarity_threshold"] = _bounded_float(
+        data.get("quality_similarity_threshold"), 0.85, 0.0, 1.0
+    )
+    data["episode_title_max_chars"] = _bounded_int(
+        data.get("episode_title_max_chars"), 14, 4, 40
+    )
+    data["series_min_chars"] = _bounded_int(data.get("series_min_chars"), 120, 0, 4000)
+    data["series_target_chars"] = _bounded_int(data.get("series_target_chars"), 260, 80, 2000)
+    data["people_bio_max_chars"] = _bounded_int(
+        data.get("people_bio_max_chars"), 300, 60, 2000
+    )
+    data["llm_min_interval_ms"] = _bounded_int(data.get("llm_min_interval_ms"), 0, 0, 5000)
+    if data.get("style_preset") not in {"objective", "story", "review", "promo"}:
+        data["style_preset"] = "objective"
+    if data.get("episode_title_mode") not in {"numeric_only", "all"}:
+        data["episode_title_mode"] = "numeric_only"
+    if data.get("series_mode") not in {"expand", "ai"}:
+        data["series_mode"] = "expand"
     data["notify_daily_time"] = _normalize_hhmm(data.get("notify_daily_time"))
     for key in (
         "enabled",
@@ -271,6 +335,19 @@ def normalize_config(config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "notify_failure",
         "notify_daily",
         "show_sidebar_nav",
+        "scan_only_unlocked",
+        "scan_placeholder_only",
+        "quality_ai_flavor_gate",
+        "quality_name_check",
+        "allow_spoiler",
+        "episode_title_enabled",
+        "series_enabled",
+        "season_enabled",
+        "people_bio_enabled",
+        "nfo_movie_enabled",
+        "nfo_episode_enabled",
+        "avatar_only_missing",
+        "adaptive_concurrency",
     ):
         data[key] = bool(data.get(key))
     return data
@@ -300,6 +377,34 @@ def text_signature(text: Any) -> str:
     """计算简介文本指纹，用于幂等去重。"""
     normalized = re.sub(r"\s+", "", str(text or ""))
     return hashlib.sha1(normalized.encode("utf-8")).hexdigest()
+
+
+_PLACEHOLDER_OVERVIEW_RE = re.compile(
+    r"(?i)^(暂无简介|暂无介绍|暂无|无简介|待补充|待完善|tbd|n/?a|unknown|"
+    r"no overview( available)?|no description)[。.!！\s]*$"
+)
+_EPISODE_TITLE_PLACEHOLDER_RES = (
+    re.compile(r"(?i)^(episode|ep)\s*[0-9]+$"),
+    re.compile(r"^第\s*[0-9一二三四五六七八九十百]+\s*[集话話]$"),
+    re.compile(r"^[0-9]+$"),
+    re.compile(r"^(未命名|无标题|untitled)$", re.I),
+)
+
+
+def is_placeholder_overview(text: Any) -> bool:
+    """判断简介是否为「暂无简介」这类占位文本。"""
+    body = clean_text(text)
+    if not body:
+        return True
+    return bool(_PLACEHOLDER_OVERVIEW_RE.match(body[:24]))
+
+
+def is_placeholder_episode_title(title: Any) -> bool:
+    """判断分集标题是否为「第 3 集 / Episode 3 / 3」这类无语义占位标题。"""
+    body = str(title or "").strip()
+    if not body:
+        return True
+    return any(pattern.match(body) for pattern in _EPISODE_TITLE_PLACEHOLDER_RES)
 
 
 def _normalize_title(text: Any) -> str:
@@ -389,12 +494,27 @@ def event_value(source: Any, *keys: str, default: Any = None) -> Any:
     return default
 
 
-class EmbyClient:
-    """Emby 媒体服务器读写客户端。"""
+def _row_value(row: Any, key: str, default: Any = None) -> Any:
+    """同时兼容字典与对象形式的字段读取（TMDB 返回模型两种都存在）。"""
+    if isinstance(row, dict):
+        return row.get(key, default)
+    return getattr(row, key, default)
 
-    def __init__(self, name: str, host: str, api_key: str, timeout: int = 30):
+
+class EmbyClient:
+    """Emby / Jellyfin 媒体服务器读写客户端（两者 API 同构）。"""
+
+    def __init__(
+        self,
+        name: str,
+        host: str,
+        api_key: str,
+        timeout: int = 30,
+        server_type: str = "emby",
+    ):
         """记录连接信息并准备请求工具。"""
         normalized = str(host or "").strip()
+        self.server_type = str(server_type or "emby").strip().lower() or "emby"
         if normalized and not normalized.startswith(("http://", "https://")):
             normalized = f"http://{normalized}"
         self.name = name
@@ -482,7 +602,8 @@ class EmbyClient:
         """按媒体库分页遍历指定类型的条目。"""
         fields = (
             "ProviderIds,Overview,ProductionYear,PremiereDate,Genres,"
-            "SeriesId,SeriesName,ParentIndexNumber,IndexNumber,Name,Type,DateCreated"
+            "SeriesId,SeriesName,ParentIndexNumber,IndexNumber,Name,Type,DateCreated,"
+            "LockedFields,Path"
         )
         if extra_fields:
             fields = f"{fields},{extra_fields}"
@@ -733,6 +854,58 @@ class EmbyClient:
             missing = [name for name in added_people if name.casefold() not in written_names]
             if missing:
                 return False, f"写入后回读缺少演员信息：{'、'.join(missing[:3])}"
+        return True, ""
+
+    def update_fields(
+        self,
+        item_id: str,
+        fields: Dict[str, Any],
+        lock_fields: Optional[List[str]] = None,
+        dto: Optional[Dict[str, Any]] = None,
+        verify_fields: str = "Overview,Name",
+    ) -> Tuple[bool, str]:
+        """按「读取完整 DTO → 局部替换 → 整份回写」的方式更新条目字段。
+
+        用于分集标题、人物简介等非简介字段：Emby 的 UpdateItem 会覆盖缺失字段，
+        因此必须基于完整 DTO 修改，写完再回读校验。
+        """
+        payload = (
+            copy.deepcopy(dto)
+            if isinstance(dto, dict) and dto.get("Id")
+            else self.get_full_dto(item_id)
+        )
+        if not payload:
+            return False, "无法读取条目当前信息，已跳过以避免清空字段"
+        provider_ids = payload.get("ProviderIds")
+        payload["ProviderIds"] = provider_ids if isinstance(provider_ids, dict) else {}
+        payload.pop("UserData", None)
+        payload["Id"] = item_id
+        for key, value in (fields or {}).items():
+            payload[key] = value
+        locked = payload.get("LockedFields")
+        locked_fields = [str(value) for value in locked if value] if isinstance(locked, list) else []
+        for name in lock_fields or []:
+            if name and name not in locked_fields:
+                locked_fields.append(name)
+        payload["LockedFields"] = locked_fields
+        response = self._request.post_res(
+            url=self._url(f"Items/{item_id}"),
+            params=self._params(),
+            json=payload,
+            timeout=self._timeout,
+        )
+        if response is None:
+            return False, "请求失败或无响应"
+        if response.status_code >= 300:
+            return False, f"HTTP {response.status_code}: {str(getattr(response, 'text', '') or '')[:160]}"
+        verify = self.get_item_detail(item_id, verify_fields)
+        if not isinstance(verify, dict) or not verify:
+            return False, "写入后无法回读条目"
+        for key, value in (fields or {}).items():
+            if not isinstance(value, str):
+                continue
+            if text_signature(clean_text(verify.get(key))) != text_signature(clean_text(value)):
+                return False, f"写入后 {key} 回读不一致"
         return True, ""
 
     def set_remote_image(
@@ -1164,6 +1337,71 @@ class WikidataProvider:
 class LLMTextWriter:
     """基于系统 LLM 的简介扩写、翻译与生成器。"""
 
+    _stats_lock = threading.Lock()
+    _stats: Dict[str, Any] = {
+        "date": "",
+        "calls": 0,
+        "ok": 0,
+        "empty": 0,
+        "errors": 0,
+        "rate_limited": 0,
+        "chars": 0,
+        "seconds": 0.0,
+    }
+    _last_call_at = 0.0
+    _min_interval = 0.0
+
+    @classmethod
+    def _fresh_stats(cls) -> Dict[str, Any]:
+        """返回当日空白的统计结构。"""
+        return {
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "calls": 0,
+            "ok": 0,
+            "empty": 0,
+            "errors": 0,
+            "rate_limited": 0,
+            "chars": 0,
+            "seconds": 0.0,
+        }
+
+    @classmethod
+    def configure_pacing(cls, min_interval_ms: int = 0) -> None:
+        """设置两次大模型调用之间的最小间隔（毫秒）。"""
+        cls._min_interval = max(0.0, float(min_interval_ms or 0) / 1000.0)
+
+    @classmethod
+    def stats(cls) -> Dict[str, Any]:
+        """返回当日大模型调用统计快照（跨天自动归零）。"""
+        with cls._stats_lock:
+            if cls._stats.get("date") != datetime.now().strftime("%Y-%m-%d"):
+                cls._stats = cls._fresh_stats()
+            snapshot = dict(cls._stats)
+        calls = int(snapshot.get("calls") or 0)
+        snapshot["avg_seconds"] = round(float(snapshot.get("seconds") or 0) / calls, 2) if calls else 0.0
+        snapshot["success_rate"] = round(int(snapshot.get("ok") or 0) * 100.0 / calls, 1) if calls else 0.0
+        return snapshot
+
+    @classmethod
+    def _bump(cls, key: str, amount: float = 1) -> None:
+        """累加一项调用统计（跨天自动重置）。"""
+        with cls._stats_lock:
+            if cls._stats.get("date") != datetime.now().strftime("%Y-%m-%d"):
+                cls._stats = cls._fresh_stats()
+            cls._stats[key] = cls._stats.get(key, 0) + amount
+
+    @classmethod
+    def _throttle(cls) -> None:
+        """按最小调用间隔节流，降低触发限流的概率。"""
+        interval = float(cls._min_interval or 0)
+        if interval <= 0:
+            return
+        now = time.time()
+        wait = interval - (now - cls._last_call_at)
+        if wait > 0:
+            time.sleep(min(wait, 10.0))
+        cls._last_call_at = time.time()
+
     @staticmethod
     def available() -> bool:
         """判断宿主是否提供可用的 LLM 配置。"""
@@ -1194,14 +1432,29 @@ class LLMTextWriter:
         attempts = max(1, int(retries) + 1)
         self._empty_reply = False
         for attempt in range(attempts):
+            self._throttle()
+            started = time.time()
+            failed = False
             try:
                 text = str(run_coroutine(self._ainvoke(system_prompt, user_prompt)) or "").strip()
             except Exception as err:  # noqa: BLE001
                 logger.warning(f"影视简介增强：LLM 调用失败 {err}")
+                failed = True
+                message = str(err).casefold()
+                self._bump("errors")
+                if "429" in message or "rate" in message or "限流" in message:
+                    self._bump("rate_limited")
                 text = ""
+            elapsed = time.time() - started
+            self._bump("calls")
+            self._bump("seconds", elapsed)
             if text:
+                self._bump("ok")
+                self._bump("chars", len(text))
                 return text
             # 区分「调用异常」与「模型返回空内容」，后者多为限流/截断，重试后仍空才提示
+            if not failed:
+                self._bump("empty")
             self._empty_reply = True
             if attempt + 1 < attempts:
                 time.sleep(min(8.0, 1.5 ** attempt))
@@ -1285,6 +1538,47 @@ MV_AI_SYSTEM = (
     "4. 无法确认画面内容时，只写曲目与发行层面的信息（艺人、年份、专辑、曲风、版本形式），"
     "不要凭空描述拍摄场景、服装、镜头或剪辑。\n"
     "5. 简体中文、一段连贯文字，不要小标题或列表，不要加前缀，直接输出正文。"
+)
+
+# 整剧简介：TMDB 的剧集总简介常常只有一句话，需要在不编造的前提下补齐背景与主线
+SERIES_SYSTEM = (
+    "你是剧集资料编辑，负责为整部剧写一段整体简介。\n"
+    "要求：\n"
+    "1. 只依据给出的剧集资料撰写，不编造未提供的关键情节、人物或结局。\n"
+    "2. 交代故事背景、主要人物处境与核心冲突，让读者知道这是一部什么剧。\n"
+    "3. 不要逐集罗列，也不要使用「本剧讲述了」这类套话开头，直接从人物、处境或事件写起。\n"
+    "4. 简体中文、一段连贯文字，不要小标题或列表，不要加前缀，直接输出正文。"
+)
+
+# 整季简介：只描述该季主线，避免与整剧简介重复
+SEASON_SYSTEM = (
+    "你是剧集资料编辑，负责为某一季写一段季简介。\n"
+    "要求：\n"
+    "1. 只依据给出的资料撰写，不编造未提供的情节与结局。\n"
+    "2. 说明这一季的主线推进、人物变化与主要矛盾，避免写成整部剧的总简介。\n"
+    "3. 不要出现「第 N 季」「本季」这类编号或自我指涉的套话开场。\n"
+    "4. 简体中文、一段连贯文字，不要小标题或列表，不要加前缀，直接输出正文。"
+)
+
+# 分集标题美化：只输出标题本身，便于直接写入 Emby 的 Name 字段
+TITLE_SYSTEM = (
+    "你是剧集资料编辑，负责为单集起一个简洁的中文标题。\n"
+    "要求：\n"
+    "1. 只输出标题本身，4~10 个字，不要标点、引号、书名号或解释。\n"
+    "2. 标题要能概括该集的核心事件或人物处境，避免「第 3 集」「未命名」这类空标题。\n"
+    "3. 不要出现集数、季数、剧名或「本集」字样。\n"
+    "4. 不要剧透结局。"
+)
+
+# 需要叠加「文风模板」的生成类提示词（翻译类不加，避免译文跑偏）
+_STYLE_TARGETS = (
+    MOVIE_EXPAND_SYSTEM,
+    MOVIE_AI_SYSTEM,
+    EPISODE_SYSTEM,
+    EPISODE_EXPAND_SYSTEM,
+    MV_AI_SYSTEM,
+    SERIES_SYSTEM,
+    SEASON_SYSTEM,
 )
 
 # 简介正文里不应出现的技术/文件类词，命中整句会被剔除
@@ -1587,6 +1881,10 @@ class OverviewEnhancer:
         self._state_dirty = False
         # 单条重做/失败重试时只处理这些 key（server|item_id）
         self._focus_keys: set = set()
+        # 大模型调用节奏与限流自适应状态
+        LLMTextWriter.configure_pacing(int(self._config.get("llm_min_interval_ms") or 0))
+        self._llm_before: Dict[str, Any] = {}
+        self._last_rate_limited = False
 
     # ------------------------------------------------------------------ 状态持久化
 
@@ -1801,6 +2099,7 @@ class OverviewEnhancer:
     def update_config(self, config: Optional[Dict[str, Any]]) -> None:
         """更新运行配置。"""
         self._config = normalize_config(config)
+        LLMTextWriter.configure_pacing(int(self._config.get("llm_min_interval_ms") or 0))
 
     # ------------------------------------------------------------------ 对外状态
 
@@ -1831,6 +2130,8 @@ class OverviewEnhancer:
                 "season": entry.get("season"),
                 "episode": entry.get("episode"),
                 "message": entry.get("message"),
+                "error_kind": entry.get("error_kind")
+                or classify_failure(entry.get("message")),
                 "time": entry.get("time"),
                 "count": entry.get("count"),
             }
@@ -1875,6 +2176,7 @@ class OverviewEnhancer:
             "mv_split_collab": bool(self._config.get("mv_split_collab")),
             "processed_total": len(records),
             "failure_count": len(failures),
+            "failure_kinds": summarize_failure_kinds(failures.values()),
             "backup_count": len(backups),
             "skipped_untranslated": len(skipped_untranslated),
             "state_bytes": self._state_size(),
@@ -1883,6 +2185,19 @@ class OverviewEnhancer:
             "failures": failure_rows,
             "backups": backup_rows,
             "stats": stats,
+            "llm": LLMTextWriter.stats(),
+            "features": {
+                "episode_title": bool(self._config.get("episode_title_enabled")),
+                "series": bool(self._config.get("series_enabled")),
+                "season": bool(self._config.get("season_enabled")),
+                "people_bio": bool(self._config.get("people_bio_enabled")),
+                "style_preset": self._config.get("style_preset"),
+                "quality_ai_flavor": bool(self._config.get("quality_ai_flavor_gate")),
+                "quality_name_check": bool(self._config.get("quality_name_check")),
+                "quality_similarity": float(
+                    self._config.get("quality_similarity_threshold") or 0
+                ),
+            },
             "last_run": last_run,
             "daily": self.daily_stats(),
             "running": bool(run and run.get("state") == "running"),
@@ -1994,14 +2309,17 @@ class OverviewEnhancer:
         for name, conf in configs.items():
             if wanted and name not in wanted:
                 continue
-            if str(getattr(conf, "type", "") or "").lower() != "emby":
+            server_type = str(getattr(conf, "type", "") or "").lower()
+            if server_type not in {"emby", "jellyfin"}:
                 continue
             raw = getattr(conf, "config", None)
             if not isinstance(raw, dict):
                 raw = dict(raw) if raw else {}
             host = str(raw.get("host") or "").strip()
             api_key = str(raw.get("apikey") or raw.get("api_key") or "").strip()
-            client = EmbyClient(name=name, host=host, api_key=api_key)
+            client = EmbyClient(
+                name=name, host=host, api_key=api_key, server_type=server_type
+            )
             client.set_user(str(raw.get("user") or raw.get("username") or ""))
             if not client.ready:
                 errors.append(f"{name} 缺少 host 或 api_key")
@@ -2155,6 +2473,14 @@ class OverviewEnhancer:
             focus = f"{client.name}|{item_id}" in self._focus_keys
             current = self._overview_of(item)
             current_len = visible_length(current)
+            if not force and not focus:
+                # 增量过滤：只处理占位简介 / 只处理未锁定简介
+                if self._config.get("scan_placeholder_only") and not is_placeholder_overview(current):
+                    continue
+                if self._config.get("scan_only_unlocked") and "Overview" in [
+                    str(value) for value in (item.get("LockedFields") or [])
+                ]:
+                    continue
             if (
                 not force
                 and not focus
@@ -2190,6 +2516,7 @@ class OverviewEnhancer:
                     "current_len": current_len,
                     "reason": "force" if force else ("missing" if not current_len else "short"),
                     "genres": item.get("Genres") or [],
+                    "path": str(item.get("Path") or ""),
                 }
             )
         return jobs
@@ -2366,6 +2693,13 @@ class OverviewEnhancer:
                 focus = f"{client.name}|{item_id}" in self._focus_keys
                 current = self._overview_of(item)
                 current_len = visible_length(current)
+                if not force and not focus:
+                    if self._config.get("scan_placeholder_only") and not is_placeholder_overview(current):
+                        continue
+                    if self._config.get("scan_only_unlocked") and "Overview" in [
+                        str(value) for value in (item.get("LockedFields") or [])
+                    ]:
+                        continue
                 if (
                     not force
                     and not focus
@@ -2398,8 +2732,121 @@ class OverviewEnhancer:
                         "current": current,
                         "current_len": current_len,
                         "reason": reason,
+                        "path": str(item.get("Path") or ""),
                     }
                 )
+        return jobs
+
+    def _build_series_jobs(
+        self, client: EmbyClient, items: List[Dict[str, Any]], force: bool
+    ) -> List[Dict[str, Any]]:
+        """构建整剧简介任务（Series Overview）。"""
+        jobs: List[Dict[str, Any]] = []
+        minimum = int(self._config.get("series_min_chars") or 0)
+        for item in items:
+            item_id = str(item.get("Id") or "")
+            if not item_id:
+                continue
+            key = f"{client.name}|{item_id}"
+            focus = key in self._focus_keys
+            current = self._overview_of(item)
+            current_len = visible_length(current)
+            if not force and not focus:
+                if self._config.get("scan_placeholder_only") and not is_placeholder_overview(current):
+                    continue
+                if self._config.get("scan_only_unlocked") and "Overview" in [
+                    str(value) for value in (item.get("LockedFields") or [])
+                ]:
+                    continue
+                if current_len >= minimum and not is_placeholder_overview(current):
+                    continue
+            name = str(item.get("Name") or "")
+            year = str(item.get("ProductionYear") or "")
+            tmdb_id = self._tmdb_id_of(item, SERIES, name, year)
+            if not tmdb_id:
+                continue
+            jobs.append(
+                {
+                    "key": key,
+                    "kind": SERIES,
+                    "server": client.name,
+                    "item_id": item_id,
+                    "title": name,
+                    "year": year,
+                    "tmdb_id": tmdb_id,
+                    "current": current,
+                    "current_len": current_len,
+                    "reason": "force" if force else ("missing" if not current_len else "short"),
+                    "path": str(item.get("Path") or ""),
+                }
+            )
+        return jobs
+
+    def _build_season_jobs(
+        self,
+        client: EmbyClient,
+        items: List[Dict[str, Any]],
+        series_map: Optional[Dict[str, Dict[str, Any]]],
+        force: bool,
+    ) -> List[Dict[str, Any]]:
+        """构建整季简介任务（Season Overview）。"""
+        jobs: List[Dict[str, Any]] = []
+        minimum = int(self._config.get("series_min_chars") or 0)
+        series_cache: Dict[str, Dict[str, Any]] = dict(series_map or {})
+        missing = [
+            str(item.get("SeriesId") or "")
+            for item in items
+            if str(item.get("SeriesId") or "") not in series_cache
+        ]
+        if missing:
+            series_cache.update(client.get_items_by_ids(list(dict.fromkeys(missing))))
+        for item in items:
+            item_id = str(item.get("Id") or "")
+            if not item_id:
+                continue
+            key = f"{client.name}|{item_id}"
+            focus = key in self._focus_keys
+            current = self._overview_of(item)
+            current_len = visible_length(current)
+            if not force and not focus:
+                if self._config.get("scan_placeholder_only") and not is_placeholder_overview(current):
+                    continue
+                if self._config.get("scan_only_unlocked") and "Overview" in [
+                    str(value) for value in (item.get("LockedFields") or [])
+                ]:
+                    continue
+                if current_len >= minimum and not is_placeholder_overview(current):
+                    continue
+            try:
+                season = int(item.get("IndexNumber") or 0)
+            except (TypeError, ValueError):
+                continue
+            if season <= 0:
+                continue
+            series_id = str(item.get("SeriesId") or "")
+            series = series_cache.get(series_id) or {}
+            title = str(series.get("Name") or item.get("SeriesName") or "")
+            year = str(series.get("ProductionYear") or "")
+            tmdb_id = self._tmdb_id_of(series, SEASON, title, year)
+            if not tmdb_id:
+                continue
+            jobs.append(
+                {
+                    "key": key,
+                    "kind": SEASON,
+                    "server": client.name,
+                    "item_id": item_id,
+                    "title": title,
+                    "year": year,
+                    "tmdb_id": tmdb_id,
+                    "season": season,
+                    "current": current,
+                    "current_len": current_len,
+                    "reason": "force" if force else ("missing" if not current_len else "short"),
+                    "path": str(item.get("Path") or ""),
+                    "episode_count": int(item.get("RecursiveItemCount") or item.get("ChildCount") or 0),
+                }
+            )
         return jobs
 
     def _collect_jobs(
@@ -2424,6 +2871,8 @@ class OverviewEnhancer:
             "clients": [client.name for client in clients],
             "movies": 0,
             "episodes": 0,
+            "series": 0,
+            "seasons": 0,
             "mv": 0,
         }
         libraries = _as_str_list(self._config.get("libraries"))
@@ -2500,6 +2949,48 @@ class OverviewEnhancer:
                     )
                     stats["episodes"] += len(episode_jobs)
                     jobs.extend(episode_jobs)
+                if media_type in {"all", "tv"} and (
+                    self._config.get("series_enabled")
+                    or self._config.get("season_enabled")
+                ):
+                    metadata_series = [
+                        series for parent in parents
+                        for series in client.search_items(title, "Series", parent=parent)
+                    ]
+                    if self._config.get("series_enabled"):
+                        series_jobs = self._build_series_jobs(
+                            client, metadata_series, force_flag
+                        )
+                        stats["series"] += len(series_jobs)
+                        jobs.extend(series_jobs)
+                    if self._config.get("season_enabled"):
+                        series_map = {
+                            str(series.get("Id") or ""): series
+                            for series in metadata_series
+                        }
+                        season_items: List[Dict[str, Any]] = []
+                        for series in metadata_series:
+                            series_id = str(series.get("Id") or "")
+                            if not series_id:
+                                continue
+                            season_items.extend(
+                                list(
+                                    client.iter_items(
+                                        "Season",
+                                        [series_id],
+                                        max_items=200,
+                                        extra_fields=(
+                                            "SeriesId,SeriesName,IndexNumber,Path,"
+                                            "LockedFields,ChildCount,RecursiveItemCount"
+                                        ),
+                                    )
+                                )
+                            )
+                        season_jobs = self._build_season_jobs(
+                            client, season_items, series_map, force_flag
+                        )
+                        stats["seasons"] += len(season_jobs)
+                        jobs.extend(season_jobs)
                 continue
             if self._config.get("movie_enabled") and media_type in {"all", "movie"}:
                 for parent in parents:
@@ -2531,6 +3022,45 @@ class OverviewEnhancer:
                     )
                     stats["episodes"] += len(episode_jobs)
                     jobs.extend(episode_jobs)
+            if media_type in {"all", "tv"} and (
+                self._config.get("series_enabled") or self._config.get("season_enabled")
+            ):
+                series_map = self._series_index(client)
+                for parent in parents:
+                    if self._config.get("series_enabled"):
+                        series_jobs = self._build_series_jobs(
+                            client,
+                            list(
+                                client.iter_items(
+                                    "Series",
+                                    [parent],
+                                    max_items=scan_limit,
+                                    extra_fields="Path,LockedFields",
+                                    min_date=min_date,
+                                )
+                            ),
+                            force_flag,
+                        )
+                        stats["series"] += len(series_jobs)
+                        jobs.extend(series_jobs)
+                    if self._config.get("season_enabled"):
+                        season_items = list(
+                            client.iter_items(
+                                "Season",
+                                [parent],
+                                max_items=scan_limit,
+                                extra_fields=(
+                                    "SeriesId,SeriesName,IndexNumber,Path,"
+                                    "LockedFields,ChildCount,RecursiveItemCount"
+                                ),
+                                min_date=min_date,
+                            )
+                        )
+                        season_jobs = self._build_season_jobs(
+                            client, season_items, series_map, force_flag
+                        )
+                        stats["seasons"] += len(season_jobs)
+                        jobs.extend(season_jobs)
         stats["skipped_no_provider"] = self._skipped_no_provider
         stats["title_matched"] = self._title_matched
         if self._focus_keys:
@@ -2852,19 +3382,38 @@ class OverviewEnhancer:
         return None
 
     def _nfo_text(
-        self, job: Dict[str, Any], overview: str, people: List[Dict[str, Any]], local: Path
+        self,
+        job: Dict[str, Any],
+        overview: str,
+        people: List[Dict[str, Any]],
+        local: Path,
+        title: str = "",
     ) -> str:
         """生成与 Kodi / Emby / Jellyfin 兼容的 NFO 文本。"""
-        root = ET.Element("musicvideo" if self._config.get("mv_nfo_root") == "musicvideo" else "movie")
+        kind = str(job.get("kind") or "")
+        if kind == EPISODE:
+            root_tag = "episodedetails"
+        elif kind == MV:
+            root_tag = (
+                "musicvideo"
+                if self._config.get("mv_nfo_root") == "musicvideo"
+                else "movie"
+            )
+        else:
+            root_tag = "movie"
+        root = ET.Element(root_tag)
         # 条目名可能是「1080i」这类文件信息，此时用「艺人 - 曲名」作为 NFO 标题
-        title = str(job.get("title") or "").strip()
-        if not is_usable_title(title):
+        nfo_title = str(title or "").strip() or str(job.get("title") or "").strip()
+        if kind == MV and not is_usable_title(nfo_title):
             artist = str(job.get("artist") or "").strip()
             song = str(job.get("song") or "").strip()
-            title = f"{artist} - {song}".strip(" -") or local.stem
-        ET.SubElement(root, "title").text = title
+            nfo_title = f"{artist} - {song}".strip(" -") or local.stem
+        ET.SubElement(root, "title").text = nfo_title
         if overview:
             ET.SubElement(root, "plot").text = overview
+        if kind == EPISODE:
+            ET.SubElement(root, "season").text = str(job.get("season") or 0)
+            ET.SubElement(root, "episode").text = str(job.get("episode") or 0)
         if job.get("year"):
             ET.SubElement(root, "year").text = str(job["year"])
         poster = local.with_suffix(".jpg")
@@ -2954,6 +3503,13 @@ class OverviewEnhancer:
             person_id = str(person.get("Id") or "")
             if not name or not person_id:
                 continue
+            if self._config.get("avatar_only_missing") and bool(
+                str(person.get("PrimaryImageTag") or "").strip()
+            ):
+                # 人物已有头像：保守模式不覆盖，避免冲掉手动设置的图
+                with self._lock:
+                    self._state.setdefault("person_avatars", {})[person_id] = True
+                continue
             with self._lock:
                 done = self._state.get("person_avatars")
                 if not isinstance(done, dict):
@@ -2976,11 +3532,106 @@ class OverviewEnhancer:
                 logger.debug(f"影视简介增强：演员 {name} 头像写入失败 {message}")
         self._flush_state()
 
+    def _person_bio(self, name: str) -> str:
+        """查询演员 / 导演的 TMDB 生平简介（结果持久缓存，避免重复请求）。"""
+        key = str(name or "").strip()
+        if not key:
+            return ""
+        with self._lock:
+            cache = self._state.get("person_bio")
+            if isinstance(cache, dict) and key in cache:
+                return str(cache.get(key) or "")
+        bio = ""
+        try:
+            from app.modules.themoviedb.tmdbapi import TmdbApi
+
+            api = TmdbApi(language="zh-CN")
+            for row in (api.search_persons(key) or [])[:2]:
+                person_id = _row_value(row, "id")
+                if not person_id:
+                    continue
+                detail = api.get_person_detail(int(person_id)) or {}
+                text = clean_text(_row_value(detail, "biography"))
+                if visible_length(text) >= 40:
+                    bio = text
+                    break
+        except Exception as err:  # noqa: BLE001
+            logger.debug(f"影视简介增强：人物简介查询失败 {key} {err}")
+            bio = ""
+        with self._lock:
+            self._state.setdefault("person_bio", {})[key] = bio
+        self._mark_dirty()
+        self._flush_state()
+        return bio
+
+    def _ensure_people_bio(
+        self, client: EmbyClient, job: Dict[str, Any], dto: Optional[Dict[str, Any]]
+    ) -> int:
+        """给条目里的演职员补 TMDB 生平简介（仅当人物简介为空或过短）。"""
+        if not self._config.get("people_bio_enabled"):
+            return 0
+        if job.get("kind") not in {MOVIE, EPISODE, SERIES, SEASON}:
+            return 0
+        detail = dto if isinstance(dto, dict) and dto.get("People") else {}
+        if not detail:
+            detail = client.get_full_dto(job.get("item_id") or "")
+        limit = int(self._config.get("people_bio_max_chars") or 300)
+        written = 0
+        for person in (detail.get("People") or [])[:12]:
+            if not isinstance(person, dict):
+                continue
+            name = str(person.get("Name") or "").strip()
+            person_id = str(person.get("Id") or "").strip()
+            if not name or not person_id:
+                continue
+            with self._lock:
+                done = self._state.get("person_bio_done") or {}
+                if done.get(person_id):
+                    continue
+            person_dto = client.get_full_dto(person_id)
+            if not person_dto:
+                continue
+            current = clean_text(person_dto.get("Overview"))
+            if visible_length(current) >= 40:
+                with self._lock:
+                    self._state.setdefault("person_bio_done", {})[person_id] = True
+                continue
+            bio = clean_text(self._person_bio(name))[:limit]
+            if visible_length(bio) < 40:
+                continue
+            ok, message = client.update_fields(
+                person_id, {"Overview": bio}, dto=person_dto, verify_fields="Overview"
+            )
+            if ok:
+                with self._lock:
+                    self._state.setdefault("person_bio_done", {})[person_id] = True
+                self._mark_dirty()
+                self._flush_state()
+                written += 1
+                self._log(f"已为演职员 {name} 补充生平简介")
+            else:
+                logger.debug(f"影视简介增强：人物 {name} 简介写入失败 {message}")
+        return written
+
     def _write_nfo(
-        self, job: Dict[str, Any], overview: str, people: List[Dict[str, Any]]
+        self,
+        job: Dict[str, Any],
+        overview: str,
+        people: List[Dict[str, Any]],
+        title: str = "",
     ) -> None:
         """把简介与演员写入与媒体同名的 NFO 文件，供其它客户端读取。"""
-        if not self._config.get("mv_write_nfo"):
+        kind = str(job.get("kind") or "")
+        # 未显式声明类型的调用方（历史 MV 路径）按 MV 处理，保持旧行为
+        if kind in {"", MV}:
+            enabled = bool(self._config.get("mv_write_nfo"))
+        elif kind == EPISODE:
+            enabled = bool(self._config.get("nfo_episode_enabled"))
+        elif kind == MOVIE:
+            enabled = bool(self._config.get("nfo_movie_enabled"))
+        else:
+            enabled = False
+        if not enabled:
             return
         media_path = str(job.get("path") or "")
         if not media_path:
@@ -2997,12 +3648,52 @@ class OverviewEnhancer:
                 item["image"] = image
             enriched.append(item)
         try:
-            content = self._nfo_text(job, overview, enriched, local)
-            if nfo.exists() and nfo.read_text(encoding="utf-8") == content:
+            if kind in {"", MV}:
+                content = self._nfo_text(job, overview, enriched, local, title=title)
+                if nfo.exists() and nfo.read_text(encoding="utf-8") == content:
+                    return
+                nfo.write_text(content, encoding="utf-8")
                 return
+            # 电影/分集：优先在既有 NFO 上就地更新，保留 Emby 已写入的其它字段
+            if nfo.exists():
+                try:
+                    tree = ET.parse(nfo)
+                    root_node = tree.getroot()
+                    self._nfo_apply(root_node, job, overview, title)
+                    content = (
+                        '<?xml version="1.0" encoding="utf-8" standalone="yes"?>\n'
+                        + ET.tostring(root_node, encoding="utf-8").decode("utf-8")
+                        + "\n"
+                    )
+                except ET.ParseError:
+                    content = self._nfo_text(job, overview, enriched, local, title=title)
+            else:
+                content = self._nfo_text(job, overview, enriched, local, title=title)
             nfo.write_text(content, encoding="utf-8")
         except Exception as err:  # noqa: BLE001
             logger.warning(f"影视简介增强：NFO 写入失败 {nfo} {err}")
+
+    @staticmethod
+    def _nfo_apply(
+        root: ET.Element, job: Dict[str, Any], overview: str, title: str = ""
+    ) -> None:
+        """在既有 NFO 上更新简介、标题与季集号，其余节点保持原样。"""
+        def _put(tag: str, value: Any) -> None:
+            """写入或更新一个子节点。"""
+            text = str(value or "").strip()
+            if not text:
+                return
+            node = root.find(tag)
+            if node is None:
+                node = ET.SubElement(root, tag)
+            node.text = text
+
+        _put("plot", overview)
+        if title:
+            _put("title", title)
+        if str(job.get("kind") or "") == EPISODE:
+            _put("season", job.get("season"))
+            _put("episode", job.get("episode"))
 
     def _nfo_health(self, job: Dict[str, Any]) -> Tuple[bool, str]:
         """检查 MV 的 NFO 是否缺失或过期，返回 (是否需要重写, 原因)。"""
@@ -3228,9 +3919,28 @@ class OverviewEnhancer:
 
     def _llm_generate(self, system_prompt: str, user_prompt: str) -> str:
         """按配置的重试次数调用大模型，失败时返回空字符串。"""
+        prompt = system_prompt
+        if system_prompt in _STYLE_TARGETS:
+            # 文风模板只叠加在「生成类」提示词上，翻译与译名任务保持原提示词
+            prompt = f"{system_prompt}\n{self._style_directive()}"
         return self._llm.generate(
-            system_prompt, user_prompt, retries=int(self._config.get("llm_retries") or 0)
+            prompt, user_prompt, retries=int(self._config.get("llm_retries") or 0)
         )
+
+    def _style_directive(self) -> str:
+        """按配置生成文风与剧透策略的附加提示词。"""
+        styles = {
+            "objective": "文风要求：客观、信息密度高，像资料库条目，不抒情、不评论。",
+            "story": "文风要求：以剧情推进为主，讲清人物处境与冲突，叙述流畅但不过度煽情。",
+            "review": "文风要求：主体仍是剧情介绍，可在结尾给一句克制的观感（节奏、表演或氛围）。",
+            "promo": "文风要求：像官方宣传文案，突出看点与悬念，但不夸大、不堆砌感叹号。",
+        }
+        text = styles.get(str(self._config.get("style_preset") or "objective"), styles["objective"])
+        if self._config.get("allow_spoiler"):
+            text += " 可以提及结局走向。"
+        else:
+            text += " 不得剧透结局与关键反转。"
+        return text
 
     def _episode_duplicate(self, job: Dict[str, Any], text: str) -> bool:
         """判断新生成的分集简介是否与同季已写入内容雷同。"""
@@ -3441,12 +4151,164 @@ class OverviewEnhancer:
             return {"action": "skip", "message": "AI 生成失败或与同季其他集雷同", "failed": True}
         return {"action": "write", "text": text, "source": SOURCE_AI}
 
+    def _series_plan(self, job: Dict[str, Any], allow_llm: bool = True) -> Dict[str, Any]:
+        """判断整剧 / 整季简介的生成方式与素材。"""
+        kind = str(job.get("kind") or SERIES)
+        mode = str(self._config.get("series_mode") or "expand")
+        target = int(self._config.get("series_target_chars") or 260)
+        detail = self._tmdb.tv_detail(job["tmdb_id"], "zh-CN")
+        zh_overview = clean_text(_row_value(detail, "overview"))
+        season_overview = ""
+        if kind == SEASON:
+            number = int(job.get("season") or 0)
+            for row in _row_value(detail, "seasons", []) or []:
+                if int(_row_value(row, "season_number", 0) or 0) == number:
+                    season_overview = clean_text(_row_value(row, "overview"))
+                    break
+        en_overview = ""
+        if visible_length(zh_overview) < 40 and visible_length(season_overview) < 40:
+            en_overview = clean_text(
+                _row_value(self._tmdb.tv_detail(job["tmdb_id"], "en-US"), "overview")
+            )
+        base_text = season_overview or zh_overview
+        has_material = (
+            visible_length(base_text) >= 20 or visible_length(en_overview) >= 20
+        )
+        lines = [
+            f"剧集名称：{job.get('title')}",
+            f"首播年份：{job.get('year') or '未知'}",
+        ]
+        genres = [
+            str(_row_value(row, "name") or "")
+            for row in (_row_value(detail, "genres", []) or [])
+        ]
+        genres = [name for name in genres if name]
+        if genres:
+            lines.append(f"类型：{'、'.join(genres[:4])}")
+        if kind == SEASON:
+            lines.append(f"季：第 {job.get('season')} 季")
+            if job.get("episode_count"):
+                lines.append(f"该季集数：{job['episode_count']}")
+        if zh_overview:
+            lines.append(f"TMDB 中文简介：{zh_overview[:800]}")
+        if season_overview:
+            lines.append(f"TMDB 该季简介：{season_overview[:800]}")
+        if en_overview:
+            lines.append(f"TMDB 英文简介：{en_overview[:800]}")
+        context = "\n".join(lines)
+        system_prompt = SERIES_SYSTEM if kind == SERIES else SEASON_SYSTEM
+
+        if mode == "ai" or not has_material:
+            if not has_material and mode != "ai" and not self._config.get("ai_generate_when_missing"):
+                return {"action": "skip", "message": "缺少整剧简介且未开启 AI 生成"}
+            if not allow_llm:
+                return {
+                    "action": "write",
+                    "text": "",
+                    "source": SOURCE_AI,
+                    "message": "将由 AI 生成整体简介",
+                }
+            if not self._llm.available():
+                if visible_length(base_text) >= 20:
+                    return {"action": "write", "text": base_text, "source": SOURCE_TMDB}
+                return {"action": "skip", "message": "LLM 不可用", "failed": True}
+            text = self._llm_generate(
+                system_prompt,
+                f"{context}\n\n请写一段约 {target} 字的"
+                f"{'整季' if kind == SEASON else '整剧'}简介。",
+            )
+            if text:
+                return {"action": "write", "text": text, "source": SOURCE_AI}
+            if visible_length(base_text) >= 20:
+                return {"action": "write", "text": base_text, "source": SOURCE_TMDB}
+            return {"action": "skip", "message": "AI 生成失败", "failed": True}
+
+        if visible_length(base_text) >= int(target * 0.9):
+            return {"action": "write", "text": base_text, "source": SOURCE_TMDB}
+        if not allow_llm:
+            return {
+                "action": "write",
+                "text": "",
+                "source": f"{SOURCE_TMDB}+{SOURCE_AI}",
+                "message": "将扩写整体简介",
+            }
+        if not self._llm.available():
+            return {"action": "write", "text": base_text, "source": SOURCE_TMDB}
+        text = self._llm_generate(
+            system_prompt,
+            f"{context}\n\n请把上面的简介扩写为约 {target} 字的"
+            f"{'整季' if kind == SEASON else '整剧'}简介。",
+        )
+        if not text:
+            return {"action": "write", "text": base_text, "source": SOURCE_TMDB}
+        return {"action": "write", "text": text, "source": f"{SOURCE_TMDB}+{SOURCE_AI}"}
+
+    def _plan_episode_title(self, job: Dict[str, Any], allow_llm: bool = True) -> str:
+        """为分集生成有辨识度的标题；未开启、非占位标题或生成失败时返回空串。"""
+        if not self._config.get("episode_title_enabled"):
+            return ""
+        current = str(job.get("episode_title") or "").strip()
+        mode = str(self._config.get("episode_title_mode") or "numeric_only")
+        if mode == "numeric_only" and not is_placeholder_episode_title(current):
+            return ""
+        cache_key = f"{job.get('tmdb_id')}|{job.get('season')}|{job.get('episode')}"
+        with self._lock:
+            cache = self._state.get("episode_titles")
+            cached = cache.get(cache_key) if isinstance(cache, dict) else None
+        if isinstance(cached, dict) and cached.get("title"):
+            title = str(cached["title"])
+            return "" if title == current else title
+        if not allow_llm or not self._llm.available():
+            return ""
+        max_chars = int(self._config.get("episode_title_max_chars") or 14)
+        overview = str(job.get("current") or "").strip()
+        if not overview:
+            try:
+                season_map = self._tmdb.season_episodes(
+                    job["tmdb_id"], int(job.get("season") or 0), "zh-CN"
+                )
+                overview = clean_text(
+                    (season_map.get(int(job.get("episode") or 0)) or {}).get("overview")
+                )
+            except Exception:  # noqa: BLE001
+                overview = ""
+        lines = [
+            f"剧集名称：{job.get('title')}",
+            f"季集：第 {job.get('season')} 季 第 {job.get('episode')} 集",
+        ]
+        if overview:
+            lines.append(f"该集简介：{overview[:600]}")
+        text = self._llm_generate(
+            TITLE_SYSTEM,
+            "\n".join(lines) + f"\n\n请给出 4~{min(10, max_chars)} 个字的标题。",
+        )
+        title = re.sub(r"[《》“”\"'’‘。，,；;：:、\s]", "", clean_text(text))
+        title = title.strip()[:max_chars]
+        if not title or is_placeholder_episode_title(title) or "集" in title:
+            return ""
+        with self._lock:
+            bucket = self._state.setdefault("episode_titles", {})
+            if isinstance(bucket, dict):
+                bucket[cache_key] = {
+                    "title": title,
+                    "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                }
+                if len(bucket) > 3000:
+                    for key in list(bucket)[:-3000]:
+                        bucket.pop(key, None)
+        self._mark_dirty()
+        self._flush_state()
+        return "" if title == current else title
+
     def _plan_job(self, job: Dict[str, Any], allow_llm: bool = True) -> Dict[str, Any]:
         """按条目类型生成处理方案。"""
         try:
-            if job.get("kind") == MV:
+            kind = str(job.get("kind") or "")
+            if kind == MV:
                 return self._mv_plan(job, allow_llm=allow_llm)
-            if job.get("kind") == MOVIE:
+            if kind in {SERIES, SEASON}:
+                return self._series_plan(job, allow_llm=allow_llm)
+            if kind == MOVIE:
                 plan = self._movie_plan(job, allow_llm=allow_llm)
             else:
                 plan = self._episode_plan(job, allow_llm=allow_llm)
@@ -3546,6 +4408,10 @@ class OverviewEnhancer:
             plan = self._plan_job(job, allow_llm=False)
             preview_text = ""
             quality = ""
+            flavor = 0
+            flavor_reasons: List[str] = []
+            similarity = 0.0
+            new_title = ""
             if sample and index < sample:
                 richer = self._plan_job(job, allow_llm=True)
                 preview_text = clean_text(richer.get("text"))[:400]
@@ -3553,7 +4419,34 @@ class OverviewEnhancer:
                     quality = str(richer.get("message") or "生成失败")
                     preview_text = ""
                 elif preview_text:
-                    quality = self._quality_issue(preview_text, str(job.get("kind") or ""))
+                    probe = dict(job)
+                    # 试跑阶段没有写入，人名白名单取自条目现有演职员
+                    client = self._client_by_name(job.get("server") or "")
+                    if client is not None:
+                        probe["known_names"] = [
+                            str(person.get("Name") or "")
+                            for person in (client.get_item(job["item_id"], "People").get("People") or [])
+                            if isinstance(person, dict)
+                        ]
+                    quality = self._quality_issue(
+                        preview_text, str(job.get("kind") or ""), probe
+                    )
+                    flavor, flavor_reasons = ai_flavor_score(preview_text)
+                    if str(job.get("kind") or "") == EPISODE:
+                        with self._lock:
+                            bucket = (self._state.get("recent_episodes") or {}).get(
+                                f"{job.get('tmdb_id')}|{job.get('season')}"
+                            ) or {}
+                            others = [
+                                str(entry.get("text") or "")
+                                for episode, entry in bucket.items()
+                                if isinstance(entry, dict)
+                                and str(episode) != str(job.get("episode"))
+                            ]
+                        if others:
+                            similarity = round(max_similarity(preview_text, others)[0], 3)
+                    if str(job.get("kind") or "") == EPISODE:
+                        new_title = self._plan_episode_title(job)
             items.append(
                 {
                     "key": job.get("key"),
@@ -3572,6 +4465,10 @@ class OverviewEnhancer:
                     "current": clean_text(job.get("current"))[:160],
                     "preview": preview_text,
                     "quality": quality,
+                    "ai_flavor": flavor,
+                    "ai_flavor_reasons": flavor_reasons[:3],
+                    "similarity": similarity,
+                    "new_title": new_title,
                     "need_nfo": bool(job.get("need_nfo")),
                     "need_avatar": bool(job.get("need_avatar")),
                 }
@@ -3583,6 +4480,80 @@ class OverviewEnhancer:
             "total": len(jobs),
             "sample": sample,
         }
+
+    def write_sample(self, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """把试跑中人工选定的样张文案直接写入指定条目。"""
+        payload = payload or {}
+        key = str(payload.get("key") or "").strip()
+        text = clean_text(payload.get("text"), 4000)
+        if not key or not text:
+            return {"written": False, "message": "缺少条目标识或文案"}
+        media_type = str(payload.get("media_type") or "all")
+        title = str(payload.get("title") or "")
+        jobs, _, _ = self._collect_jobs(
+            media_type=media_type, title=title, force=True, focus_keys=[key]
+        )
+        job = next((item for item in jobs if item.get("key") == key), None)
+        if job is None:
+            # 扫描可能因媒体库范围或标题匹配限制而找不到该条：
+            # 用前端回传的定位信息构造最小任务，仍然只写这一条，避免整库重扫。
+            server, _, item_id = key.partition("|")
+            kind = str(payload.get("kind") or "")
+            if not server or not item_id or kind not in {MOVIE, EPISODE, SERIES, SEASON, MV}:
+                return {"written": False, "message": "条目不在当前扫描范围内"}
+            job = {
+                "key": key,
+                "kind": kind,
+                "server": server,
+                "item_id": item_id,
+                "title": str(payload.get("title") or ""),
+                "year": str(payload.get("year") or ""),
+                "season": _bounded_int(payload.get("season"), 0, 0, 999),
+                "episode": _bounded_int(payload.get("episode"), 0, 0, 9999),
+                "episode_title": str(payload.get("episode_title") or ""),
+                "current": "",
+                "path": "",
+            }
+        client = self._client_by_name(job.get("server") or "")
+        if client is None:
+            return {"written": False, "message": "媒体服务器不可用"}
+        dto = client.get_full_dto(job["item_id"])
+        if not dto:
+            return {"written": False, "message": "无法读取条目当前信息"}
+        probe = dict(job)
+        probe["known_names"] = [
+            str(person.get("Name") or "")
+            for person in (dto.get("People") or [])
+            if isinstance(person, dict)
+        ]
+        issue = self._quality_issue(text, str(job.get("kind") or ""), probe)
+        if issue and not payload.get("force"):
+            return {"written": False, "message": issue}
+        ok, message = client.update_overview(
+            job["item_id"],
+            text,
+            lock=bool(self._config.get("lock_overview")),
+            dto=dto,
+        )
+        if not ok:
+            return {"written": False, "message": message}
+        if job.get("current") and text_signature(job["current"]) != text_signature(text):
+            self._save_backup(
+                job,
+                clean_text(job.get("current")),
+                [str(value) for value in (dto.get("LockedFields") or [])],
+            )
+        self._write_nfo(job, text, [], title=str(payload.get("title_override") or ""))
+        with self._lock:
+            self._state.setdefault("records", {})[key] = {
+                "hash": text_signature(text),
+                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "source": "manual",
+                "chars": visible_length(text),
+            }
+        self._save_state()
+        self._log(f"已写入试跑样张：{job.get('title')}")
+        return {"written": True, "message": "已写入", "key": key}
 
     def start_run(self, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """启动一次后台执行任务（试跑请调用 preview）。"""
@@ -3714,7 +4685,16 @@ class OverviewEnhancer:
             if not jobs:
                 self._finish_run("没有需要处理的条目", stats)
                 return
-            workers = max(1, min(8, int(self._config.get("concurrency") or 2)))
+            base_workers = max(1, min(8, int(self._config.get("concurrency") or 2)))
+            workers = base_workers
+            self._llm_before = LLMTextWriter.stats()
+            if self._config.get("adaptive_concurrency") and getattr(
+                self, "_last_rate_limited", False
+            ):
+                workers = max(1, base_workers - 1)
+                self._log(
+                    f"上一轮出现大模型限流，本轮并发自动降为 {workers}", "warning"
+                )
             self._log(f"开始处理 {len(jobs)} 条简介（并发 {workers}）")
             with ThreadPoolExecutor(max_workers=workers) as pool:
                 futures = {pool.submit(self._process_job, job): job for job in jobs}
@@ -3730,6 +4710,20 @@ class OverviewEnhancer:
                 updated = int(run.get("updated") or 0)
                 skipped = int(run.get("skipped") or 0)
                 failed = int(run.get("failed") or 0)
+            after = LLMTextWriter.stats()
+            before = getattr(self, "_llm_before", {}) or {}
+            llm_delta = {
+                "calls": int(after.get("calls") or 0) - int(before.get("calls") or 0),
+                "errors": int(after.get("errors") or 0) - int(before.get("errors") or 0),
+                "empty": int(after.get("empty") or 0) - int(before.get("empty") or 0),
+                "rate_limited": int(after.get("rate_limited") or 0)
+                - int(before.get("rate_limited") or 0),
+                "chars": int(after.get("chars") or 0) - int(before.get("chars") or 0),
+            }
+            self._last_rate_limited = llm_delta["rate_limited"] > 0
+            with self._lock:
+                if self._run is not None:
+                    self._run["llm"] = llm_delta
             summary = f"处理完成：更新 {updated} 条，跳过 {skipped} 条，失败 {failed} 条"
             self._finish_run(summary, stats)
         except Exception as err:  # noqa: BLE001
@@ -3785,6 +4779,7 @@ class OverviewEnhancer:
                     bucket[str(job.get("episode"))] = {
                         "sig": text_signature(result.get("text")),
                         "head": str(result.get("text") or "")[:60],
+                        "text": clean_text(result.get("text"))[:1200],
                         "time": now,
                     }
                     if len(bucket) > 200:
@@ -3802,6 +4797,10 @@ class OverviewEnhancer:
                     "server": job.get("server"),
                     "item_id": job.get("item_id"),
                     "message": str(result.get("message") or ""),
+                    "error_kind": str(
+                        result.get("error_kind")
+                        or classify_failure(result.get("message"))
+                    ),
                     "time": now,
                     "count": int(previous.get("count") or 0) + 1,
                     "job": dict(job),
@@ -3884,6 +4883,15 @@ class OverviewEnhancer:
             )[:4]
         )
         detail = f"{message}\n服务器：{servers}"
+        llm = summary.get("llm") if isinstance(summary.get("llm"), dict) else {}
+        if llm.get("calls"):
+            detail += (
+                f"\n大模型：调用 {llm.get('calls')} 次"
+                f"，失败 {int(llm.get('errors') or 0)}"
+                f"，空返回 {int(llm.get('empty') or 0)}"
+            )
+            if int(llm.get("rate_limited") or 0):
+                detail += "（出现限流）"
         if source_text:
             detail += f"\n来源：{source_text}"
         skipped_ai = int(summary.get("untranslated") or 0)
@@ -3934,28 +4942,39 @@ class OverviewEnhancer:
             return {"status": "skipped", "message": "任务已取消"}
         client = self._client_by_name(job.get("server") or "")
         if client is None:
-            return {"status": "failed", "message": "媒体服务器不可用"}
+            return {"status": "failed", "message": "媒体服务器不可用", "error_kind": "emby_write"}
         plan = self._plan_job(job)
         if plan.get("failed"):
-            return {"status": "failed", "message": plan.get("message") or "生成失败"}
+            message = plan.get("message") or "生成失败"
+            return {"status": "failed", "message": message, "error_kind": classify_failure(message)}
         if plan.get("action") != "write":
             return {"status": "skipped", "message": plan.get("message") or "无可用简介"}
         text = clean_text(plan.get("text"), 4000)
         source = str(plan.get("source") or "")
         maintenance = source in {SOURCE_PEOPLE, SOURCE_MAINTENANCE}
+        if self._cancel.is_set():
+            return {"status": "skipped", "message": "任务已取消"}
+        dto = client.get_full_dto(job["item_id"]) if not maintenance else {}
         if not maintenance:
             # 电影/剧集同样剔除「2160p、WEB-DL、编码」这类文件信息句
             text = clean_text(strip_technical_sentences(text), 4000)
             # 分集 AI 文案常以「第12集中，」「本集延续…」开场，去掉编号套话再交给质量闸门
             if job.get("kind") == EPISODE:
                 text = clean_text(strip_template_opening(text), 4000)
-            issue = self._quality_issue(text, str(job.get("kind") or ""))
+            # 人名校验以条目现有演职员名单为准，避免把 TMDB 之外的专有名词误判
+            job = dict(job)
+            job["known_names"] = [
+                str(person.get("Name") or "")
+                for person in (dto.get("People") or [])
+                if isinstance(person, dict)
+            ]
+            issue = self._quality_issue(text, str(job.get("kind") or ""), job)
             if issue:
                 if issue.startswith(_UNTRANSLATED_PREFIX):
                     # 素材本身没有中文且翻译失败：记为「中文缺失跳过」并写入止损缓存，
                     # 避免每轮扫描重复调用 AI 翻译
                     return {"status": "skipped", "message": issue, "untranslated": True}
-                return {"status": "failed", "message": issue}
+                return {"status": "failed", "message": issue, "error_kind": classify_failure(issue, "quality_gate")}
         if not maintenance and text_signature(text) == text_signature(job.get("current")):
             return {"status": "skipped", "message": "内容与现有简介一致"}
         if not maintenance and not text:
@@ -3967,17 +4986,36 @@ class OverviewEnhancer:
         people: Optional[List[Dict[str, Any]]] = None
         if job.get("kind") == MV:
             people = self._mv_people(job) or None
-        dto = client.get_full_dto(job["item_id"])
         if not dto:
-            return {"status": "failed", "message": "无法读取条目当前信息"}
+            dto = client.get_full_dto(job["item_id"])
+        if not dto:
+            return {"status": "failed", "message": "无法读取条目当前信息", "error_kind": "emby_write"}
+        # 分集标题美化：只对占位标题（如「第 3 集」）生成，结果同时写入 Emby 与 NFO
+        new_title = ""
+        if job.get("kind") == EPISODE:
+            try:
+                new_title = self._plan_episode_title(job)
+            except Exception as err:  # noqa: BLE001
+                logger.debug(f"影视简介增强：分集标题生成失败 {err}")
+                new_title = ""
         if plan.get("skip_write"):
             # 仅维护派生产物：简介与演员都没有变化，只补 NFO / 头像
-            self._write_nfo(job, text, people or [])
+            self._write_nfo(job, text, people or [], title=new_title)
             self._ensure_avatars(client, job, people or [], dto=dto)
+            if new_title:
+                ok_title, message_title = client.update_fields(
+                    job["item_id"], {"Name": new_title}, dto=dto
+                )
+                if not ok_title:
+                    self._log(
+                        f"{job.get('title')} S{job.get('season')}E{job.get('episode')} 标题写入失败：{message_title}",
+                        "warning",
+                    )
             return {
                 "status": "updated",
                 "text": text,
                 "source": source,
+                "title": new_title,
                 "people": [person["Name"] for person in (people or [])],
             }
         old_overview = clean_text(dto.get("Overview"))
@@ -3994,30 +5032,53 @@ class OverviewEnhancer:
             verify_sink=verify,
         )
         if not ok:
-            return {"status": "failed", "message": message}
+            return {
+                "status": "failed",
+                "message": message,
+                "error_kind": classify_failure(message, "emby_write"),
+            }
         if old_overview and text_signature(old_overview) != text_signature(text):
             self._save_backup(job, old_overview, old_locked)
-        self._write_nfo(job, text, people or [])
+        if new_title:
+            # 简介刚写入，必须重新读取完整 DTO 再改标题：
+            # 用裁剪过的回读结果整体回写会覆盖掉其它字段。
+            title_dto = client.get_full_dto(job["item_id"])
+            ok_title, message_title = client.update_fields(
+                job["item_id"], {"Name": new_title}, dto=title_dto or None
+            )
+            if not ok_title:
+                self._log(
+                    f"{job.get('title')} S{job.get('season')}E{job.get('episode')} 标题写入失败：{message_title}",
+                    "warning",
+                )
+        self._write_nfo(job, text, people or [], title=new_title)
         self._ensure_avatars(client, job, people or [], dto=verify or dto)
+        self._ensure_people_bio(client, job, verify or dto)
         return {
             "status": "updated",
             "text": text,
             "source": source,
+            "title": new_title,
             "people": [person["Name"] for person in (people or [])],
         }
 
-    def _quality_issue(self, text: str, kind: str) -> str:
-        """质量闸门：拦截未翻译、技术信息残留、模板化与长度异常的简介。"""
+    def _quality_issue(
+        self, text: str, kind: str, job: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """质量闸门：拦截未翻译、技术信息、模板化、AI 味、幻觉人名与跨集雷同。"""
         if not self._config.get("quality_gate"):
             return ""
         body = str(text or "").strip()
         if visible_length(body) < 10:
             return "生成结果过短"
-        target_key = (
-            "movie_target_chars"
-            if kind == MOVIE
-            else ("mv_target_chars" if kind == MV else "episode_target_chars")
-        )
+        if kind == MOVIE:
+            target_key = "movie_target_chars"
+        elif kind == MV:
+            target_key = "mv_target_chars"
+        elif kind in {SERIES, SEASON}:
+            target_key = "series_target_chars"
+        else:
+            target_key = "episode_target_chars"
         target = int(self._config.get(target_key) or 0)
         if target and visible_length(body) > max(600, target * 3):
             return "生成结果明显超出目标字数"
@@ -4029,6 +5090,33 @@ class OverviewEnhancer:
             return "简介仍在描述画质/编码等技术信息"
         if kind != MV and TEMPLATE_SENTENCE_PATTERN.match(body) and visible_length(body) < 80:
             return "简介过于模板化，可能是空泛生成"
+        if job is not None:
+            if self._config.get("quality_ai_flavor_gate"):
+                score, reasons = ai_flavor_score(body)
+                minimum = int(self._config.get("quality_ai_flavor_min_score") or 0)
+                if minimum and score < minimum:
+                    detail = "、".join(reasons[:3]) or "文案模板化"
+                    return f"AI 味过重（{score} 分：{detail}）"
+            if self._config.get("quality_name_check"):
+                suspects = suspicious_names(body, job.get("known_names") or [])
+                if suspects:
+                    return f"简介出现疑似编造人名：{'、'.join(suspects[:3])}"
+            threshold = float(self._config.get("quality_similarity_threshold") or 0)
+            if threshold > 0 and kind == EPISODE:
+                bucket_key = f"{job.get('tmdb_id')}|{job.get('season')}"
+                with self._lock:
+                    bucket = (self._state.get("recent_episodes") or {}).get(bucket_key) or {}
+                    others = [
+                        str(entry.get("text") or "")
+                        for episode, entry in bucket.items()
+                        if isinstance(entry, dict)
+                        and visible_length(entry.get("text")) >= 20
+                        and str(episode) != str(job.get("episode"))
+                    ]
+                if others:
+                    similarity, _ = max_similarity(body, others)
+                    if similarity >= threshold:
+                        return f"与同季其他集简介高度相似（{similarity:.0%}）"
         return ""
 
     def _save_backup(self, job: Dict[str, Any], overview: str, locked: List[str]) -> None:

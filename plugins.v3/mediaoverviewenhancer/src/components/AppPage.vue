@@ -19,6 +19,7 @@ const starting = ref(false)
 const retrying = ref(false)
 const rolling = ref(false)
 const clearing = ref(false)
+const writingKey = ref('')
 const message = ref('')
 const error = ref('')
 const status = ref({})
@@ -48,7 +49,21 @@ const actionLabels = {
 const kindLabels = {
   movie: '电影',
   episode: '剧集',
+  series: '整剧',
+  season: '整季',
   mv: 'MV',
+}
+
+const failureKindLabels = {
+  llm_unavailable: '大模型不可用',
+  llm_rate_limit: '大模型限流',
+  llm_empty: '空返回',
+  llm_error: '调用异常',
+  quality_gate: '质量闸门',
+  material_missing: '素材缺失',
+  emby_write: '写入失败',
+  nfo_write: 'NFO 写入',
+  unknown: '未归类',
 }
 
 const run = computed(() => status.value.run || {})
@@ -82,6 +97,10 @@ const latestRunId = computed(() => {
   const row = backups.value.find(item => item.run_id)
   return row?.run_id || ''
 })
+
+const llmStats = computed(() => status.value.llm || {})
+const failureKinds = computed(() => status.value.failure_kinds || {})
+const features = computed(() => status.value.features || {})
 
 function unwrap(response) {
   if (response && Object.prototype.hasOwnProperty.call(response, 'data') && response.success !== undefined) {
@@ -214,6 +233,42 @@ async function redoItem(item) {
     error.value = `单条重做失败：${errorText(err)}`
   } finally {
     starting.value = false
+  }
+}
+
+async function writeSample(item) {
+  if (!item?.key || !item?.preview) return
+  writingKey.value = String(item.key)
+  error.value = ''
+  message.value = ''
+  const mediaType = ['episode', 'series', 'season'].includes(item.kind)
+    ? 'tv'
+    : (item.kind === 'mv' ? 'mv' : 'movie')
+  try {
+    const data = unwrap(
+      await props.api.post(`${base.value}/write-sample`, {
+        key: item.key,
+        kind: item.kind || '',
+        media_type: mediaType,
+        title: item.title || '',
+        year: item.year || '',
+        season: item.season ?? 0,
+        episode: item.episode ?? 0,
+        episode_title: item.episode_title || '',
+        text: item.preview,
+        title_override: item.new_title || '',
+      }),
+    )
+    if (data?.written) {
+      message.value = `已写入样张：${item.title || item.key}`
+      await loadStatus()
+    } else {
+      error.value = `写入失败：${data?.message || '未知原因'}`
+    }
+  } catch (err) {
+    error.value = `写入失败：${errorText(err)}`
+  } finally {
+    writingKey.value = ''
   }
 }
 
@@ -352,6 +407,25 @@ onUnmounted(() => {
           失败待处理 {{ status.failure_count }} 条
         </VChip>
         <VChip size="small" variant="tonal">可回滚 {{ status.backup_count || 0 }} 条</VChip>
+        <VChip v-if="Number(llmStats.calls || 0)" size="small" variant="tonal">
+          今日大模型 {{ llmStats.calls }} 次 · 成功率 {{ llmStats.success_rate ?? 0 }}% ·
+          均耗时 {{ llmStats.avg_seconds ?? 0 }}s
+        </VChip>
+        <VChip
+          v-if="Number(llmStats.rate_limited || 0)"
+          color="warning"
+          size="small"
+          variant="tonal"
+        >
+          今日限流 {{ llmStats.rate_limited }} 次
+        </VChip>
+        <VChip v-if="features.style_preset" size="small" variant="tonal">
+          文风 {{ features.style_preset }}
+        </VChip>
+        <VChip v-if="features.episode_title" size="small" variant="tonal">分集标题美化</VChip>
+        <VChip v-if="features.series" size="small" variant="tonal">整剧简介</VChip>
+        <VChip v-if="features.season" size="small" variant="tonal">整季简介</VChip>
+        <VChip v-if="features.people_bio" size="small" variant="tonal">演职员简介</VChip>
         <VChip size="small" variant="tonal">电影模式 {{ status.movie_mode || '-' }}</VChip>
         <VChip size="small" variant="tonal">分集模式 {{ status.episode_mode || '-' }}</VChip>
         <VChip size="small" variant="tonal">
@@ -362,6 +436,18 @@ onUnmounted(() => {
         </VChip>
         <VChip size="small" variant="tonal">
           定时补漏 {{ Number(status.schedule_hours || 0) > 0 ? `${status.schedule_hours} 小时` : '关闭' }}
+        </VChip>
+      </VCardText>
+      <VCardText v-if="Object.keys(failureKinds).length" class="moe-chips">
+        <span class="text-caption text-medium-emphasis align-self-center">失败分类：</span>
+        <VChip
+          v-for="(count, kind) in failureKinds"
+          :key="kind"
+          size="small"
+          color="error"
+          variant="tonal"
+        >
+          {{ failureKindLabels[kind] || kind }} {{ count }}
         </VChip>
       </VCardText>
       <VCardText v-if="servers.length" class="moe-chips">
@@ -387,7 +473,7 @@ onUnmounted(() => {
               :items="[
                 { title: '全部', value: 'all' },
                 { title: '仅电影', value: 'movie' },
-                { title: '仅剧集', value: 'tv' },
+                { title: '仅剧集（含整剧/整季）', value: 'tv' },
                 { title: '仅 MV', value: 'mv' },
                 { title: '仅补 NFO/头像', value: 'maintenance' },
               ]"
@@ -467,6 +553,11 @@ onUnmounted(() => {
         <div v-if="run.started_at" class="text-caption text-medium-emphasis">
           开始于 {{ run.started_at }}<span v-if="run.finished_at"> · 结束于 {{ run.finished_at }}</span>
         </div>
+        <div v-if="run.llm && run.llm.calls" class="text-caption text-medium-emphasis">
+          本轮大模型：调用 {{ run.llm.calls }} 次 · 失败 {{ run.llm.errors || 0 }} ·
+          空返回 {{ run.llm.empty || 0 }}
+          <span v-if="run.llm.rate_limited" class="text-warning">· 出现限流 {{ run.llm.rate_limited }} 次</span>
+        </div>
       </VCardText>
     </VCard>
 
@@ -510,13 +601,34 @@ onUnmounted(() => {
               <td class="moe-preview">
                 <div v-if="item.preview">{{ item.preview }}</div>
                 <div v-if="item.quality" class="text-error text-caption">质量提示：{{ item.quality }}</div>
+                <div v-if="item.preview" class="text-caption text-medium-emphasis">
+                  AI 味 {{ item.ai_flavor ?? '-' }} 分
+                  <span v-if="(item.ai_flavor_reasons || []).length">
+                    （{{ (item.ai_flavor_reasons || []).join('、') }}）
+                  </span>
+                  <span v-if="item.similarity"> · 同季相似度 {{ Math.round(item.similarity * 100) }}%</span>
+                </div>
+                <div v-if="item.new_title" class="text-caption">
+                  新标题：{{ item.new_title }}
+                </div>
               </td>
               <td>
+                <VBtn
+                  v-if="item.preview"
+                  size="x-small"
+                  variant="tonal"
+                  color="primary"
+                  :disabled="running"
+                  :loading="writingKey === String(item.key)"
+                  @click="writeSample(item)"
+                >
+                  写入此样张
+                </VBtn>
                 <VBtn
                   size="x-small"
                   variant="text"
                   :disabled="running"
-                  :loading="starting"
+                  :loading="starting && writingKey !== String(item.key)"
                   @click="redoItem(item)"
                 >
                   重做
@@ -526,7 +638,8 @@ onUnmounted(() => {
           </tbody>
         </VTable>
         <div class="text-caption text-medium-emphasis mt-1">
-          样张只对前 {{ previewSampled || 0 }} 条生成，不会写入媒体库；「重做」会强制重新生成该条。
+          样张只对前 {{ previewSampled || 0 }} 条生成，不会写入媒体库；「写入此样张」会直接落库并记一次人工写入，
+          「重做」会强制重新生成该条。
         </div>
       </VCardText>
     </VCard>
@@ -554,6 +667,7 @@ onUnmounted(() => {
               <th>类型</th>
               <th>标题</th>
               <th>集</th>
+              <th>分类</th>
               <th>失败原因</th>
               <th>时间</th>
               <th>次数</th>
@@ -564,6 +678,11 @@ onUnmounted(() => {
               <td>{{ kindLabel(row.kind) }}</td>
               <td>{{ row.title }}</td>
               <td>{{ row.kind === 'episode' ? `S${row.season}E${row.episode}` : '-' }}</td>
+              <td>
+                <VChip size="x-small" variant="tonal" color="error">
+                  {{ failureKindLabels[row.error_kind] || row.error_kind || '未归类' }}
+                </VChip>
+              </td>
               <td class="text-error">{{ row.message }}</td>
               <td>{{ row.time }}</td>
               <td>{{ row.count }}</td>
