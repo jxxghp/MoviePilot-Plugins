@@ -1,5 +1,6 @@
-import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import _sfc_main from './__federation_expose_AppPage-A9vcD4xr.js';
+import { _ as __mf_0 } from './_plugin-vue_export-helper-C960cP-z.js';
+import _sfc_main from './AppPage-C4bLrGg2.js';
+import './BrushFlowWorkbench-CfskpesI.js';
 
 true&&(function polyfill() {
   const relList = document.createElement("link").relList;
@@ -39,6 +40,4 @@ true&&(function polyfill() {
   }
 }());
 
-const {createApp} = await importShared('vue');
-
-createApp(_sfc_main).mount('#app');
+__mf_0(_sfc_main).mount('#app');
