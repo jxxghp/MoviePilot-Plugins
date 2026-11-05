@@ -543,7 +543,7 @@ return (_ctx, _cache) => {
           color: "primary",
           "hide-details": ""
         }, null, 8, ["modelValue"]),
-        _cache[82] || (_cache[82] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mb-2" }, " 国产剧常见「第 3 集」这类标题在媒体服务器里毫无辨识度；开启后会依据该集简介生成 4~10 字短标题，同时写入 Emby 的标题与 NFO，标题会随简介一起更新。 ", -1)),
+        _cache[82] || (_cache[82] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mb-2" }, " 国产剧常见「第 3 集」这类标题在媒体服务器里毫无辨识度；开启后会依据该集简介生成 4~10 字短标题，同时写入 Emby 的标题与 NFO，标题会随简介一起更新。 只想改标题、不想动简介时，在详情页把「处理对象」选为「仅补分集标题」。 ", -1)),
         _createVNode(_component_VSelect, {
           modelValue: localConfig.value.episode_title_mode,
           "onUpdate:modelValue": _cache[19] || (_cache[19] = $event => ((localConfig.value.episode_title_mode) = $event)),
@@ -1238,6 +1238,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-8fe9a353"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-89ce798a"]]);
 
 export { Config as default };

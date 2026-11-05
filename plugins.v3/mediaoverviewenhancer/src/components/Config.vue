@@ -429,6 +429,7 @@ onMounted(() => {
       <div class="text-caption text-medium-emphasis mb-2">
         国产剧常见「第 3 集」这类标题在媒体服务器里毫无辨识度；开启后会依据该集简介生成
         4~10 字短标题，同时写入 Emby 的标题与 NFO，标题会随简介一起更新。
+        只想改标题、不想动简介时，在详情页把「处理对象」选为「仅补分集标题」。
       </div>
       <VSelect
         v-model="localConfig.episode_title_mode"

@@ -2628,6 +2628,60 @@ class OverviewEnhancer:
             jobs.append(job)
         return jobs
 
+    def _build_title_jobs(
+        self,
+        client: EmbyClient,
+        items: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """收集只有占位标题的分集，用于「仅补分集标题」模式（不改动简介）。"""
+        mode = str(self._config.get("episode_title_mode") or "numeric_only")
+        series_ids = sorted(
+            {str(item.get("SeriesId") or "") for item in items if item.get("SeriesId")}
+        )
+        series_cache: Dict[str, Dict[str, Any]] = {}
+        if series_ids:
+            try:
+                series_cache = client.get_items_by_ids(series_ids[:500])
+            except Exception as err:  # noqa: BLE001
+                logger.debug(f"影视简介增强：读取剧集标识失败 {err}")
+        jobs: List[Dict[str, Any]] = []
+        for item in items:
+            item_id = str(item.get("Id") or "")
+            series_id = str(item.get("SeriesId") or "")
+            if not item_id or not series_id:
+                continue
+            try:
+                season = int(item.get("ParentIndexNumber") or 0)
+                episode = int(item.get("IndexNumber") or 0)
+            except (TypeError, ValueError):
+                continue
+            if self._config.get("skip_specials") and (season <= 0 or episode <= 0):
+                continue
+            current_title = str(item.get("Name") or "").strip()
+            if mode != "all" and not is_placeholder_episode_title(current_title):
+                continue
+            overview = self._overview_of(item)
+            series_item = series_cache.get(series_id) or {}
+            jobs.append(
+                {
+                    "key": f"{client.name}|{item_id}",
+                    "kind": EPISODE,
+                    "server": client.name,
+                    "item_id": item_id,
+                    "title": str(series_item.get("Name") or item.get("SeriesName") or ""),
+                    "season": season,
+                    "episode": episode,
+                    "episode_title": current_title,
+                    "tmdb_id": self._tmdb_provider_id(series_item),
+                    "current": overview,
+                    "current_len": visible_length(overview),
+                    "reason": "title",
+                    "title_only": True,
+                    "path": str(item.get("Path") or ""),
+                }
+            )
+        return jobs
+
     def _build_episode_jobs(
         self,
         client: EmbyClient,
@@ -2874,6 +2928,7 @@ class OverviewEnhancer:
             "series": 0,
             "seasons": 0,
             "mv": 0,
+            "titles": 0,
         }
         libraries = _as_str_list(self._config.get("libraries"))
         scan_days = int(self._config.get("scan_days") or 0)
@@ -2914,6 +2969,65 @@ class OverviewEnhancer:
                             ]
                         stats["mv"] += len(mv_jobs)
                         jobs.extend(mv_jobs)
+                continue
+            if media_type == "titles":
+                # 「仅补分集标题」：只收集占位标题的分集，后续只写 Name 与 NFO，不改简介
+                if not (
+                    self._config.get("episode_enabled")
+                    and self._config.get("episode_title_enabled")
+                ):
+                    errors.append("分集标题美化未启用，本次跳过")
+                    continue
+                if libraries:
+                    parents = client.resolve_library_ids(libraries)
+                    if not parents:
+                        errors.append(
+                            f"{client.name} 未匹配到配置的媒体库：{'、'.join(libraries)}，本次跳过"
+                        )
+                        continue
+                else:
+                    parents = client.resolve_library_ids([]) or [None]
+                if title:
+                    # 指定剧名时按剧集搜索再取分集，避免整库遍历（大库全扫要数分钟）
+                    title_items = []
+                    for parent in parents:
+                        for series in client.search_items(title, "Series", parent=parent):
+                            series_id = str(series.get("Id") or "")
+                            if not series_id:
+                                continue
+                            title_items.extend(
+                                list(
+                                    client.iter_items(
+                                        "Episode",
+                                        [series_id],
+                                        max_items=scan_limit,
+                                        extra_fields=(
+                                            "SeriesId,SeriesName,ParentIndexNumber,"
+                                            "IndexNumber,Overview"
+                                        ),
+                                    )
+                                )
+                            )
+                else:
+                    title_items = list(
+                        client.iter_items(
+                            "Episode",
+                            parents,
+                            max_items=scan_limit,
+                            extra_fields=(
+                                "SeriesId,SeriesName,ParentIndexNumber,IndexNumber,Overview"
+                            ),
+                        )
+                    )
+                title_jobs = self._build_title_jobs(client, title_items)
+                if title:
+                    title_jobs = [
+                        job
+                        for job in title_jobs
+                        if title.casefold() in str(job.get("title") or "").casefold()
+                    ]
+                stats["titles"] += len(title_jobs)
+                jobs.extend(title_jobs)
                 continue
             if libraries:
                 parents = client.resolve_library_ids(libraries)
@@ -4405,14 +4519,24 @@ class OverviewEnhancer:
         )
         items: List[Dict[str, Any]] = []
         for index, job in enumerate(jobs):
-            plan = self._plan_job(job, allow_llm=False)
+            if job.get("title_only"):
+                # 标题-only 任务不生成简介，试跑只展示将要改写的标题
+                plan = {
+                    "action": "write",
+                    "source": "title",
+                    "message": "仅改写分集标题",
+                }
+            else:
+                plan = self._plan_job(job, allow_llm=False)
             preview_text = ""
             quality = ""
             flavor = 0
             flavor_reasons: List[str] = []
             similarity = 0.0
             new_title = ""
-            if sample and index < sample:
+            if job.get("title_only") and sample and index < sample:
+                new_title = self._plan_episode_title(job)
+            if not job.get("title_only") and sample and index < sample:
                 richer = self._plan_job(job, allow_llm=True)
                 preview_text = clean_text(richer.get("text"))[:400]
                 if richer.get("failed"):
@@ -4695,7 +4819,9 @@ class OverviewEnhancer:
                 self._log(
                     f"上一轮出现大模型限流，本轮并发自动降为 {workers}", "warning"
                 )
-            self._log(f"开始处理 {len(jobs)} 条简介（并发 {workers}）")
+            only_titles = all(job.get("title_only") for job in jobs)
+            label = "分集标题" if only_titles else "简介"
+            self._log(f"开始处理 {len(jobs)} 条{label}（并发 {workers}）")
             with ThreadPoolExecutor(max_workers=workers) as pool:
                 futures = {pool.submit(self._process_job, job): job for job in jobs}
                 for future in as_completed(futures):
@@ -4936,6 +5062,44 @@ class OverviewEnhancer:
                 result.append(title.strip())
         return result
 
+    def _apply_title_only(self, job: Dict[str, Any], client: EmbyClient) -> Dict[str, Any]:
+        """只改写分集标题（Emby Name 与可选 NFO），不改动简介文本。"""
+        if self._cancel.is_set():
+            return {"status": "skipped", "message": "任务已取消"}
+        title = self._plan_episode_title(job)
+        if not title:
+            return {"status": "skipped", "message": "已有语义标题或标题生成失败"}
+        dto = client.get_full_dto(job["item_id"])
+        if not dto:
+            return {
+                "status": "failed",
+                "message": "无法读取条目当前信息",
+                "error_kind": "emby_write",
+            }
+        ok, message = client.update_fields(job["item_id"], {"Name": title}, dto=dto)
+        if not ok:
+            return {
+                "status": "failed",
+                "message": message or "标题写入失败",
+                "error_kind": "emby_write",
+            }
+        if self._config.get("nfo_episode_enabled"):
+            # 传入现有简介，_nfo_apply 只改 title 节点，plot 保持原样
+            self._write_nfo(job, str(job.get("current") or ""), [], title=title)
+        with self._lock:
+            self._state.setdefault("records", {})[job["key"]] = {
+                "hash": text_signature(job.get("current")),
+                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "source": "title",
+                "chars": visible_length(job.get("current")),
+            }
+        self._mark_dirty()
+        self._log(
+            f"已更新分集标题：{job.get('title')} S{job.get('season')}E{job.get('episode')}"
+            f" → {title}"
+        )
+        return {"status": "updated", "source": "title", "message": f"标题改为「{title}」"}
+
     def _process_job(self, job: Dict[str, Any]) -> Dict[str, Any]:
         """处理单条条目：生成简介、质量校验、写回媒体服务器并维护 NFO/头像。"""
         if self._cancel.is_set():
@@ -4943,6 +5107,8 @@ class OverviewEnhancer:
         client = self._client_by_name(job.get("server") or "")
         if client is None:
             return {"status": "failed", "message": "媒体服务器不可用", "error_kind": "emby_write"}
+        if job.get("title_only"):
+            return self._apply_title_only(job, client)
         plan = self._plan_job(job)
         if plan.get("failed"):
             message = plan.get("message") or "生成失败"

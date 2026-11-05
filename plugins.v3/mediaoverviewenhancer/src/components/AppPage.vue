@@ -475,6 +475,7 @@ onUnmounted(() => {
                 { title: '仅电影', value: 'movie' },
                 { title: '仅剧集（含整剧/整季）', value: 'tv' },
                 { title: '仅 MV', value: 'mv' },
+                { title: '仅补分集标题', value: 'titles' },
                 { title: '仅补 NFO/头像', value: 'maintenance' },
               ]"
               label="处理对象"
@@ -505,7 +506,8 @@ onUnmounted(() => {
           </VCol>
         </VRow>
         <div class="text-caption text-medium-emphasis mt-1">
-          「仅 MV」扫描 MV 媒体库并由 AI 生成简介；「仅补 NFO/头像」只修复缺失或过期的 NFO 与演员头像，不改写简介；
+          「仅 MV」扫描 MV 媒体库并由 AI 生成简介；「仅补分集标题」只改写「第 N 集」这类占位标题
+          （写 Emby 标题与 NFO），**不动简介**；「仅补 NFO/头像」只修复缺失或过期的 NFO 与演员头像；
           「全部」不含 MV，避免一次性产生大量大模型调用。
         </div>
         <div class="moe-actions">
