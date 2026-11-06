@@ -1,5 +1,6 @@
 import random
 import re
+import secrets
 import threading
 import time
 import uuid
@@ -11,14 +12,24 @@ from urllib.parse import urlparse, parse_qs
 
 import requests
 from apscheduler.triggers.cron import CronTrigger
+from fastapi import HTTPException
 from fastapi.responses import FileResponse
 
 from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.log import logger
 from app.plugins import _PluginBase
-from app.schemas.notification import ChannelCapability, ChannelCapabilityManager
-from app.schemas.types import EventType, NotificationChannel
+from app.schemas.types import EventType
+
+try:  # V3
+    from app.schemas.notification import ChannelCapability, ChannelCapabilityManager
+except ImportError:  # V2
+    from app.schemas.message import ChannelCapability, ChannelCapabilityManager
+
+try:  # V3
+    from app.schemas.types import NotificationChannel
+except ImportError:  # V2 没有 NotificationChannel，MessageChannel 成员一致
+    from app.schemas.types import MessageChannel as NotificationChannel
 
 
 class UpdateWeChatIp(_PluginBase):
@@ -29,7 +40,7 @@ class UpdateWeChatIp(_PluginBase):
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本，必须和 package.v2.json 中保持一致
-    plugin_version = "1.0.10"
+    plugin_version = "1.0.11"
     # 作者信息
     plugin_author = "书小白"
     author_url = "https://github.com/thshu/MoviePilot-Plugins"
@@ -48,6 +59,13 @@ class UpdateWeChatIp(_PluginBase):
     _captcha = {}
     # 短信验证码长度
     _captcha_length = 6
+    # 在 MoviePilot 页面内渲染的渠道，图片使用同源相对地址
+    _same_origin_channels = (NotificationChannel.Web, NotificationChannel.WebAgent)
+    # 二维码图片令牌有效期（秒）
+    _img_token_ttl = 180
+    # 当前有效的二维码图片访问令牌，{令牌: 过期时间戳}
+    _img_tokens: Dict[str, float] = {}
+    _img_token_lock = threading.Lock()
     # 聊天框文本输入会话超时时间（秒）
     _text_input_timeout = 120
     _wwrtx_sid = None
@@ -60,10 +78,21 @@ class UpdateWeChatIp(_PluginBase):
     _timer: threading.Timer = None
 
     _UpdateLogKey = 'UpdateLog'
+    # IP 更新记录保留条数
+    _update_log_limit = 5
 
-    _ip_urls = ["https://myip.ipip.net", "https://ddns.oray.com/checkip", "https://ip.3322.net", "https://4.ipw.cn",
-                'http://v4.666666.host:66/ip', 'https://ipv4.ddnspod.com', 'https://v4.66666.host:66/ip',
-                'https://4.ipw.cn', 'https://ip.3322.net', 'https://6.66666.host:66/ip']
+    # 登录失效后连续失败多少次开始降频
+    _fail_backoff_after = 3
+    # 降频后的重试与提醒间隔（分钟）
+    _fail_backoff_minutes = 30
+    _fail_state_key = 'FailState'
+    _notify_channels_once = ('Web',)
+    _notify_channels_repeat = ('Telegram', 'Feishu', 'Slack', 'Discord', 'DingTalk',
+                               'SynologyChat', 'VoceChat', 'WebPush', 'AppPush', 'QQ')
+
+    # IPv4 查询地址（均为实测可用接口，已移除失效域名）
+    _ip_urls = ["https://myip.ipip.net", "https://ddns.oray.com/checkip",
+                "https://ip.3322.net", "https://ipv4.ddnspod.com"]
     _ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
 
     _headers = {
@@ -198,7 +227,7 @@ class UpdateWeChatIp(_PluginBase):
             self._captcha = {}
 
             self._qrcode_key = self._get_key()
-            image_url = self._qrcode(self._qrcode_key)
+            image_url = self._qrcode(self._qrcode_key, channel=channel)
 
             self.post_message(
                 channel=channel,
@@ -338,10 +367,10 @@ class UpdateWeChatIp(_PluginBase):
                 "path": "/img/{uuid}",
                 "endpoint": self.get_img,
                 "methods": ["GET"],
-                # 前端插件页面通过 api 模块调用时，通常使用 bear
-                "auth": "apikey",
+                # 图片在通知里直接展示，浏览器带不了鉴权头：匿名路由 + 端点内校验令牌 t
+                "allow_anonymous": True,
                 "summary": "获取图片",
-                "description": "获取图片",
+                "description": "获取登录二维码图片,需要传递查询参数,参数名为:t(本次登录签发的二维码访问令牌)",
             },
             {
                 "path": "/UpdateIP",
@@ -358,12 +387,43 @@ class UpdateWeChatIp(_PluginBase):
         self._ip = ip
         self._save_ip_config()
 
-    def get_img(self, uuid):
+    def get_img(self, uuid: str, t: Optional[str] = None):
+        """输出最近一次登录二维码图片，凭据为本次登录签发的令牌 t。"""
+        if not self._check_img_token(t):
+            raise HTTPException(
+                status_code=403,
+                detail="二维码访问令牌无效或已过期，请重新执行 /update_wechat_ip"
+            )
         save_path: Path = self.get_data_path() / f"WeChatQr.jpg"
         return FileResponse(
             save_path,
             media_type="image/jpeg"
         )
+
+    @classmethod
+    def _new_img_token(cls) -> str:
+        """签发本次登录的二维码图片访问令牌，之前签发的令牌立即失效。"""
+        token = secrets.token_urlsafe(16)
+        with cls._img_token_lock:
+            cls._img_tokens = {token: time.time() + cls._img_token_ttl}
+        return token
+
+    @classmethod
+    def _check_img_token(cls, token: Optional[str]) -> bool:
+        """
+        校验二维码图片访问令牌，未登记或已过期时返回 False。
+
+        令牌不在首次访问时消费：浏览器懒加载、页面刷新后重放消息历史都会重复
+        请求同一张图片。令牌本身已绑定本次登录，下次生成二维码时会被替换。
+        """
+        if not token:
+            return False
+        now = time.time()
+        with cls._img_token_lock:
+            for registered, expires_at in list(cls._img_tokens.items()):
+                if expires_at < now:
+                    cls._img_tokens.pop(registered, None)
+            return cls._img_tokens.get(str(token), 0) >= now
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """返回配置页 JSON 和默认配置模型。"""
@@ -459,39 +519,50 @@ class UpdateWeChatIp(_PluginBase):
             "onlyonce": False
         }
 
+    @staticmethod
+    def _result_brief(value: str, limit: int = 120) -> str:
+        """把接口返回压成单行摘要：JSON 截断，HTML 页面只给长度。"""
+        text = str(value or "")
+        if text.lstrip().startswith("<"):
+            return f"HTML页面({len(text)} 字符)"
+        text = " ".join(text.split())
+        return text if len(text) <= limit else text[:limit] + "…"
+
     def get_page(self) -> List[dict]:
         """返回详情页 JSON。"""
         # ---------- 获取并排序更新日志 ----------
         raw_data = self.get_data(self._UpdateLogKey) or []
         update_log: List[UpdateLogDto] = [UpdateLogDto.from_dict(i) for i in raw_data]
-        data_list = sorted(update_log, key=lambda x: x.UpdateTime, reverse=True)
+        data_list = sorted(update_log, key=lambda x: x.UpdateTime, reverse=True)[:self._update_log_limit]
 
         update_log_trs = [
-            {
-                "component": "tr",
-                "props": {"class": "text-sm"},
-                "content": [
-                    {
-                        "component": "td",
-                        "props": {
-                            "style": {"color": "red"} if not data.status else {}
-                        },
-                        "text": "成功" if data.status else "失败",
-                    },
-                    {"component": "td", "text": data.app_id},
-                    {"component": "td", "text": data.ip},
-                    {"component": "td", "text": data.result},
-                    {"component": "td",
-                     "text": data.UpdateTime.strftime('%Y-%m-%d %H:%M:%S') if data.UpdateTime else ""},
-                ],
-            }
+            {"component": "tr", "content": [
+                {"component": "td", "content": [{
+                    "component": "VChip",
+                    "props": {"size": "x-small", "variant": "flat",
+                              "color": "success" if data.status else "error"},
+                    "text": "成功" if data.status else "失败"}]},
+                {"component": "td", "props": {"class": "text-no-wrap"}, "text": data.app_id},
+                {"component": "td", "props": {"class": "text-no-wrap font-monospace"}, "text": data.ip},
+                {"component": "td",
+                 "props": {"style": {"maxWidth": "320px", "whiteSpace": "normal", "wordBreak": "break-all"},
+                           "title": data.result},
+                 "text": self._result_brief(data.result)},
+                {"component": "td", "props": {"class": "text-no-wrap text-caption"},
+                 "text": data.UpdateTime.strftime('%Y-%m-%d %H:%M:%S')},
+            ]}
             for data in data_list
-        ]
+        ] or [{"component": "tr", "content": [
+            {"component": "td", "props": {"colspan": 5, "class": "text-center text-medium-emphasis py-6"},
+             "text": "暂无 IP 更新记录"}]}]
 
         # ---------- 安全获取 party 名称 ----------
         party_cache = self._party_cache_data or {}
         party_list = party_cache.get("party_list", {}).get("list") or [{}]
         party_name = party_list[0].get("name", "未知")
+        last_update = (
+            data_list[0].UpdateTime.strftime('%Y-%m-%d %H:%M') if data_list else "暂无记录"
+        )
 
         # ---------- 构建页面结构 ----------
         return [
@@ -502,80 +573,43 @@ class UpdateWeChatIp(_PluginBase):
                         "component": "VCol",
                         "props": {"cols": 12},
                         "content": [
-                            # 顶部状态标题
-                            {
-                                "component": "div",
-                                "props": {
-                                    "style": {
-                                        "display": "flex",
-                                        "justifyContent": "center",
-                                        "alignItems": "center",
-                                        "flexDirection": "column",
-                                        "gap": "10px",
-                                        "marginBottom": "20px",  # 增加与表格的间距
-                                    }
-                                },
-                                "content": [
-                                    {
-                                        "component": "div",
-                                        "text": f"{party_name}已登录" if self._is_login else "登录失效",
-                                        "props": {
-                                            "style": {
-                                                "fontSize": "22px",
-                                                "fontWeight": "bold",
-                                                "color": "#ffffff",
-                                                "backgroundColor": "#9B50FF",
-                                                "padding": "8px 16px",
-                                                "borderRadius": "5px",
-                                                "textAlign": "center",
-                                                "display": "inline-block",
-                                            }
-                                        },
-                                    }
-                                ],
-                            },
-                            # 日志表格
-                            {
-                                "component": "VTable",
-                                "props": {"hover": True},
-                                "content": [
-                                    {
-                                        "component": "thead",
-                                        "props": {"class": "text-no-wrap"},
-                                        "content": [
-                                            {
-                                                "component": "th",
-                                                "props": {"class": "text-start ps-4"},
-                                                "text": "状态",
-                                            },
-                                            {
-                                                "component": "th",
-                                                "props": {"class": "text-start ps-4"},
-                                                "text": "appId",
-                                            },
-                                            {
-                                                "component": "th",
-                                                "props": {"class": "text-start ps-4"},
-                                                "text": "更新IP",
-                                            },
-                                            {
-                                                "component": "th",
-                                                "props": {"class": "text-start ps-4"},
-                                                "text": "返回值",
-                                            },
-                                            {
-                                                "component": "th",
-                                                "props": {"class": "text-start ps-4"},
-                                                "text": "更新时间",
-                                            },
-                                        ],
-                                    },
-                                    {
-                                        "component": "tbody",
-                                        "content": update_log_trs,
-                                    },
-                                ],
-                            },
+                            {"component": "VCard", "props": {"variant": "tonal", "class": "mb-4"}, "content": [
+                                {"component": "VCardText",
+                                 "props": {"class": "d-flex flex-wrap align-center ga-2"},
+                                 "content": [
+                                     {"component": "VChip",
+                                      "props": {"size": "small", "variant": "flat",
+                                                "color": "success" if self._is_login else "error"},
+                                      "text": "已登录" if self._is_login else "登录失效"},
+                                     {"component": "span", "props": {"class": "text-body-2"},
+                                      "text": f"应用：{party_name}"},
+                                     {"component": "span", "props": {"class": "text-caption text-medium-emphasis"},
+                                      "text": f"当前 IP：{self._ip or '未获取'}"},
+                                     {"component": "span", "props": {"class": "text-caption text-medium-emphasis"},
+                                      "text": f"最近更新：{last_update}"},
+                                 ]}]},
+                            {"component": "VCard", "props": {"variant": "outlined"}, "content": [
+                                {"component": "VCardTitle",
+                                 "props": {"class": "d-flex align-center justify-space-between text-body-1"},
+                                 "content": [
+                                     {"component": "span", "text": "IP 更新记录"},
+                                     {"component": "VChip", "props": {"size": "x-small", "variant": "text"},
+                                      "text": f"最近 {len(data_list)} 条"}]},
+                                {"component": "VCardText",
+                                 "props": {"class": "pa-0",
+                                           "style": {"maxHeight": "360px", "overflow": "auto"}},
+                                 "content": [
+                                     {"component": "VTable",
+                                      "props": {"hover": True, "density": "compact"},
+                                      "content": [
+                                          {"component": "thead", "props": {"class": "text-no-wrap"},
+                                           "content": [{"component": "th",
+                                                        "props": {"class": "text-start ps-4"},
+                                                        "text": name}
+                                                       for name in ("状态", "appId", "更新IP",
+                                                                    "返回值", "更新时间")]},
+                                          {"component": "tbody", "content": update_log_trs}]}]},
+                            ]},
                         ],
                     }
                 ],
@@ -598,7 +632,7 @@ class UpdateWeChatIp(_PluginBase):
 
         return response.json().get('data', {}).get('qrcode_key')
 
-    def _qrcode(self, key) -> str:
+    def _qrcode(self, key, channel=None) -> str:
         logger.info("开始获取登录二维码图片")
         url = "https://work.weixin.qq.com/wework_admin/wwqrlogin/mng/qrcode"
         params = {
@@ -610,8 +644,14 @@ class UpdateWeChatIp(_PluginBase):
         img_path: Path = self.get_data_path() / f"WeChatQr.jpg"
         img_path.write_bytes(response.content)
         logger.info(f"登录二维码已写入文件,路径:{img_path}")
-        uri = f"/api/v1/plugin/{self.__class__.__name__}/img/{uuid.uuid4().__str__().replace('-', '')}?apikey={settings.API_TOKEN}"
-        img_url = settings.MP_DOMAIN(uri) or f"http://127.0.0.1:{settings.PORT}{uri}"
+        # 图片地址会进通知和日志，只放本次登录的短期令牌
+        uri = (f"/api/v1/plugin/{self.__class__.__name__}/img/"
+               f"{uuid.uuid4().__str__().replace('-', '')}?t={self._new_img_token()}")
+        if self._is_same_origin_channel(channel):
+            # 页面内渲染的渠道用相对地址，跟随用户实际访问入口
+            img_url = uri
+        else:
+            img_url = settings.MP_DOMAIN(uri) or f"http://127.0.0.1:{settings.PORT}{uri}"
         logger.info(f"构建二维码地址为:{img_url}")
         return img_url
 
@@ -650,7 +690,8 @@ class UpdateWeChatIp(_PluginBase):
             'confirm_type': "0"
         }
         response = self._se.get(url, params=params, headers=self._headers)
-        logger.info(f"登录完成,返回值:{response.text}")
+        logger.info(f"登录完成，状态码:{response.status_code}，响应长度:{len(response.text)}，"
+                    f"需短信验证:{'tl_key' in response.url}")
         return response
 
     def _confirm_captcha(self, tl_key, captcha):
@@ -661,9 +702,9 @@ class UpdateWeChatIp(_PluginBase):
             "tl_key": tl_key
         }
         res = self._se.post(_url, json=_data, headers=self._headers)
-        logger.info(f"提交验证码返回值:{res.text}")
+        logger.info(f"提交验证码返回值:{self._result_brief(res.text)}")
         res = self._se.get(f"https://work.weixin.qq.com/wework_admin/login/choose_corp?tl_key={tl_key}")
-        logger.info(f"choose_corp接口返回值:{res.text}")
+        logger.info(f"choose_corp接口返回值:{self._result_brief(res.text)}")
 
     def _party_cache(self):
         logger.info("开始获取企业信息,判断是否登录成功")
@@ -735,6 +776,67 @@ class UpdateWeChatIp(_PluginBase):
                         text=f"登录失败,返回值:{self._party_cache_data}",
                     )
 
+    @staticmethod
+    def _fail_hint(res) -> str:
+        """把失败响应转成可读原因：403 或 errCode -4 实为登录失效。"""
+        code = re.search(r'"errCode"\s*:\s*(-?\d+)', res.text or "")
+        if res.status_code >= 400 or (code and int(code.group(1)) == -4):
+            return "登录已失效，请重新扫码"
+        return "接口返回错误"
+
+    def _fail_state(self) -> Dict[str, Any]:
+        """读取连续失败状态：失败次数、上次尝试与上次提醒时间。"""
+        return self.get_data(self._fail_state_key) or {}
+
+    def _in_fail_backoff(self) -> bool:
+        """连续失败达到阈值后按固定间隔重试，避免每轮都打接口。"""
+        state = self._fail_state()
+        if int(state.get('count', 0)) < self._fail_backoff_after:
+            return False
+        try:
+            last = datetime.fromisoformat(state.get('last_try') or "")
+        except ValueError:
+            return False
+        return (datetime.now() - last).total_seconds() < self._fail_backoff_minutes * 60
+
+    def _record_fail(self) -> Tuple[bool, bool]:
+        """记录一次登录失效，返回（是否需要提醒, 是否首次失败）。"""
+        state = self._fail_state()
+        now = datetime.now()
+        first = int(state.get('count', 0)) == 0
+        state['count'] = int(state.get('count', 0)) + 1
+        state['last_try'] = now.isoformat()
+        try:
+            last_notify = datetime.fromisoformat(state.get('last_notify') or "")
+        except ValueError:
+            last_notify = None
+        notify = last_notify is None or (now - last_notify).total_seconds() >= self._fail_backoff_minutes * 60
+        if notify:
+            state['last_notify'] = now.isoformat()
+        self.save_data(self._fail_state_key, state)
+        return notify, first
+
+    def _notify_login_invalid(self, first: bool):
+        """登录失效提醒不依赖企微渠道：站内只在首次提醒，其它渠道按间隔重复。"""
+        names = (self._notify_channels_once + self._notify_channels_repeat) if first else self._notify_channels_repeat
+        for name in names:
+            channel = getattr(NotificationChannel, name, None)
+            if not channel:
+                continue
+            try:
+                self.post_message(
+                    channel=channel,
+                    title="企业微信登录状态失效",
+                    text='企业微信登录状态失效，请发送 /update_wechat_ip 获取二维码重新登录'
+                )
+            except Exception as e:
+                logger.debug(f"{name} 渠道提醒失败: {e}")
+
+    def _clear_fail(self):
+        """登录恢复正常后清除失败计数。"""
+        if self._fail_state():
+            self.save_data(self._fail_state_key, {})
+
     def _save_ip_config(self):
         logger.info(f"更新IP为:{self._ip}")
         _update_log = []
@@ -749,9 +851,9 @@ class UpdateWeChatIp(_PluginBase):
             }
             res = self._se.post(url, data=data, headers=self._headers)
             if 'err' in res.text:
-                logger.error(f"{appId}更新IP白名单失败，返回值：{res.text}")
+                logger.error(f"{appId}更新IP白名单失败（{self._fail_hint(res)}），返回值：{self._result_brief(res.text)}")
             else:
-                logger.info(f'{appId}更新白名单成功，更新IP为：{self._ip}，接口返回值：{res.text}')
+                logger.info(f'{appId}更新白名单成功，更新IP为：{self._ip}，接口返回值：{self._result_brief(res.text)}')
 
             _update_log.append(UpdateLogDto(
                 status='err' not in res.text,
@@ -761,10 +863,12 @@ class UpdateWeChatIp(_PluginBase):
             ))
 
         update_log: List[UpdateLogDto] = [UpdateLogDto.from_dict(i) for i in self.get_data(self._UpdateLogKey) or []]
-        self.save_data(self._UpdateLogKey, [i.to_dict() for i in update_log + _update_log])
+        merged = (update_log + _update_log)[-self._update_log_limit:]
+        self.save_data(self._UpdateLogKey, [i.to_dict() for i in merged])
 
     def _login_success(self):
         logger.info("保存配置文件")
+        self._clear_fail()
         self.update_config({
             '_enabled': self._enabled,
             '_wwrtx_sid': self._wwrtx_sid,
@@ -831,6 +935,11 @@ class UpdateWeChatIp(_PluginBase):
             return NotificationChannel(str(channel))
         except ValueError:
             return None
+
+    @classmethod
+    def _is_same_origin_channel(cls, channel) -> bool:
+        """判断渠道是否在 MoviePilot 页面内渲染，可使用同源相对地址。"""
+        return cls._as_channel(channel) in cls._same_origin_channels
 
     @classmethod
     def _channel_supports(cls, channel, capability: ChannelCapability) -> bool:
@@ -1098,14 +1207,17 @@ class UpdateWeChatIp(_PluginBase):
         if not self._enabled:
             logger.error("插件未开启")
             return
+        if self._in_fail_backoff():
+            logger.debug(f"登录状态仍未恢复，{self._fail_backoff_minutes} 分钟后重试")
+            return
         self._party_cache()
         if not self._is_login:
-            logger.error("未登录")
-            self.post_message(
-                title="企业微信登录状态失效",
-                text='企业微信登录状态失效,请重新操作登录'
-            )
+            notify, first = self._record_fail()
+            logger.error(f"未登录（登录已失效，请重新扫码），累计失败 {self._fail_state().get('count')} 次")
+            if notify:
+                self._notify_login_invalid(first)
             return
+        self._clear_fail()
         self._ip = self.get_ip_from_url()
         if not self._ip or self._ip == "获取IP失败":
             logger.error("获取当前公网IP失败，跳过本次检测")
