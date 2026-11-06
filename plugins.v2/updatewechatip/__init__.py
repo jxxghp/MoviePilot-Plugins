@@ -21,14 +21,14 @@ from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas.types import EventType
 
-try:  # V3 宿主：渠道能力定义在独立模块
+try:  # V3
     from app.schemas.notification import ChannelCapability, ChannelCapabilityManager
-except ImportError:  # V2 宿主：能力定义随消息模块提供，成员与 V3 一致
+except ImportError:  # V2
     from app.schemas.message import ChannelCapability, ChannelCapabilityManager
 
-try:  # V3 宿主
+try:  # V3
     from app.schemas.types import NotificationChannel
-except ImportError:  # V2 宿主只有 MessageChannel，成员与取值一致，直接作为别名使用
+except ImportError:  # V2 没有 NotificationChannel，MessageChannel 成员一致
     from app.schemas.types import MessageChannel as NotificationChannel
 
 
@@ -61,7 +61,7 @@ class UpdateWeChatIp(_PluginBase):
     _captcha_length = 6
     # 在 MoviePilot 页面内渲染的渠道，图片使用同源相对地址
     _same_origin_channels = (NotificationChannel.Web, NotificationChannel.WebAgent)
-    # 二维码图片访问令牌有效期（秒）：企微二维码约 2 分钟失效，仅留出查看余量
+    # 二维码图片令牌有效期（秒）
     _img_token_ttl = 180
     # 当前有效的二维码图片访问令牌，{令牌: 过期时间戳}
     _img_tokens: Dict[str, float] = {}
@@ -78,11 +78,10 @@ class UpdateWeChatIp(_PluginBase):
     _timer: threading.Timer = None
 
     _UpdateLogKey = 'UpdateLog'
-    # IP 更新记录保留条数：只留最近的几条，避免记录无限累积后详情页全量渲染
+    # IP 更新记录保留条数
     _update_log_limit = 5
 
-    # IPv4 查询地址（按实测可用性排序）。已移除失效接口：ipw.cn / 4.ipw.cn 无 A 记录，
-    # v4.666666.host、v4.66666.host、6.66666.host 三个域名已不存在（NXDOMAIN）
+    # IPv4 查询地址（均为实测可用接口，已移除失效域名）
     _ip_urls = ["https://myip.ipip.net", "https://ddns.oray.com/checkip",
                 "https://ip.3322.net", "https://ipv4.ddnspod.com"]
     _ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
@@ -359,8 +358,7 @@ class UpdateWeChatIp(_PluginBase):
                 "path": "/img/{uuid}",
                 "endpoint": self.get_img,
                 "methods": ["GET"],
-                # 图片地址由通知消息直接展示，浏览器无法携带鉴权头，
-                # 改为放行匿名路由后在端点内校验本次登录签发的短期随机令牌 t
+                # 图片在通知里直接展示，浏览器带不了鉴权头：匿名路由 + 端点内校验令牌 t
                 "allow_anonymous": True,
                 "summary": "获取图片",
                 "description": "获取登录二维码图片,需要传递查询参数,参数名为:t(本次登录签发的二维码访问令牌)",
@@ -381,12 +379,7 @@ class UpdateWeChatIp(_PluginBase):
         self._save_ip_config()
 
     def get_img(self, uuid: str, t: Optional[str] = None):
-        """
-        输出最近一次登录二维码图片。
-
-        路由声明为 allow_anonymous，凭据由本方法校验本次登录签发的短期随机令牌 t。
-        升级前已发出的旧地址不再可用，重新执行 /update_wechat_ip 获取新二维码即可。
-        """
+        """输出最近一次登录二维码图片，凭据为本次登录签发的令牌 t。"""
         if not self._check_img_token(t):
             raise HTTPException(
                 status_code=403,
@@ -531,55 +524,25 @@ class UpdateWeChatIp(_PluginBase):
         data_list = sorted(update_log, key=lambda x: x.UpdateTime, reverse=True)[:self._update_log_limit]
 
         update_log_trs = [
-            {
-                "component": "tr",
-                "content": [
-                    {
-                        "component": "td",
-                        "content": [
-                            {
-                                "component": "VChip",
-                                "props": {
-                                    "size": "x-small",
-                                    "variant": "flat",
-                                    "color": "success" if data.status else "error",
-                                },
-                                "text": "成功" if data.status else "失败",
-                            }
-                        ],
-                    },
-                    {"component": "td", "props": {"class": "text-no-wrap"}, "text": data.app_id},
-                    {"component": "td", "props": {"class": "text-no-wrap font-monospace"}, "text": data.ip},
-                    {
-                        "component": "td",
-                        "props": {
-                            "style": {"maxWidth": "320px", "whiteSpace": "normal", "wordBreak": "break-all"},
-                            "title": data.result,
-                        },
-                        "text": self._result_brief(data.result),
-                    },
-                    {
-                        "component": "td",
-                        "props": {"class": "text-no-wrap text-caption"},
-                        "text": data.UpdateTime.strftime('%Y-%m-%d %H:%M:%S') if data.UpdateTime else "",
-                    },
-                ],
-            }
+            {"component": "tr", "content": [
+                {"component": "td", "content": [{
+                    "component": "VChip",
+                    "props": {"size": "x-small", "variant": "flat",
+                              "color": "success" if data.status else "error"},
+                    "text": "成功" if data.status else "失败"}]},
+                {"component": "td", "props": {"class": "text-no-wrap"}, "text": data.app_id},
+                {"component": "td", "props": {"class": "text-no-wrap font-monospace"}, "text": data.ip},
+                {"component": "td",
+                 "props": {"style": {"maxWidth": "320px", "whiteSpace": "normal", "wordBreak": "break-all"},
+                           "title": data.result},
+                 "text": self._result_brief(data.result)},
+                {"component": "td", "props": {"class": "text-no-wrap text-caption"},
+                 "text": data.UpdateTime.strftime('%Y-%m-%d %H:%M:%S')},
+            ]}
             for data in data_list
-        ]
-        if not update_log_trs:
-            update_log_trs = [
-                {
-                    "component": "tr",
-                    "content": [
-                        {
-                            "component": "td",
-                            "props": {"colspan": 5, "class": "text-center text-medium-emphasis py-6"},
-                            "text": "暂无 IP 更新记录",
-                        }
-                    ],
-                }
-            ]
+        ] or [{"component": "tr", "content": [
+            {"component": "td", "props": {"colspan": 5, "class": "text-center text-medium-emphasis py-6"},
+             "text": "暂无 IP 更新记录"}]}]
 
         # ---------- 安全获取 party 名称 ----------
         party_cache = self._party_cache_data or {}
@@ -598,120 +561,43 @@ class UpdateWeChatIp(_PluginBase):
                         "component": "VCol",
                         "props": {"cols": 12},
                         "content": [
-                            # 顶部状态卡：登录状态、应用、当前 IP 与最近更新时间一行看完
-                            {
-                                "component": "VCard",
-                                "props": {"variant": "tonal", "class": "mb-4"},
-                                "content": [
-                                    {
-                                        "component": "VCardText",
-                                        "props": {"class": "d-flex flex-wrap align-center ga-2"},
-                                        "content": [
-                                            {
-                                                "component": "VChip",
-                                                "props": {
-                                                    "size": "small",
-                                                    "variant": "flat",
-                                                    "color": "success" if self._is_login else "error",
-                                                },
-                                                "text": "已登录" if self._is_login else "登录失效",
-                                            },
-                                            {
-                                                "component": "span",
-                                                "props": {"class": "text-body-2"},
-                                                "text": f"应用：{party_name}",
-                                            },
-                                            {
-                                                "component": "span",
-                                                "props": {"class": "text-caption text-medium-emphasis"},
-                                                "text": f"当前 IP：{self._ip or '未获取'}",
-                                            },
-                                            {
-                                                "component": "span",
-                                                "props": {"class": "text-caption text-medium-emphasis"},
-                                                "text": f"最近更新：{last_update}",
-                                            },
-                                        ],
-                                    }
-                                ],
-                            },
-                            # 更新记录表：只展示最近几条，长返回值截断并可悬停查看全文
-                            {
-                                "component": "VCard",
-                                "props": {"variant": "outlined"},
-                                "content": [
-                                    {
-                                        "component": "VCardTitle",
-                                        "props": {"class": "d-flex align-center justify-space-between text-body-1"},
-                                        "content": [
-                                            {"component": "span", "text": "IP 更新记录"},
-                                            {
-                                                "component": "VChip",
-                                                "props": {"size": "x-small", "variant": "text"},
-                                                "text": f"最近 {len(data_list)} 条",
-                                            },
-                                        ],
-                                    },
-                                    {
-                                        "component": "VCardText",
-                                        "props": {"class": "pa-0"},
-                                        "content": [
-                                            {
-                                                "component": "div",
-                                                "props": {
-                                                    "style": {
-                                                        "maxHeight": "360px",
-                                                        "overflow": "auto",
-                                                    }
-                                                },
-                                                "content": [
-                                                    {
-                                                        "component": "VTable",
-                                                        "props": {"hover": True, "density": "compact"},
-                                                        "content": [
-                                                            {
-                                                                "component": "thead",
-                                                                "props": {"class": "text-no-wrap"},
-                                                                "content": [
-                                                                    {
-                                                                        "component": "th",
-                                                                        "props": {"class": "text-start ps-4"},
-                                                                        "text": "状态",
-                                                                    },
-                                                                    {
-                                                                        "component": "th",
-                                                                        "props": {"class": "text-start ps-4"},
-                                                                        "text": "appId",
-                                                                    },
-                                                                    {
-                                                                        "component": "th",
-                                                                        "props": {"class": "text-start ps-4"},
-                                                                        "text": "更新IP",
-                                                                    },
-                                                                    {
-                                                                        "component": "th",
-                                                                        "props": {"class": "text-start ps-4"},
-                                                                        "text": "返回值",
-                                                                    },
-                                                                    {
-                                                                        "component": "th",
-                                                                        "props": {"class": "text-start ps-4"},
-                                                                        "text": "更新时间",
-                                                                    },
-                                                                ],
-                                                            },
-                                                            {
-                                                                "component": "tbody",
-                                                                "content": update_log_trs,
-                                                            },
-                                                        ],
-                                                    }
-                                                ],
-                                            }
-                                        ],
-                                    },
-                                ],
-                            },
+                            {"component": "VCard", "props": {"variant": "tonal", "class": "mb-4"}, "content": [
+                                {"component": "VCardText",
+                                 "props": {"class": "d-flex flex-wrap align-center ga-2"},
+                                 "content": [
+                                     {"component": "VChip",
+                                      "props": {"size": "small", "variant": "flat",
+                                                "color": "success" if self._is_login else "error"},
+                                      "text": "已登录" if self._is_login else "登录失效"},
+                                     {"component": "span", "props": {"class": "text-body-2"},
+                                      "text": f"应用：{party_name}"},
+                                     {"component": "span", "props": {"class": "text-caption text-medium-emphasis"},
+                                      "text": f"当前 IP：{self._ip or '未获取'}"},
+                                     {"component": "span", "props": {"class": "text-caption text-medium-emphasis"},
+                                      "text": f"最近更新：{last_update}"},
+                                 ]}]},
+                            {"component": "VCard", "props": {"variant": "outlined"}, "content": [
+                                {"component": "VCardTitle",
+                                 "props": {"class": "d-flex align-center justify-space-between text-body-1"},
+                                 "content": [
+                                     {"component": "span", "text": "IP 更新记录"},
+                                     {"component": "VChip", "props": {"size": "x-small", "variant": "text"},
+                                      "text": f"最近 {len(data_list)} 条"}]},
+                                {"component": "VCardText",
+                                 "props": {"class": "pa-0",
+                                           "style": {"maxHeight": "360px", "overflow": "auto"}},
+                                 "content": [
+                                     {"component": "VTable",
+                                      "props": {"hover": True, "density": "compact"},
+                                      "content": [
+                                          {"component": "thead", "props": {"class": "text-no-wrap"},
+                                           "content": [{"component": "th",
+                                                        "props": {"class": "text-start ps-4"},
+                                                        "text": name}
+                                                       for name in ("状态", "appId", "更新IP",
+                                                                    "返回值", "更新时间")]},
+                                          {"component": "tbody", "content": update_log_trs}]}]},
+                            ]},
                         ],
                     }
                 ],
@@ -746,12 +632,11 @@ class UpdateWeChatIp(_PluginBase):
         img_path: Path = self.get_data_path() / f"WeChatQr.jpg"
         img_path.write_bytes(response.content)
         logger.info(f"登录二维码已写入文件,路径:{img_path}")
-        # 图片地址会进入通知消息和日志，改用本次登录签发的短期随机令牌，不再暴露 API_TOKEN
+        # 图片地址会进通知和日志，只放本次登录的短期令牌
         uri = (f"/api/v1/plugin/{self.__class__.__name__}/img/"
                f"{uuid.uuid4().__str__().replace('-', '')}?t={self._new_img_token()}")
         if self._is_same_origin_channel(channel):
-            # WebAgent/站内消息在 MoviePilot 页面内渲染，相对地址由浏览器按当前访问入口解析，
-            # 外部域名与内网 IP+端口访问都能加载图片
+            # 页面内渲染的渠道用相对地址，跟随用户实际访问入口
             img_url = uri
         else:
             img_url = settings.MP_DOMAIN(uri) or f"http://127.0.0.1:{settings.PORT}{uri}"
@@ -904,7 +789,6 @@ class UpdateWeChatIp(_PluginBase):
             ))
 
         update_log: List[UpdateLogDto] = [UpdateLogDto.from_dict(i) for i in self.get_data(self._UpdateLogKey) or []]
-        # 只保留最近若干条，旧记录随每次保存裁掉，避免数据无限增长
         merged = (update_log + _update_log)[-self._update_log_limit:]
         self.save_data(self._UpdateLogKey, [i.to_dict() for i in merged])
 
