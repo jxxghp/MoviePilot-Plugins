@@ -1,5 +1,6 @@
 import random
 import re
+import secrets
 import threading
 import time
 import uuid
@@ -11,6 +12,7 @@ from urllib.parse import urlparse, parse_qs
 
 import requests
 from apscheduler.triggers.cron import CronTrigger
+from fastapi import HTTPException
 from fastapi.responses import FileResponse
 
 from app.core.config import settings
@@ -50,6 +52,11 @@ class UpdateWeChatIp(_PluginBase):
     _captcha_length = 6
     # 在 MoviePilot 页面内渲染的渠道，图片使用同源相对地址
     _same_origin_channels = (NotificationChannel.Web, NotificationChannel.WebAgent)
+    # 二维码图片访问令牌有效期（秒）
+    _img_token_ttl = 600
+    # 当前有效的二维码图片访问令牌，{令牌: 过期时间戳}
+    _img_tokens: Dict[str, float] = {}
+    _img_token_lock = threading.Lock()
     # 聊天框文本输入会话超时时间（秒）
     _text_input_timeout = 120
     _wwrtx_sid = None
@@ -340,10 +347,11 @@ class UpdateWeChatIp(_PluginBase):
                 "path": "/img/{uuid}",
                 "endpoint": self.get_img,
                 "methods": ["GET"],
-                # 前端插件页面通过 api 模块调用时，通常使用 bear
-                "auth": "apikey",
+                # 图片地址由通知消息直接展示，浏览器无法携带鉴权头，
+                # 改为放行匿名路由后在端点内校验本次登录签发的短期随机令牌 t
+                "allow_anonymous": True,
                 "summary": "获取图片",
-                "description": "获取图片",
+                "description": "获取登录二维码图片,需要传递查询参数,参数名为:t(二维码访问令牌),兼容旧地址的apikey",
             },
             {
                 "path": "/UpdateIP",
@@ -360,12 +368,56 @@ class UpdateWeChatIp(_PluginBase):
         self._ip = ip
         self._save_ip_config()
 
-    def get_img(self, uuid):
+    def get_img(self, uuid: str, t: Optional[str] = None, apikey: Optional[str] = None):
+        """
+        输出最近一次登录二维码图片。
+
+        路由声明为 allow_anonymous，凭据由本方法自行校验：优先使用本次登录签发的
+        短期随机令牌 t，其次兼容升级前已发出的旧地址中的 apikey。
+        """
+        if not self._check_img_token(t) and not self._check_apikey(apikey):
+            raise HTTPException(
+                status_code=403,
+                detail="二维码访问令牌无效或已过期，请重新执行 /update_wechat_ip"
+            )
         save_path: Path = self.get_data_path() / f"WeChatQr.jpg"
         return FileResponse(
             save_path,
             media_type="image/jpeg"
         )
+
+    @classmethod
+    def _new_img_token(cls) -> str:
+        """签发本次登录的二维码图片访问令牌，之前签发的令牌立即失效。"""
+        token = secrets.token_urlsafe(16)
+        with cls._img_token_lock:
+            cls._img_tokens = {token: time.time() + cls._img_token_ttl}
+        return token
+
+    @classmethod
+    def _check_img_token(cls, token: Optional[str]) -> bool:
+        """
+        校验二维码图片访问令牌，未登记或已过期时返回 False。
+
+        令牌不在首次访问时消费：浏览器懒加载、页面刷新后重放消息历史都会重复
+        请求同一张图片。令牌本身已绑定本次登录，下次生成二维码时会被替换。
+        """
+        if not token:
+            return False
+        now = time.time()
+        with cls._img_token_lock:
+            for registered, expires_at in list(cls._img_tokens.items()):
+                if expires_at < now:
+                    cls._img_tokens.pop(registered, None)
+            return cls._img_tokens.get(str(token), 0) >= now
+
+    @staticmethod
+    def _check_apikey(apikey: Optional[str]) -> bool:
+        """兼容升级前已发送的图片地址，按常量时间比较校验 apikey。"""
+        expected = settings.API_TOKEN or ""
+        if not apikey or not expected:
+            return False
+        return secrets.compare_digest(str(apikey), str(expected))
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """返回配置页 JSON 和默认配置模型。"""
@@ -612,7 +664,9 @@ class UpdateWeChatIp(_PluginBase):
         img_path: Path = self.get_data_path() / f"WeChatQr.jpg"
         img_path.write_bytes(response.content)
         logger.info(f"登录二维码已写入文件,路径:{img_path}")
-        uri = f"/api/v1/plugin/{self.__class__.__name__}/img/{uuid.uuid4().__str__().replace('-', '')}?apikey={settings.API_TOKEN}"
+        # 图片地址会进入通知消息和日志，改用本次登录签发的短期随机令牌，不再暴露 API_TOKEN
+        uri = (f"/api/v1/plugin/{self.__class__.__name__}/img/"
+               f"{uuid.uuid4().__str__().replace('-', '')}?t={self._new_img_token()}")
         if self._is_same_origin_channel(channel):
             # WebAgent/站内消息在 MoviePilot 页面内渲染，相对地址由浏览器按当前访问入口解析，
             # 外部域名与内网 IP+端口访问都能加载图片
