@@ -1093,6 +1093,20 @@
       "v1.0.0": "首个版本：支持通过NapCat HTTP接口发送私聊、群聊通知，支持消息类型过滤、@全体成员与图片消息"
     }
   },
+  "EpisodeTag": {
+    "name": "集数标签",
+    "description": "下载剧集时自动给任务打集数标签（E01、E02-03），连续集数按阈值合并，前缀/分隔符可配，改配置自动刷新存量标签，qB/Tr 通用",
+    "labels": "下载器,整理",
+    "version": "3.0.0",
+    "icon": "Youtube-dl_B.png",
+    "author": "Guoyin-Wen",
+    "level": 1,
+    "system_version": ">=3.0.0",
+    "release": true,
+    "history": {
+      "v3.0.0": "适配 MoviePilot V3：由 V2 版集数标签（v1.3）升级，功能不变，V2 用户配置自动继承"
+    }
+  },
   "SiteUserDetail": {
     "name": "站点用户详情采集",
     "description": "定时采集 PT 站用户详情页的 BT 客户端信息与下载中种子明细，并提供插件 API 供三方调用。",
