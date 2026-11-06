@@ -81,6 +81,12 @@ class UpdateWeChatIp(_PluginBase):
     # IP 更新记录保留条数
     _update_log_limit = 5
 
+    # 登录失效后连续失败多少次开始降频
+    _fail_backoff_after = 3
+    # 降频后的重试与提醒间隔（分钟）
+    _fail_backoff_minutes = 30
+    _fail_state_key = 'FailState'
+
     # IPv4 查询地址（均为实测可用接口，已移除失效域名）
     _ip_urls = ["https://myip.ipip.net", "https://ddns.oray.com/checkip",
                 "https://ip.3322.net", "https://ipv4.ddnspod.com"]
@@ -767,6 +773,50 @@ class UpdateWeChatIp(_PluginBase):
                         text=f"登录失败,返回值:{self._party_cache_data}",
                     )
 
+    @staticmethod
+    def _fail_hint(res) -> str:
+        """把失败响应转成可读原因：403 或 errCode -4 实为登录失效。"""
+        code = re.search(r'"errCode"\s*:\s*(-?\d+)', res.text or "")
+        if res.status_code >= 400 or (code and int(code.group(1)) == -4):
+            return "登录已失效，请重新扫码"
+        return "接口返回错误"
+
+    def _fail_state(self) -> Dict[str, Any]:
+        """读取连续失败状态：失败次数、上次尝试与上次提醒时间。"""
+        return self.get_data(self._fail_state_key) or {}
+
+    def _in_fail_backoff(self) -> bool:
+        """连续失败达到阈值后按固定间隔重试，避免每轮都打接口。"""
+        state = self._fail_state()
+        if int(state.get('count', 0)) < self._fail_backoff_after:
+            return False
+        try:
+            last = datetime.fromisoformat(state.get('last_try') or "")
+        except ValueError:
+            return False
+        return (datetime.now() - last).total_seconds() < self._fail_backoff_minutes * 60
+
+    def _record_fail(self) -> bool:
+        """记录一次登录失效，返回本次是否需要提醒（首次或距上次提醒满间隔）。"""
+        state = self._fail_state()
+        now = datetime.now()
+        state['count'] = int(state.get('count', 0)) + 1
+        state['last_try'] = now.isoformat()
+        try:
+            last_notify = datetime.fromisoformat(state.get('last_notify') or "")
+        except ValueError:
+            last_notify = None
+        notify = last_notify is None or (now - last_notify).total_seconds() >= self._fail_backoff_minutes * 60
+        if notify:
+            state['last_notify'] = now.isoformat()
+        self.save_data(self._fail_state_key, state)
+        return notify
+
+    def _clear_fail(self):
+        """登录恢复正常后清除失败计数。"""
+        if self._fail_state():
+            self.save_data(self._fail_state_key, {})
+
     def _save_ip_config(self):
         logger.info(f"更新IP为:{self._ip}")
         _update_log = []
@@ -781,9 +831,9 @@ class UpdateWeChatIp(_PluginBase):
             }
             res = self._se.post(url, data=data, headers=self._headers)
             if 'err' in res.text:
-                logger.error(f"{appId}更新IP白名单失败，返回值：{res.text}")
+                logger.error(f"{appId}更新IP白名单失败（{self._fail_hint(res)}），返回值：{self._result_brief(res.text)}")
             else:
-                logger.info(f'{appId}更新白名单成功，更新IP为：{self._ip}，接口返回值：{res.text}')
+                logger.info(f'{appId}更新白名单成功，更新IP为：{self._ip}，接口返回值：{self._result_brief(res.text)}')
 
             _update_log.append(UpdateLogDto(
                 status='err' not in res.text,
@@ -798,6 +848,7 @@ class UpdateWeChatIp(_PluginBase):
 
     def _login_success(self):
         logger.info("保存配置文件")
+        self._clear_fail()
         self.update_config({
             '_enabled': self._enabled,
             '_wwrtx_sid': self._wwrtx_sid,
@@ -1136,14 +1187,20 @@ class UpdateWeChatIp(_PluginBase):
         if not self._enabled:
             logger.error("插件未开启")
             return
+        if self._in_fail_backoff():
+            logger.debug(f"登录状态仍未恢复，{self._fail_backoff_minutes} 分钟后重试")
+            return
         self._party_cache()
         if not self._is_login:
-            logger.error("未登录")
-            self.post_message(
-                title="企业微信登录状态失效",
-                text='企业微信登录状态失效,请重新操作登录'
-            )
+            notify = self._record_fail()
+            logger.error(f"未登录（登录已失效，请重新扫码），累计失败 {self._fail_state().get('count')} 次")
+            if notify:
+                self.post_message(
+                    title="企业微信登录状态失效",
+                    text='企业微信登录状态失效，请在插件详情页重新扫码登录'
+                )
             return
+        self._clear_fail()
         self._ip = self.get_ip_from_url()
         if not self._ip or self._ip == "获取IP失败":
             logger.error("获取当前公网IP失败，跳过本次检测")
