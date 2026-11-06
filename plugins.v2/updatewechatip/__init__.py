@@ -78,6 +78,8 @@ class UpdateWeChatIp(_PluginBase):
     _timer: threading.Timer = None
 
     _UpdateLogKey = 'UpdateLog'
+    # IP 更新记录保留条数：只留最近的几条，避免记录无限累积后详情页全量渲染
+    _update_log_limit = 5
 
     _ip_urls = ["https://myip.ipip.net", "https://ddns.oray.com/checkip", "https://ip.3322.net", "https://4.ipw.cn",
                 'http://v4.666666.host:66/ip', 'https://ipv4.ddnspod.com', 'https://v4.66666.host:66/ip',
@@ -519,7 +521,7 @@ class UpdateWeChatIp(_PluginBase):
         # ---------- 获取并排序更新日志 ----------
         raw_data = self.get_data(self._UpdateLogKey) or []
         update_log: List[UpdateLogDto] = [UpdateLogDto.from_dict(i) for i in raw_data]
-        data_list = sorted(update_log, key=lambda x: x.UpdateTime, reverse=True)
+        data_list = sorted(update_log, key=lambda x: x.UpdateTime, reverse=True)[:self._update_log_limit]
 
         update_log_trs = [
             {
@@ -823,7 +825,9 @@ class UpdateWeChatIp(_PluginBase):
             ))
 
         update_log: List[UpdateLogDto] = [UpdateLogDto.from_dict(i) for i in self.get_data(self._UpdateLogKey) or []]
-        self.save_data(self._UpdateLogKey, [i.to_dict() for i in update_log + _update_log])
+        # 只保留最近若干条，旧记录随每次保存裁掉，避免数据无限增长
+        merged = (update_log + _update_log)[-self._update_log_limit:]
+        self.save_data(self._UpdateLogKey, [i.to_dict() for i in merged])
 
     def _login_success(self):
         logger.info("保存配置文件")
