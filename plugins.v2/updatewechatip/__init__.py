@@ -86,6 +86,10 @@ class UpdateWeChatIp(_PluginBase):
     # 降频后的重试与提醒间隔（分钟）
     _fail_backoff_minutes = 30
     _fail_state_key = 'FailState'
+    # 登录失效提醒只走不依赖企微的渠道：站内提醒一次，其它渠道按降频间隔重复
+    _notify_channels_once = ('Web',)
+    _notify_channels_repeat = ('Telegram', 'Feishu', 'Slack', 'Discord', 'DingTalk',
+                               'SynologyChat', 'VoceChat', 'WebPush', 'AppPush', 'QQ')
 
     # IPv4 查询地址（均为实测可用接口，已移除失效域名）
     _ip_urls = ["https://myip.ipip.net", "https://ddns.oray.com/checkip",
@@ -796,10 +800,11 @@ class UpdateWeChatIp(_PluginBase):
             return False
         return (datetime.now() - last).total_seconds() < self._fail_backoff_minutes * 60
 
-    def _record_fail(self) -> bool:
-        """记录一次登录失效，返回本次是否需要提醒（首次或距上次提醒满间隔）。"""
+    def _record_fail(self) -> Tuple[bool, bool]:
+        """记录一次登录失效，返回（是否需要提醒, 是否首次失败）。"""
         state = self._fail_state()
         now = datetime.now()
+        first = int(state.get('count', 0)) == 0
         state['count'] = int(state.get('count', 0)) + 1
         state['last_try'] = now.isoformat()
         try:
@@ -810,7 +815,23 @@ class UpdateWeChatIp(_PluginBase):
         if notify:
             state['last_notify'] = now.isoformat()
         self.save_data(self._fail_state_key, state)
-        return notify
+        return notify, first
+
+    def _notify_login_invalid(self, first: bool):
+        """登录失效提醒不依赖企微渠道：站内只在首次提醒，其它渠道按间隔重复。"""
+        names = (self._notify_channels_once + self._notify_channels_repeat) if first else self._notify_channels_repeat
+        for name in names:
+            channel = getattr(NotificationChannel, name, None)
+            if not channel:
+                continue
+            try:
+                self.post_message(
+                    channel=channel,
+                    title="企业微信登录状态失效",
+                    text='企业微信登录状态失效，请在插件详情页重新扫码登录'
+                )
+            except Exception as e:
+                logger.debug(f"{name} 渠道提醒失败: {e}")
 
     def _clear_fail(self):
         """登录恢复正常后清除失败计数。"""
@@ -1192,13 +1213,10 @@ class UpdateWeChatIp(_PluginBase):
             return
         self._party_cache()
         if not self._is_login:
-            notify = self._record_fail()
+            notify, first = self._record_fail()
             logger.error(f"未登录（登录已失效，请重新扫码），累计失败 {self._fail_state().get('count')} 次")
             if notify:
-                self.post_message(
-                    title="企业微信登录状态失效",
-                    text='企业微信登录状态失效，请在插件详情页重新扫码登录'
-                )
+                self._notify_login_invalid(first)
             return
         self._clear_fail()
         self._ip = self.get_ip_from_url()
