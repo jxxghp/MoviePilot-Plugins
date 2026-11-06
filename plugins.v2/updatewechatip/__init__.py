@@ -52,8 +52,8 @@ class UpdateWeChatIp(_PluginBase):
     _captcha_length = 6
     # 在 MoviePilot 页面内渲染的渠道，图片使用同源相对地址
     _same_origin_channels = (NotificationChannel.Web, NotificationChannel.WebAgent)
-    # 二维码图片访问令牌有效期（秒）
-    _img_token_ttl = 600
+    # 二维码图片访问令牌有效期（秒）：企微二维码约 2 分钟失效，仅留出查看余量
+    _img_token_ttl = 180
     # 当前有效的二维码图片访问令牌，{令牌: 过期时间戳}
     _img_tokens: Dict[str, float] = {}
     _img_token_lock = threading.Lock()
