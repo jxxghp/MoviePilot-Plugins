@@ -351,7 +351,7 @@ class UpdateWeChatIp(_PluginBase):
                 # 改为放行匿名路由后在端点内校验本次登录签发的短期随机令牌 t
                 "allow_anonymous": True,
                 "summary": "获取图片",
-                "description": "获取登录二维码图片,需要传递查询参数,参数名为:t(二维码访问令牌),兼容旧地址的apikey",
+                "description": "获取登录二维码图片,需要传递查询参数,参数名为:t(本次登录签发的二维码访问令牌)",
             },
             {
                 "path": "/UpdateIP",
@@ -368,14 +368,14 @@ class UpdateWeChatIp(_PluginBase):
         self._ip = ip
         self._save_ip_config()
 
-    def get_img(self, uuid: str, t: Optional[str] = None, apikey: Optional[str] = None):
+    def get_img(self, uuid: str, t: Optional[str] = None):
         """
         输出最近一次登录二维码图片。
 
-        路由声明为 allow_anonymous，凭据由本方法自行校验：优先使用本次登录签发的
-        短期随机令牌 t，其次兼容升级前已发出的旧地址中的 apikey。
+        路由声明为 allow_anonymous，凭据由本方法校验本次登录签发的短期随机令牌 t。
+        升级前已发出的旧地址不再可用，重新执行 /update_wechat_ip 获取新二维码即可。
         """
-        if not self._check_img_token(t) and not self._check_apikey(apikey):
+        if not self._check_img_token(t):
             raise HTTPException(
                 status_code=403,
                 detail="二维码访问令牌无效或已过期，请重新执行 /update_wechat_ip"
@@ -410,14 +410,6 @@ class UpdateWeChatIp(_PluginBase):
                 if expires_at < now:
                     cls._img_tokens.pop(registered, None)
             return cls._img_tokens.get(str(token), 0) >= now
-
-    @staticmethod
-    def _check_apikey(apikey: Optional[str]) -> bool:
-        """兼容升级前已发送的图片地址，按常量时间比较校验 apikey。"""
-        expected = settings.API_TOKEN or ""
-        if not apikey or not expected:
-            return False
-        return secrets.compare_digest(str(apikey), str(expected))
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """返回配置页 JSON 和默认配置模型。"""
