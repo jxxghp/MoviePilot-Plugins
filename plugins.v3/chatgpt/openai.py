@@ -1,3 +1,7 @@
+"""
+具有请求总预算和响应兼容处理的媒体名称识别客户端。
+"""
+
 import asyncio
 import inspect
 import json
@@ -11,9 +15,11 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 class OpenAi:
     """
-    Lightweight LLM recognition client kept under the original module name for plugin compatibility.
+    媒体名称辅助识别客户端，保留原模块名以兼容已有插件导入。
     """
 
+    # 单条识别的总预算覆盖模型初始化、供应商重试和持续回包，单位为秒。
+    _REQUEST_TIMEOUT_SECONDS = 180.0
     _JSON_FENCE_PATTERN = re.compile(r"^```(?:json)?\s*([\s\S]*?)\s*```$", re.IGNORECASE)
     _RELEASE_GROUP_PATTERN = re.compile(r"\[\s*loli[\s_-]*house\s*\]", re.IGNORECASE)
     _BRACKET_PATTERN = re.compile(r"\[([^\[\]]*)\]")
@@ -99,7 +105,10 @@ class OpenAi:
     @staticmethod
     def _run_async_compatible(value: Any) -> Any:
         """
-        在同步插件回调中兼容执行新版 MoviePilot 的异步 LLM 初始化。
+        在同步插件回调中执行模型协程，返回前等待协程和工作线程真实收尾。
+
+        :param value: 带总预算的模型协程；旧版同步结果直接返回
+        :return: 模型生成结果，协程异常原样传回同步调用方
         """
         if not inspect.isawaitable(value):
             return value
@@ -183,9 +192,11 @@ class OpenAi:
 
     def _get_llm(self) -> Any:
         """
-        按当前运行参数创建 MoviePilot LLM 实例。
+        按当前运行参数创建模型，保留协程以便在调用预算和同一事件循环内初始化。
+
+        :return: 新版宿主的模型初始化协程，或旧版宿主直接返回的模型
         """
-        llm = LLMHelper.get_llm(
+        return LLMHelper.get_llm(
             streaming=False,
             provider=self._provider,
             model=self._model,
@@ -196,7 +207,29 @@ class OpenAi:
             user_agent=self._user_agent,
             use_proxy=self._use_proxy,
         )
-        return self._run_async_compatible(llm)
+
+    async def _generate(self, messages: list[list[Any]]) -> Any:
+        """
+        在总预算内异步生成候选，并在成功、失败或取消后等待模型连接回收。
+
+        :param messages: 保留候选列表所需的批次消息
+        :return: LangChain 的候选和用量结果
+        :raises TimeoutError: 模型初始化或生成超过总预算，重试也计入预算
+        """
+        llm = None
+        try:
+            async with asyncio.timeout(self._REQUEST_TIMEOUT_SECONDS):
+                llm = self._get_llm()
+                if inspect.isawaitable(llm):
+                    llm = await llm
+                return await llm.agenerate(messages)
+        finally:
+            # 旧版宿主可能没有统一回收入口；新版必须在创建客户端的循环内关闭连接。
+            close_llm = getattr(LLMHelper, "close_llm", None)
+            if llm is not None and not inspect.isawaitable(llm) and callable(close_llm):
+                closing = close_llm(llm)
+                if inspect.isawaitable(closing):
+                    await closing
 
     @staticmethod
     def _extract_text_content(content: Any) -> str:
@@ -281,14 +314,13 @@ class OpenAi:
 
         result = ""
         try:
-            llm = self._get_llm()
-            # generate 保留候选列表；invoke 会在空 choices 时直接索引并抛出 IndexError。
-            generated = llm.generate(
+            # agenerate 保留候选列表，同时允许总预算取消真实 HTTP 请求。
+            generated = self._run_async_compatible(self._generate(
                 [[
                     SystemMessage(content=prompt or self._prompt),
                     HumanMessage(content=self._sanitize_filename_input(filename)),
                 ]]
-            )
+            ))
             self._last_usage = self._extract_usage(generated)
             if not generated.generations or not generated.generations[0]:
                 return {
@@ -318,6 +350,12 @@ class OpenAi:
             if not isinstance(data, dict):
                 raise ValueError("LLM response is not a JSON object")
             return data
+        except TimeoutError:
+            return {
+                "content": result,
+                "errorCode": "timeout",
+                "errorMsg": f"LLM 辅助识别超时（{self._REQUEST_TIMEOUT_SECONDS:g} 秒，包含重试）",
+            }
         except Exception as exc:
             return {
                 "content": result,
