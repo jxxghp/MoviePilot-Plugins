@@ -16,7 +16,7 @@ class HDChina(_ISiteSigninHandler):
     瓷器签到
     """
     # 匹配的站点Url，每一个实现类都需要设置为自己的站点Url
-    site_url = "hdchina.org"
+    site_url = "hdwing.org"
 
     # 已签到
     _sign_regex = ['<a class="label label-default" href="#">已签到</a>']
@@ -62,7 +62,7 @@ class HDChina(_ISiteSigninHandler):
                                 ua=ua,
                                 proxies=proxies,
                                 timeout=timeout
-                                ).get_res(url="https://hdchina.org/index.php")
+                                ).get_res(url="https://hdwing.org/index.php")
         if not html_res or html_res.status_code != 200:
             logger.error(f"{site} 签到失败，请检查站点连通性")
             return False, '签到失败，请检查站点连通性'
@@ -103,7 +103,7 @@ class HDChina(_ISiteSigninHandler):
                                 ua=ua,
                                 proxies=proxies,
                                 timeout=timeout
-                                ).post_res(url="https://hdchina.org/plugin_sign-in.php?cmd=signin", data=data)
+                                ).post_res(url="https://hdwing.org/plugin_sign-in.php?cmd=signin", data=data)
         if not sign_res or sign_res.status_code != 200:
             logger.error(f"{site} 签到失败，签到接口请求失败")
             return False, '签到失败，签到接口请求失败'
