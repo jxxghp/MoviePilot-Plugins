@@ -29,7 +29,7 @@ class UpdateWeChatIp(_PluginBase):
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本，必须和 package.v2.json 中保持一致
-    plugin_version = "1.0.10"
+    plugin_version = "1.0.11"
     # 作者信息
     plugin_author = "书小白"
     author_url = "https://github.com/thshu/MoviePilot-Plugins"
@@ -48,6 +48,8 @@ class UpdateWeChatIp(_PluginBase):
     _captcha = {}
     # 短信验证码长度
     _captcha_length = 6
+    # 在 MoviePilot 页面内渲染的渠道，图片使用同源相对地址
+    _same_origin_channels = (NotificationChannel.Web, NotificationChannel.WebAgent)
     # 聊天框文本输入会话超时时间（秒）
     _text_input_timeout = 120
     _wwrtx_sid = None
@@ -198,7 +200,7 @@ class UpdateWeChatIp(_PluginBase):
             self._captcha = {}
 
             self._qrcode_key = self._get_key()
-            image_url = self._qrcode(self._qrcode_key)
+            image_url = self._qrcode(self._qrcode_key, channel=channel)
 
             self.post_message(
                 channel=channel,
@@ -598,7 +600,7 @@ class UpdateWeChatIp(_PluginBase):
 
         return response.json().get('data', {}).get('qrcode_key')
 
-    def _qrcode(self, key) -> str:
+    def _qrcode(self, key, channel=None) -> str:
         logger.info("开始获取登录二维码图片")
         url = "https://work.weixin.qq.com/wework_admin/wwqrlogin/mng/qrcode"
         params = {
@@ -611,7 +613,12 @@ class UpdateWeChatIp(_PluginBase):
         img_path.write_bytes(response.content)
         logger.info(f"登录二维码已写入文件,路径:{img_path}")
         uri = f"/api/v1/plugin/{self.__class__.__name__}/img/{uuid.uuid4().__str__().replace('-', '')}?apikey={settings.API_TOKEN}"
-        img_url = settings.MP_DOMAIN(uri) or f"http://127.0.0.1:{settings.PORT}{uri}"
+        if self._is_same_origin_channel(channel):
+            # WebAgent/站内消息在 MoviePilot 页面内渲染，相对地址由浏览器按当前访问入口解析，
+            # 外部域名与内网 IP+端口访问都能加载图片
+            img_url = uri
+        else:
+            img_url = settings.MP_DOMAIN(uri) or f"http://127.0.0.1:{settings.PORT}{uri}"
         logger.info(f"构建二维码地址为:{img_url}")
         return img_url
 
@@ -831,6 +838,11 @@ class UpdateWeChatIp(_PluginBase):
             return NotificationChannel(str(channel))
         except ValueError:
             return None
+
+    @classmethod
+    def _is_same_origin_channel(cls, channel) -> bool:
+        """判断渠道是否在 MoviePilot 页面内渲染，可使用同源相对地址。"""
+        return cls._as_channel(channel) in cls._same_origin_channels
 
     @classmethod
     def _channel_supports(cls, channel, capability: ChannelCapability) -> bool:
