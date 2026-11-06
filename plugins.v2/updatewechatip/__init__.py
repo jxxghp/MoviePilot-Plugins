@@ -36,7 +36,7 @@ class UpdateWeChatIp(_PluginBase):
     # 插件在界面中的展示名称
     plugin_name = "动态企微可信IP"
     # 插件描述
-    plugin_desc = "修改企微应用可信IP，可本地扫码刷新Cookie"
+    plugin_desc = "自动同步公网IP到企微应用可信IP，登录失效时发送二维码扫码续期"
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本，必须和 package.v2.json 中保持一致
@@ -86,7 +86,6 @@ class UpdateWeChatIp(_PluginBase):
     # 降频后的重试与提醒间隔（分钟）
     _fail_backoff_minutes = 30
     _fail_state_key = 'FailState'
-    # 登录失效提醒只走不依赖企微的渠道：站内提醒一次，其它渠道按降频间隔重复
     _notify_channels_once = ('Web',)
     _notify_channels_repeat = ('Telegram', 'Feishu', 'Slack', 'Discord', 'DingTalk',
                                'SynologyChat', 'VoceChat', 'WebPush', 'AppPush', 'QQ')
@@ -828,7 +827,7 @@ class UpdateWeChatIp(_PluginBase):
                 self.post_message(
                     channel=channel,
                     title="企业微信登录状态失效",
-                    text='企业微信登录状态失效，请在插件详情页重新扫码登录'
+                    text='企业微信登录状态失效，请发送 /update_wechat_ip 获取二维码重新登录'
                 )
             except Exception as e:
                 logger.debug(f"{name} 渠道提醒失败: {e}")
