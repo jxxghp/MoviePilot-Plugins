@@ -81,9 +81,10 @@ class UpdateWeChatIp(_PluginBase):
     # IP 更新记录保留条数：只留最近的几条，避免记录无限累积后详情页全量渲染
     _update_log_limit = 5
 
-    _ip_urls = ["https://myip.ipip.net", "https://ddns.oray.com/checkip", "https://ip.3322.net", "https://4.ipw.cn",
-                'http://v4.666666.host:66/ip', 'https://ipv4.ddnspod.com', 'https://v4.66666.host:66/ip',
-                'https://4.ipw.cn', 'https://ip.3322.net', 'https://6.66666.host:66/ip']
+    # IPv4 查询地址（按实测可用性排序）。已移除失效接口：ipw.cn / 4.ipw.cn 无 A 记录，
+    # v4.666666.host、v4.66666.host、6.66666.host 三个域名已不存在（NXDOMAIN）
+    _ip_urls = ["https://myip.ipip.net", "https://ddns.oray.com/checkip",
+                "https://ip.3322.net", "https://ipv4.ddnspod.com"]
     _ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
 
     _headers = {
@@ -516,6 +517,12 @@ class UpdateWeChatIp(_PluginBase):
             "onlyonce": False
         }
 
+    @staticmethod
+    def _result_brief(value: str, limit: int = 120) -> str:
+        """把企微接口返回压成单行并截断，完整内容由调用方放进悬停提示。"""
+        text = " ".join(str(value or "").split())
+        return text if len(text) <= limit else text[:limit] + "…"
+
     def get_page(self) -> List[dict]:
         """返回详情页 JSON。"""
         # ---------- 获取并排序更新日志 ----------
@@ -526,29 +533,61 @@ class UpdateWeChatIp(_PluginBase):
         update_log_trs = [
             {
                 "component": "tr",
-                "props": {"class": "text-sm"},
                 "content": [
                     {
                         "component": "td",
-                        "props": {
-                            "style": {"color": "red"} if not data.status else {}
-                        },
-                        "text": "成功" if data.status else "失败",
+                        "content": [
+                            {
+                                "component": "VChip",
+                                "props": {
+                                    "size": "x-small",
+                                    "variant": "flat",
+                                    "color": "success" if data.status else "error",
+                                },
+                                "text": "成功" if data.status else "失败",
+                            }
+                        ],
                     },
-                    {"component": "td", "text": data.app_id},
-                    {"component": "td", "text": data.ip},
-                    {"component": "td", "text": data.result},
-                    {"component": "td",
-                     "text": data.UpdateTime.strftime('%Y-%m-%d %H:%M:%S') if data.UpdateTime else ""},
+                    {"component": "td", "props": {"class": "text-no-wrap"}, "text": data.app_id},
+                    {"component": "td", "props": {"class": "text-no-wrap font-monospace"}, "text": data.ip},
+                    {
+                        "component": "td",
+                        "props": {
+                            "style": {"maxWidth": "320px", "whiteSpace": "normal", "wordBreak": "break-all"},
+                            "title": data.result,
+                        },
+                        "text": self._result_brief(data.result),
+                    },
+                    {
+                        "component": "td",
+                        "props": {"class": "text-no-wrap text-caption"},
+                        "text": data.UpdateTime.strftime('%Y-%m-%d %H:%M:%S') if data.UpdateTime else "",
+                    },
                 ],
             }
             for data in data_list
         ]
+        if not update_log_trs:
+            update_log_trs = [
+                {
+                    "component": "tr",
+                    "content": [
+                        {
+                            "component": "td",
+                            "props": {"colspan": 5, "class": "text-center text-medium-emphasis py-6"},
+                            "text": "暂无 IP 更新记录",
+                        }
+                    ],
+                }
+            ]
 
         # ---------- 安全获取 party 名称 ----------
         party_cache = self._party_cache_data or {}
         party_list = party_cache.get("party_list", {}).get("list") or [{}]
         party_name = party_list[0].get("name", "未知")
+        last_update = (
+            data_list[0].UpdateTime.strftime('%Y-%m-%d %H:%M') if data_list else "暂无记录"
+        )
 
         # ---------- 构建页面结构 ----------
         return [
@@ -559,77 +598,117 @@ class UpdateWeChatIp(_PluginBase):
                         "component": "VCol",
                         "props": {"cols": 12},
                         "content": [
-                            # 顶部状态标题
+                            # 顶部状态卡：登录状态、应用、当前 IP 与最近更新时间一行看完
                             {
-                                "component": "div",
-                                "props": {
-                                    "style": {
-                                        "display": "flex",
-                                        "justifyContent": "center",
-                                        "alignItems": "center",
-                                        "flexDirection": "column",
-                                        "gap": "10px",
-                                        "marginBottom": "20px",  # 增加与表格的间距
-                                    }
-                                },
+                                "component": "VCard",
+                                "props": {"variant": "tonal", "class": "mb-4"},
                                 "content": [
                                     {
-                                        "component": "div",
-                                        "text": f"{party_name}已登录" if self._is_login else "登录失效",
-                                        "props": {
-                                            "style": {
-                                                "fontSize": "22px",
-                                                "fontWeight": "bold",
-                                                "color": "#ffffff",
-                                                "backgroundColor": "#9B50FF",
-                                                "padding": "8px 16px",
-                                                "borderRadius": "5px",
-                                                "textAlign": "center",
-                                                "display": "inline-block",
-                                            }
-                                        },
+                                        "component": "VCardText",
+                                        "props": {"class": "d-flex flex-wrap align-center ga-2"},
+                                        "content": [
+                                            {
+                                                "component": "VChip",
+                                                "props": {
+                                                    "size": "small",
+                                                    "variant": "flat",
+                                                    "color": "success" if self._is_login else "error",
+                                                },
+                                                "text": "已登录" if self._is_login else "登录失效",
+                                            },
+                                            {
+                                                "component": "span",
+                                                "props": {"class": "text-body-2"},
+                                                "text": f"应用：{party_name}",
+                                            },
+                                            {
+                                                "component": "span",
+                                                "props": {"class": "text-caption text-medium-emphasis"},
+                                                "text": f"当前 IP：{self._ip or '未获取'}",
+                                            },
+                                            {
+                                                "component": "span",
+                                                "props": {"class": "text-caption text-medium-emphasis"},
+                                                "text": f"最近更新：{last_update}",
+                                            },
+                                        ],
                                     }
                                 ],
                             },
-                            # 日志表格
+                            # 更新记录表：只展示最近几条，长返回值截断并可悬停查看全文
                             {
-                                "component": "VTable",
-                                "props": {"hover": True},
+                                "component": "VCard",
+                                "props": {"variant": "outlined"},
                                 "content": [
                                     {
-                                        "component": "thead",
-                                        "props": {"class": "text-no-wrap"},
+                                        "component": "VCardTitle",
+                                        "props": {"class": "d-flex align-center justify-space-between text-body-1"},
                                         "content": [
+                                            {"component": "span", "text": "IP 更新记录"},
                                             {
-                                                "component": "th",
-                                                "props": {"class": "text-start ps-4"},
-                                                "text": "状态",
-                                            },
-                                            {
-                                                "component": "th",
-                                                "props": {"class": "text-start ps-4"},
-                                                "text": "appId",
-                                            },
-                                            {
-                                                "component": "th",
-                                                "props": {"class": "text-start ps-4"},
-                                                "text": "更新IP",
-                                            },
-                                            {
-                                                "component": "th",
-                                                "props": {"class": "text-start ps-4"},
-                                                "text": "返回值",
-                                            },
-                                            {
-                                                "component": "th",
-                                                "props": {"class": "text-start ps-4"},
-                                                "text": "更新时间",
+                                                "component": "VChip",
+                                                "props": {"size": "x-small", "variant": "text"},
+                                                "text": f"最近 {len(data_list)} 条",
                                             },
                                         ],
                                     },
                                     {
-                                        "component": "tbody",
-                                        "content": update_log_trs,
+                                        "component": "VCardText",
+                                        "props": {"class": "pa-0"},
+                                        "content": [
+                                            {
+                                                "component": "div",
+                                                "props": {
+                                                    "style": {
+                                                        "maxHeight": "360px",
+                                                        "overflow": "auto",
+                                                    }
+                                                },
+                                                "content": [
+                                                    {
+                                                        "component": "VTable",
+                                                        "props": {"hover": True, "density": "compact"},
+                                                        "content": [
+                                                            {
+                                                                "component": "thead",
+                                                                "props": {"class": "text-no-wrap"},
+                                                                "content": [
+                                                                    {
+                                                                        "component": "th",
+                                                                        "props": {"class": "text-start ps-4"},
+                                                                        "text": "状态",
+                                                                    },
+                                                                    {
+                                                                        "component": "th",
+                                                                        "props": {"class": "text-start ps-4"},
+                                                                        "text": "appId",
+                                                                    },
+                                                                    {
+                                                                        "component": "th",
+                                                                        "props": {"class": "text-start ps-4"},
+                                                                        "text": "更新IP",
+                                                                    },
+                                                                    {
+                                                                        "component": "th",
+                                                                        "props": {"class": "text-start ps-4"},
+                                                                        "text": "返回值",
+                                                                    },
+                                                                    {
+                                                                        "component": "th",
+                                                                        "props": {"class": "text-start ps-4"},
+                                                                        "text": "更新时间",
+                                                                    },
+                                                                ],
+                                                            },
+                                                            {
+                                                                "component": "tbody",
+                                                                "content": update_log_trs,
+                                                            },
+                                                        ],
+                                                    }
+                                                ],
+                                            }
+                                        ],
                                     },
                                 ],
                             },
