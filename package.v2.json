@@ -1040,7 +1040,7 @@
   },
   "UpdateWeChatIp": {
     "name": "动态企微可信IP",
-    "description": "自动同步公网IP到企微应用可信IP,登录失效时发送二维码扫码续期",
+    "description": "修改企微应用可信IP,可本地扫码刷新Cookie,直接调用接口更稳定",
     "labels": "消息通知",
     "version": "1.0.11",
     "icon": "Wecom_A.png",

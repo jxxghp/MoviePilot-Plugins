@@ -36,7 +36,7 @@ class UpdateWeChatIp(_PluginBase):
     # 插件在界面中的展示名称
     plugin_name = "动态企微可信IP"
     # 插件描述
-    plugin_desc = "自动同步公网IP到企微应用可信IP，登录失效时发送二维码扫码续期"
+    plugin_desc = "修改企微应用可信IP，可本地扫码刷新Cookie"
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本，必须和 package.v2.json 中保持一致
