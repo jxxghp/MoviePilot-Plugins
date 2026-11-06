@@ -4,7 +4,7 @@
 命名空间暴露对应插件源码。
 """
 from contextlib import contextmanager
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration, LLMResult
@@ -134,7 +134,8 @@ def test_openai_prompt_parameter_overrides_default():
     def _fake_llm():
         """返回具备候选列表的模型替身，验证两类提示词仍分别传入。"""
         llm = MagicMock()
-        llm.generate.return_value = LLMResult(
+        llm.agenerate = AsyncMock()
+        llm.agenerate.return_value = LLMResult(
             generations=[[ChatGeneration(message=AIMessage(content='{"name": "晴天"}'))]],
         )
         created_llms.append(llm)
@@ -142,9 +143,9 @@ def test_openai_prompt_parameter_overrides_default():
 
     with patch.object(client, "_get_llm", side_effect=_fake_llm):
         client.get_media_name("title", prompt="MUSIC-PROMPT")
-        first_messages = created_llms[-1].generate.call_args[0][0][0]
+        first_messages = created_llms[-1].agenerate.call_args[0][0][0]
         assert first_messages[0].content == "MUSIC-PROMPT"
 
         client.get_media_name("title")
-        second_messages = created_llms[-1].generate.call_args[0][0][0]
+        second_messages = created_llms[-1].agenerate.call_args[0][0][0]
         assert second_messages[0].content == "DEFAULT-PROMPT"
