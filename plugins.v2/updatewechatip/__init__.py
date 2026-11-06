@@ -19,8 +19,17 @@ from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.log import logger
 from app.plugins import _PluginBase
-from app.schemas.notification import ChannelCapability, ChannelCapabilityManager
-from app.schemas.types import EventType, NotificationChannel
+from app.schemas.types import EventType
+
+try:  # V3 宿主：渠道能力定义在独立模块
+    from app.schemas.notification import ChannelCapability, ChannelCapabilityManager
+except ImportError:  # V2 宿主：能力定义随消息模块提供，成员与 V3 一致
+    from app.schemas.message import ChannelCapability, ChannelCapabilityManager
+
+try:  # V3 宿主
+    from app.schemas.types import NotificationChannel
+except ImportError:  # V2 宿主只有 MessageChannel，成员与取值一致，直接作为别名使用
+    from app.schemas.types import MessageChannel as NotificationChannel
 
 
 class UpdateWeChatIp(_PluginBase):
