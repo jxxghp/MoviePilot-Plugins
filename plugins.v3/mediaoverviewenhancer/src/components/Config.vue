@@ -49,6 +49,29 @@ const DEFAULTS = {
   concurrency: 2,
   max_items_per_run: 200,
   scan_days: 0,
+  scan_only_unlocked: false,
+  scan_placeholder_only: false,
+  quality_ai_flavor_gate: true,
+  quality_ai_flavor_min_score: 60,
+  quality_name_check: true,
+  quality_similarity_threshold: 0.85,
+  style_preset: 'objective',
+  allow_spoiler: false,
+  episode_title_enabled: false,
+  episode_title_mode: 'numeric_only',
+  episode_title_max_chars: 14,
+  series_enabled: false,
+  season_enabled: false,
+  series_mode: 'expand',
+  series_min_chars: 120,
+  series_target_chars: 260,
+  people_bio_enabled: false,
+  people_bio_max_chars: 300,
+  nfo_movie_enabled: false,
+  nfo_episode_enabled: false,
+  avatar_only_missing: true,
+  llm_min_interval_ms: 0,
+  adaptive_concurrency: true,
   notify: true,
   notify_failure: true,
   notify_daily: false,
@@ -93,6 +116,20 @@ const memberSourceItems = [
   { title: 'MusicBrainz + Wikidata（推荐）', value: 'both' },
   { title: '仅 MusicBrainz', value: 'musicbrainz' },
   { title: '仅 Wikidata（自带中文名）', value: 'wikidata' },
+]
+const stylePresetItems = [
+  { title: '客观资料向（推荐，信息密度高）', value: 'objective' },
+  { title: '剧情叙述向（讲清人物与冲突）', value: 'story' },
+  { title: '影评向（结尾一句克制观感）', value: 'review' },
+  { title: '宣传向（突出看点与悬念）', value: 'promo' },
+]
+const episodeTitleModeItems = [
+  { title: '仅改写占位标题（第 3 集 / Episode 3）', value: 'numeric_only' },
+  { title: '全部重写（谨慎，会覆盖已有标题）', value: 'all' },
+]
+const seriesModeItems = [
+  { title: '扩写 TMDB 原文（推荐）', value: 'expand' },
+  { title: '完全由 AI 生成', value: 'ai' },
 ]
 
 function clone(value) {
@@ -194,6 +231,13 @@ function buildPayload() {
   payload.backup_days = Number(payload.backup_days) || 0
   payload.rollback_max = Number(payload.rollback_max) || 200
   payload.scan_days = Number(payload.scan_days) || 0
+  payload.quality_ai_flavor_min_score = Number(payload.quality_ai_flavor_min_score) || 0
+  payload.quality_similarity_threshold = Number(payload.quality_similarity_threshold) || 0
+  payload.episode_title_max_chars = Number(payload.episode_title_max_chars) || 14
+  payload.series_min_chars = Number(payload.series_min_chars) || 0
+  payload.series_target_chars = Number(payload.series_target_chars) || 260
+  payload.people_bio_max_chars = Number(payload.people_bio_max_chars) || 300
+  payload.llm_min_interval_ms = Number(payload.llm_min_interval_ms) || 0
   return payload
 }
 
@@ -281,7 +325,7 @@ onMounted(() => {
         :items="serverOptions"
         item-title="title"
         item-value="value"
-        label="Emby 服务器（留空表示全部）"
+        label="Emby / Jellyfin 服务器（留空表示全部）"
         multiple
         chips
         clearable
@@ -371,6 +415,108 @@ onMounted(() => {
         label="检测同季重复简介并重写"
         color="primary"
         hide-details
+      />
+    </section>
+
+    <section class="moe-config__section">
+      <div class="text-subtitle-2 mb-2">分集标题美化</div>
+      <VSwitch
+        v-model="localConfig.episode_title_enabled"
+        label="用简介生成有辨识度的分集标题"
+        color="primary"
+        hide-details
+      />
+      <div class="text-caption text-medium-emphasis mb-2">
+        国产剧常见「第 3 集」这类标题在媒体服务器里毫无辨识度；开启后会依据该集简介生成
+        4~10 字短标题，同时写入 Emby 的标题与 NFO，标题会随简介一起更新。
+        只想改标题、不想动简介时，在详情页把「处理对象」选为「仅补分集标题」。
+      </div>
+      <VSelect
+        v-model="localConfig.episode_title_mode"
+        :items="episodeTitleModeItems"
+        label="改写范围"
+        density="comfortable"
+        :disabled="!localConfig.episode_title_enabled"
+      />
+      <VTextField
+        v-model="localConfig.episode_title_max_chars"
+        type="number"
+        label="标题最大字数（4-40）"
+        density="comfortable"
+        :disabled="!localConfig.episode_title_enabled"
+        persistent-hint
+        hint="建议 10-16 字；过长会被媒体服务器截断"
+      />
+      <div class="text-caption text-medium-emphasis">
+        标题生成会额外消耗大模型调用；已有语义标题在「仅改写占位标题」模式下不会被改动。
+      </div>
+    </section>
+
+    <section class="moe-config__section">
+      <div class="text-subtitle-2 mb-2">整剧 / 整季简介</div>
+      <VSwitch
+        v-model="localConfig.series_enabled"
+        label="补全整部剧的简介（Series Overview）"
+        color="primary"
+        hide-details
+      />
+      <VSwitch
+        v-model="localConfig.season_enabled"
+        label="补全每一季的简介（Season Overview）"
+        color="primary"
+        hide-details
+        class="mt-1"
+      />
+      <div class="text-caption text-medium-emphasis mb-2">
+        TMDB 的整剧简介常常只有一句话，开启后会按素材扩写；整季简介只描述该季主线，避免与整剧重复。
+      </div>
+      <VSelect
+        v-model="localConfig.series_mode"
+        :items="seriesModeItems"
+        label="生成方式"
+        density="comfortable"
+        :disabled="!localConfig.series_enabled && !localConfig.season_enabled"
+      />
+      <VRow dense class="mt-1">
+        <VCol cols="12" md="6">
+          <VTextField
+            v-model="localConfig.series_min_chars"
+            type="number"
+            label="低于该字数才处理"
+            density="comfortable"
+            :disabled="!localConfig.series_enabled && !localConfig.season_enabled"
+          />
+        </VCol>
+        <VCol cols="12" md="6">
+          <VTextField
+            v-model="localConfig.series_target_chars"
+            type="number"
+            label="目标字数"
+            density="comfortable"
+            :disabled="!localConfig.series_enabled && !localConfig.season_enabled"
+          />
+        </VCol>
+      </VRow>
+    </section>
+
+    <section class="moe-config__section">
+      <div class="text-subtitle-2 mb-2">演职员简介</div>
+      <VSwitch
+        v-model="localConfig.people_bio_enabled"
+        label="为演员 / 导演补 TMDB 生平简介"
+        color="primary"
+        hide-details
+      />
+      <div class="text-caption text-medium-emphasis mb-2">
+        只给条目里的前 12 位演职员补简介，且人物简介为空或过短时才写入；
+        查询结果会持久缓存，不会重复请求 TMDB。
+      </div>
+      <VTextField
+        v-model="localConfig.people_bio_max_chars"
+        type="number"
+        label="人物简介长度上限（60-2000）"
+        density="comfortable"
+        :disabled="!localConfig.people_bio_enabled"
       />
     </section>
 
@@ -511,7 +657,49 @@ onMounted(() => {
     </section>
 
     <section class="moe-config__section">
+      <div class="text-subtitle-2 mb-2">NFO 元数据扩展</div>
+      <VSwitch
+        v-model="localConfig.nfo_movie_enabled"
+        label="电影也写同名 NFO"
+        color="primary"
+        hide-details
+      />
+      <VSwitch
+        v-model="localConfig.nfo_episode_enabled"
+        label="分集也写同名 NFO"
+        color="primary"
+        hide-details
+        class="mt-1"
+      />
+      <div class="text-caption text-medium-emphasis mb-2">
+        已存在的 NFO 采用就地合并：只更新简介、标题与季集号，保留其余字段，不会覆盖已有元数据。
+        注意 Emby 在同时存在 NFO 时可能以 NFO 为准，建议只在 Kodi / Infuse 等客户端需要时开启。
+      </div>
+      <VSwitch
+        v-model="localConfig.avatar_only_missing"
+        label="只在人物没有头像时写入（不覆盖手动设置的图）"
+        color="primary"
+        hide-details
+      />
+    </section>
+
+    <section class="moe-config__section">
       <div class="text-subtitle-2 mb-2">数据源与写入</div>
+      <VSelect
+        v-model="localConfig.style_preset"
+        :items="stylePresetItems"
+        label="文风模板"
+        density="comfortable"
+        persistent-hint
+        hint="只作用于生成类文案，翻译任务保持原文语义"
+      />
+      <VSwitch
+        v-model="localConfig.allow_spoiler"
+        label="允许简介提及结局走向"
+        color="primary"
+        hide-details
+        class="mt-2"
+      />
       <div class="text-caption text-medium-emphasis mb-2">
         电影与剧集优先用 TMDB 中文简介；MV 没有 TMDB/IMDb 条目，只能由 AI 依据条目名与文件名线索生成。
       </div>
@@ -575,6 +763,45 @@ onMounted(() => {
         开启后，未翻译的外文简介、仍在描述画质/编码的文案、过于模板化的空泛简介会被判为失败并进入失败清单，
         可一键重试，不会写进媒体库。
       </div>
+      <VSwitch
+        v-model="localConfig.quality_ai_flavor_gate"
+        label="AI 味闸门（套话开场 / 连接词密度 / 句式均匀度）"
+        color="primary"
+        hide-details
+        :disabled="!localConfig.quality_gate"
+      />
+      <VRow dense class="mt-1">
+        <VCol cols="12" md="6">
+          <VTextField
+            v-model="localConfig.quality_ai_flavor_min_score"
+            type="number"
+            label="AI 味最低分（0-100，默认 60）"
+            density="comfortable"
+            :disabled="!localConfig.quality_gate || !localConfig.quality_ai_flavor_gate"
+            persistent-hint
+            hint="分数越高越严格；低于该分数判为失败"
+          />
+        </VCol>
+        <VCol cols="12" md="6">
+          <VTextField
+            v-model="localConfig.quality_similarity_threshold"
+            type="number"
+            step="0.05"
+            label="同季相似度阈值（0-1，默认 0.85）"
+            density="comfortable"
+            :disabled="!localConfig.quality_gate"
+            persistent-hint
+            hint="超过阈值判为跨集雷同并重写"
+          />
+        </VCol>
+      </VRow>
+      <VSwitch
+        v-model="localConfig.quality_name_check"
+        label="幻觉人名校验（简介出现演职员表之外的人名即判失败）"
+        color="primary"
+        hide-details
+        :disabled="!localConfig.quality_gate"
+      />
       <VRow dense>
         <VCol cols="12" md="6">
           <VTextField
@@ -640,6 +867,40 @@ onMounted(() => {
       <VSwitch
         v-model="localConfig.show_sidebar_nav"
         label="在主界面侧栏显示入口"
+        color="primary"
+        hide-details
+      />
+      <VDivider class="my-3" />
+      <div class="text-subtitle-2 mb-2">增量过滤</div>
+      <VSwitch
+        v-model="localConfig.scan_only_unlocked"
+        label="只处理未锁定简介的条目"
+        color="primary"
+        hide-details
+      />
+      <VSwitch
+        v-model="localConfig.scan_placeholder_only"
+        label="只处理占位简介（暂无简介 / 待补充 / 空文本）"
+        color="primary"
+        hide-details
+        class="mt-1"
+      />
+      <div class="text-caption text-medium-emphasis mb-2">
+        用于补漏扫描时避免空跑；手动强制重写与单条重做不受这两个开关限制。
+      </div>
+      <VDivider class="my-2" />
+      <div class="text-subtitle-2 mb-2">大模型节奏</div>
+      <VTextField
+        v-model="localConfig.llm_min_interval_ms"
+        type="number"
+        label="两次调用最小间隔（毫秒，0 表示不限）"
+        density="comfortable"
+        persistent-hint
+        hint="遇到限流时设为 500-2000 可显著降低失败率"
+      />
+      <VSwitch
+        v-model="localConfig.adaptive_concurrency"
+        label="上一轮出现限流时自动降并发"
         color="primary"
         hide-details
       />

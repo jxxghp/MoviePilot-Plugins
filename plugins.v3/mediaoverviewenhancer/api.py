@@ -44,6 +44,13 @@ def build_api_routes(owner: Any) -> List[Dict[str, Any]]:
             "summary": "启动简介补全任务",
         },
         {
+            "path": "/write-sample",
+            "endpoint": owner.engine_write_sample,
+            "methods": ["POST"],
+            "auth": "bear",
+            "summary": "写入试跑选定的样张文案",
+        },
+        {
             "path": "/cancel",
             "endpoint": owner.engine_cancel,
             "methods": ["POST"],

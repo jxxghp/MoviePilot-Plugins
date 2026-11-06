@@ -22,27 +22,45 @@ const _hoisted_7 = {
 };
 const _hoisted_8 = { key: 0 };
 const _hoisted_9 = {
-  key: 0,
+  key: 2,
   class: "text-caption text-medium-emphasis"
 };
 const _hoisted_10 = {
-  key: 1,
-  class: "text-caption text-medium-emphasis"
+  key: 0,
+  class: "text-warning"
 };
-const _hoisted_11 = { class: "moe-preview" };
-const _hoisted_12 = { key: 0 };
-const _hoisted_13 = {
-  key: 1,
-  class: "text-error text-caption"
-};
-const _hoisted_14 = { class: "text-caption text-medium-emphasis mt-1" };
-const _hoisted_15 = { class: "text-error" };
-const _hoisted_16 = { class: "moe-preview" };
-const _hoisted_17 = {
+const _hoisted_11 = {
   key: 0,
   class: "text-caption text-medium-emphasis"
 };
-const _hoisted_18 = { class: "text-caption text-medium-emphasis" };
+const _hoisted_12 = {
+  key: 1,
+  class: "text-caption text-medium-emphasis"
+};
+const _hoisted_13 = { class: "moe-preview" };
+const _hoisted_14 = { key: 0 };
+const _hoisted_15 = {
+  key: 1,
+  class: "text-error text-caption"
+};
+const _hoisted_16 = {
+  key: 2,
+  class: "text-caption text-medium-emphasis"
+};
+const _hoisted_17 = { key: 0 };
+const _hoisted_18 = { key: 1 };
+const _hoisted_19 = {
+  key: 3,
+  class: "text-caption"
+};
+const _hoisted_20 = { class: "text-caption text-medium-emphasis mt-1" };
+const _hoisted_21 = { class: "text-error" };
+const _hoisted_22 = { class: "moe-preview" };
+const _hoisted_23 = {
+  key: 0,
+  class: "text-caption text-medium-emphasis"
+};
+const _hoisted_24 = { class: "text-caption text-medium-emphasis" };
 
 const {computed,onMounted,onUnmounted,ref} = await importShared('vue');
 
@@ -72,6 +90,7 @@ const starting = ref(false);
 const retrying = ref(false);
 const rolling = ref(false);
 const clearing = ref(false);
+const writingKey = ref('');
 const message = ref('');
 const error = ref('');
 const status = ref({});
@@ -101,7 +120,21 @@ const actionLabels = {
 const kindLabels = {
   movie: '电影',
   episode: '剧集',
+  series: '整剧',
+  season: '整季',
   mv: 'MV',
+};
+
+const failureKindLabels = {
+  llm_unavailable: '大模型不可用',
+  llm_rate_limit: '大模型限流',
+  llm_empty: '空返回',
+  llm_error: '调用异常',
+  quality_gate: '质量闸门',
+  material_missing: '素材缺失',
+  emby_write: '写入失败',
+  nfo_write: 'NFO 写入',
+  unknown: '未归类',
 };
 
 const run = computed(() => status.value.run || {});
@@ -135,6 +168,10 @@ const latestRunId = computed(() => {
   const row = backups.value.find(item => item.run_id);
   return row?.run_id || ''
 });
+
+const llmStats = computed(() => status.value.llm || {});
+const failureKinds = computed(() => status.value.failure_kinds || {});
+const features = computed(() => status.value.features || {});
 
 function unwrap(response) {
   if (response && Object.prototype.hasOwnProperty.call(response, 'data') && response.success !== undefined) {
@@ -267,6 +304,42 @@ async function redoItem(item) {
     error.value = `单条重做失败：${errorText(err)}`;
   } finally {
     starting.value = false;
+  }
+}
+
+async function writeSample(item) {
+  if (!item?.key || !item?.preview) return
+  writingKey.value = String(item.key);
+  error.value = '';
+  message.value = '';
+  const mediaType = ['episode', 'series', 'season'].includes(item.kind)
+    ? 'tv'
+    : (item.kind === 'mv' ? 'mv' : 'movie');
+  try {
+    const data = unwrap(
+      await props.api.post(`${base.value}/write-sample`, {
+        key: item.key,
+        kind: item.kind || '',
+        media_type: mediaType,
+        title: item.title || '',
+        year: item.year || '',
+        season: item.season ?? 0,
+        episode: item.episode ?? 0,
+        episode_title: item.episode_title || '',
+        text: item.preview,
+        title_override: item.new_title || '',
+      }),
+    );
+    if (data?.written) {
+      message.value = `已写入样张：${item.title || item.key}`;
+      await loadStatus();
+    } else {
+      error.value = `写入失败：${data?.message || '未知原因'}`;
+    }
+  } catch (err) {
+    error.value = `写入失败：${errorText(err)}`;
+  } finally {
+    writingKey.value = '';
   }
 }
 
@@ -497,6 +570,91 @@ return (_ctx, _cache) => {
               ]),
               _: 1
             }),
+            (Number(llmStats.value.calls || 0))
+              ? (_openBlock(), _createBlock(_component_VChip, {
+                  key: 2,
+                  size: "small",
+                  variant: "tonal"
+                }, {
+                  default: _withCtx(() => [
+                    _createTextVNode(" 今日大模型 " + _toDisplayString(llmStats.value.calls) + " 次 · 成功率 " + _toDisplayString(llmStats.value.success_rate ?? 0) + "% · 均耗时 " + _toDisplayString(llmStats.value.avg_seconds ?? 0) + "s ", 1)
+                  ]),
+                  _: 1
+                }))
+              : _createCommentVNode("", true),
+            (Number(llmStats.value.rate_limited || 0))
+              ? (_openBlock(), _createBlock(_component_VChip, {
+                  key: 3,
+                  color: "warning",
+                  size: "small",
+                  variant: "tonal"
+                }, {
+                  default: _withCtx(() => [
+                    _createTextVNode(" 今日限流 " + _toDisplayString(llmStats.value.rate_limited) + " 次 ", 1)
+                  ]),
+                  _: 1
+                }))
+              : _createCommentVNode("", true),
+            (features.value.style_preset)
+              ? (_openBlock(), _createBlock(_component_VChip, {
+                  key: 4,
+                  size: "small",
+                  variant: "tonal"
+                }, {
+                  default: _withCtx(() => [
+                    _createTextVNode(" 文风 " + _toDisplayString(features.value.style_preset), 1)
+                  ]),
+                  _: 1
+                }))
+              : _createCommentVNode("", true),
+            (features.value.episode_title)
+              ? (_openBlock(), _createBlock(_component_VChip, {
+                  key: 5,
+                  size: "small",
+                  variant: "tonal"
+                }, {
+                  default: _withCtx(() => [...(_cache[9] || (_cache[9] = [
+                    _createTextVNode("分集标题美化", -1)
+                  ]))]),
+                  _: 1
+                }))
+              : _createCommentVNode("", true),
+            (features.value.series)
+              ? (_openBlock(), _createBlock(_component_VChip, {
+                  key: 6,
+                  size: "small",
+                  variant: "tonal"
+                }, {
+                  default: _withCtx(() => [...(_cache[10] || (_cache[10] = [
+                    _createTextVNode("整剧简介", -1)
+                  ]))]),
+                  _: 1
+                }))
+              : _createCommentVNode("", true),
+            (features.value.season)
+              ? (_openBlock(), _createBlock(_component_VChip, {
+                  key: 7,
+                  size: "small",
+                  variant: "tonal"
+                }, {
+                  default: _withCtx(() => [...(_cache[11] || (_cache[11] = [
+                    _createTextVNode("整季简介", -1)
+                  ]))]),
+                  _: 1
+                }))
+              : _createCommentVNode("", true),
+            (features.value.people_bio)
+              ? (_openBlock(), _createBlock(_component_VChip, {
+                  key: 8,
+                  size: "small",
+                  variant: "tonal"
+                }, {
+                  default: _withCtx(() => [...(_cache[12] || (_cache[12] = [
+                    _createTextVNode("演职员简介", -1)
+                  ]))]),
+                  _: 1
+                }))
+              : _createCommentVNode("", true),
             _createVNode(_component_VChip, {
               size: "small",
               variant: "tonal"
@@ -545,9 +703,33 @@ return (_ctx, _cache) => {
           ]),
           _: 1
         }),
-        (servers.value.length)
+        (Object.keys(failureKinds.value).length)
           ? (_openBlock(), _createBlock(_component_VCardText, {
               key: 0,
+              class: "moe-chips"
+            }, {
+              default: _withCtx(() => [
+                _cache[13] || (_cache[13] = _createElementVNode("span", { class: "text-caption text-medium-emphasis align-self-center" }, "失败分类：", -1)),
+                (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(failureKinds.value, (count, kind) => {
+                  return (_openBlock(), _createBlock(_component_VChip, {
+                    key: kind,
+                    size: "small",
+                    color: "error",
+                    variant: "tonal"
+                  }, {
+                    default: _withCtx(() => [
+                      _createTextVNode(_toDisplayString(failureKindLabels[kind] || kind) + " " + _toDisplayString(count), 1)
+                    ]),
+                    _: 2
+                  }, 1024))
+                }), 128))
+              ]),
+              _: 1
+            }))
+          : _createCommentVNode("", true),
+        (servers.value.length)
+          ? (_openBlock(), _createBlock(_component_VCardText, {
+              key: 1,
               class: "moe-chips"
             }, {
               default: _withCtx(() => [
@@ -577,7 +759,7 @@ return (_ctx, _cache) => {
     }, {
       default: _withCtx(() => [
         _createVNode(_component_VCardTitle, { class: "text-subtitle-1" }, {
-          default: _withCtx(() => [...(_cache[9] || (_cache[9] = [
+          default: _withCtx(() => [...(_cache[14] || (_cache[14] = [
             _createTextVNode("执行范围", -1)
           ]))]),
           _: 1
@@ -597,8 +779,9 @@ return (_ctx, _cache) => {
                       items: [
                 { title: '全部', value: 'all' },
                 { title: '仅电影', value: 'movie' },
-                { title: '仅剧集', value: 'tv' },
+                { title: '仅剧集（含整剧/整季）', value: 'tv' },
                 { title: '仅 MV', value: 'mv' },
+                { title: '仅补分集标题', value: 'titles' },
                 { title: '仅补 NFO/头像', value: 'maintenance' },
               ],
                       label: "处理对象",
@@ -659,7 +842,7 @@ return (_ctx, _cache) => {
               ]),
               _: 1
             }),
-            _cache[17] || (_cache[17] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mt-1" }, " 「仅 MV」扫描 MV 媒体库并由 AI 生成简介；「仅补 NFO/头像」只修复缺失或过期的 NFO 与演员头像，不改写简介； 「全部」不含 MV，避免一次性产生大量大模型调用。 ", -1)),
+            _cache[22] || (_cache[22] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mt-1" }, " 「仅 MV」扫描 MV 媒体库并由 AI 生成简介；「仅补分集标题」只改写「第 N 集」这类占位标题 （写 Emby 标题与 NFO），**不动简介**；「仅补 NFO/头像」只修复缺失或过期的 NFO 与演员头像； 「全部」不含 MV，避免一次性产生大量大模型调用。 ", -1)),
             _createElementVNode("div", _hoisted_3, [
               _createVNode(_component_VBtn, {
                 variant: "tonal",
@@ -667,7 +850,7 @@ return (_ctx, _cache) => {
                 loading: previewing.value,
                 onClick: _cache[4] || (_cache[4] = $event => (runPreview(false)))
               }, {
-                default: _withCtx(() => [...(_cache[10] || (_cache[10] = [
+                default: _withCtx(() => [...(_cache[15] || (_cache[15] = [
                   _createTextVNode(" 试跑（不写入） ", -1)
                 ]))]),
                 _: 1
@@ -678,7 +861,7 @@ return (_ctx, _cache) => {
                 loading: sampling.value,
                 onClick: _cache[5] || (_cache[5] = $event => (runPreview(true)))
               }, {
-                default: _withCtx(() => [...(_cache[11] || (_cache[11] = [
+                default: _withCtx(() => [...(_cache[16] || (_cache[16] = [
                   _createTextVNode(" 生成 2 条样张 ", -1)
                 ]))]),
                 _: 1
@@ -690,7 +873,7 @@ return (_ctx, _cache) => {
                 disabled: running.value,
                 onClick: runNow
               }, {
-                default: _withCtx(() => [...(_cache[12] || (_cache[12] = [
+                default: _withCtx(() => [...(_cache[17] || (_cache[17] = [
                   _createTextVNode(" 立即执行 ", -1)
                 ]))]),
                 _: 1
@@ -702,7 +885,7 @@ return (_ctx, _cache) => {
                 disabled: !running.value,
                 onClick: cancelRun
               }, {
-                default: _withCtx(() => [...(_cache[13] || (_cache[13] = [
+                default: _withCtx(() => [...(_cache[18] || (_cache[18] = [
                   _createTextVNode(" 停止 ", -1)
                 ]))]),
                 _: 1
@@ -715,7 +898,7 @@ return (_ctx, _cache) => {
                 disabled: !failures.value.length || running.value,
                 onClick: retryFailures
               }, {
-                default: _withCtx(() => [...(_cache[14] || (_cache[14] = [
+                default: _withCtx(() => [...(_cache[19] || (_cache[19] = [
                   _createTextVNode(" 重试失败项 ", -1)
                 ]))]),
                 _: 1
@@ -728,7 +911,7 @@ return (_ctx, _cache) => {
                 loading: clearing.value,
                 onClick: clearRecords
               }, {
-                default: _withCtx(() => [...(_cache[15] || (_cache[15] = [
+                default: _withCtx(() => [...(_cache[20] || (_cache[20] = [
                   _createTextVNode(" 清空处理记录 ", -1)
                 ]))]),
                 _: 1
@@ -738,7 +921,7 @@ return (_ctx, _cache) => {
                 "prepend-icon": "mdi-cog-outline",
                 onClick: _cache[6] || (_cache[6] = $event => (emit('switch')))
               }, {
-                default: _withCtx(() => [...(_cache[16] || (_cache[16] = [
+                default: _withCtx(() => [...(_cache[21] || (_cache[21] = [
                   _createTextVNode("插件设置", -1)
                 ]))]),
                 _: 1
@@ -758,7 +941,7 @@ return (_ctx, _cache) => {
         }, {
           default: _withCtx(() => [
             _createVNode(_component_VCardTitle, { class: "text-subtitle-1" }, {
-              default: _withCtx(() => [...(_cache[18] || (_cache[18] = [
+              default: _withCtx(() => [...(_cache[23] || (_cache[23] = [
                 _createTextVNode("运行进度", -1)
               ]))]),
               _: 1
@@ -781,6 +964,14 @@ return (_ctx, _cache) => {
                       _createTextVNode(" 开始于 " + _toDisplayString(run.value.started_at), 1),
                       (run.value.finished_at)
                         ? (_openBlock(), _createElementBlock("span", _hoisted_8, " · 结束于 " + _toDisplayString(run.value.finished_at), 1))
+                        : _createCommentVNode("", true)
+                    ]))
+                  : _createCommentVNode("", true),
+                (run.value.llm && run.value.llm.calls)
+                  ? (_openBlock(), _createElementBlock("div", _hoisted_9, [
+                      _createTextVNode(" 本轮大模型：调用 " + _toDisplayString(run.value.llm.calls) + " 次 · 失败 " + _toDisplayString(run.value.llm.errors || 0) + " · 空返回 " + _toDisplayString(run.value.llm.empty || 0) + " ", 1),
+                      (run.value.llm.rate_limited)
+                        ? (_openBlock(), _createElementBlock("span", _hoisted_10, "· 出现限流 " + _toDisplayString(run.value.llm.rate_limited) + " 次", 1))
                         : _createCommentVNode("", true)
                     ]))
                   : _createCommentVNode("", true)
@@ -818,7 +1009,7 @@ return (_ctx, _cache) => {
               default: _withCtx(() => [
                 _createVNode(_component_VTable, { density: "compact" }, {
                   default: _withCtx(() => [
-                    _cache[20] || (_cache[20] = _createElementVNode("thead", null, [
+                    _cache[26] || (_cache[26] = _createElementVNode("thead", null, [
                       _createElementVNode("tr", null, [
                         _createElementVNode("th", null, "类型"),
                         _createElementVNode("th", null, "标题"),
@@ -841,29 +1032,59 @@ return (_ctx, _cache) => {
                           _createElementVNode("td", null, [
                             _createElementVNode("div", null, _toDisplayString(actionLabel(item)), 1),
                             (item.need_nfo)
-                              ? (_openBlock(), _createElementBlock("div", _hoisted_9, "将补 NFO"))
+                              ? (_openBlock(), _createElementBlock("div", _hoisted_11, "将补 NFO"))
                               : _createCommentVNode("", true),
                             (item.need_avatar)
-                              ? (_openBlock(), _createElementBlock("div", _hoisted_10, "将补头像"))
+                              ? (_openBlock(), _createElementBlock("div", _hoisted_12, "将补头像"))
                               : _createCommentVNode("", true)
                           ]),
-                          _createElementVNode("td", _hoisted_11, [
+                          _createElementVNode("td", _hoisted_13, [
                             (item.preview)
-                              ? (_openBlock(), _createElementBlock("div", _hoisted_12, _toDisplayString(item.preview), 1))
+                              ? (_openBlock(), _createElementBlock("div", _hoisted_14, _toDisplayString(item.preview), 1))
                               : _createCommentVNode("", true),
                             (item.quality)
-                              ? (_openBlock(), _createElementBlock("div", _hoisted_13, "质量提示：" + _toDisplayString(item.quality), 1))
+                              ? (_openBlock(), _createElementBlock("div", _hoisted_15, "质量提示：" + _toDisplayString(item.quality), 1))
+                              : _createCommentVNode("", true),
+                            (item.preview)
+                              ? (_openBlock(), _createElementBlock("div", _hoisted_16, [
+                                  _createTextVNode(" AI 味 " + _toDisplayString(item.ai_flavor ?? '-') + " 分 ", 1),
+                                  ((item.ai_flavor_reasons || []).length)
+                                    ? (_openBlock(), _createElementBlock("span", _hoisted_17, " （" + _toDisplayString((item.ai_flavor_reasons || []).join('、')) + "） ", 1))
+                                    : _createCommentVNode("", true),
+                                  (item.similarity)
+                                    ? (_openBlock(), _createElementBlock("span", _hoisted_18, " · 同季相似度 " + _toDisplayString(Math.round(item.similarity * 100)) + "%", 1))
+                                    : _createCommentVNode("", true)
+                                ]))
+                              : _createCommentVNode("", true),
+                            (item.new_title)
+                              ? (_openBlock(), _createElementBlock("div", _hoisted_19, " 新标题：" + _toDisplayString(item.new_title), 1))
                               : _createCommentVNode("", true)
                           ]),
                           _createElementVNode("td", null, [
+                            (item.preview)
+                              ? (_openBlock(), _createBlock(_component_VBtn, {
+                                  key: 0,
+                                  size: "x-small",
+                                  variant: "tonal",
+                                  color: "primary",
+                                  disabled: running.value,
+                                  loading: writingKey.value === String(item.key),
+                                  onClick: $event => (writeSample(item))
+                                }, {
+                                  default: _withCtx(() => [...(_cache[24] || (_cache[24] = [
+                                    _createTextVNode(" 写入此样张 ", -1)
+                                  ]))]),
+                                  _: 1
+                                }, 8, ["disabled", "loading", "onClick"]))
+                              : _createCommentVNode("", true),
                             _createVNode(_component_VBtn, {
                               size: "x-small",
                               variant: "text",
                               disabled: running.value,
-                              loading: starting.value,
+                              loading: starting.value && writingKey.value !== String(item.key),
                               onClick: $event => (redoItem(item))
                             }, {
-                              default: _withCtx(() => [...(_cache[19] || (_cache[19] = [
+                              default: _withCtx(() => [...(_cache[25] || (_cache[25] = [
                                 _createTextVNode(" 重做 ", -1)
                               ]))]),
                               _: 1
@@ -875,7 +1096,7 @@ return (_ctx, _cache) => {
                   ]),
                   _: 1
                 }),
-                _createElementVNode("div", _hoisted_14, " 样张只对前 " + _toDisplayString(previewSampled.value || 0) + " 条生成，不会写入媒体库；「重做」会强制重新生成该条。 ", 1)
+                _createElementVNode("div", _hoisted_20, " 样张只对前 " + _toDisplayString(previewSampled.value || 0) + " 条生成，不会写入媒体库；「写入此样张」会直接落库并记一次人工写入， 「重做」会强制重新生成该条。 ", 1)
               ]),
               _: 1
             })
@@ -903,7 +1124,7 @@ return (_ctx, _cache) => {
                   disabled: running.value,
                   onClick: retryFailures
                 }, {
-                  default: _withCtx(() => [...(_cache[21] || (_cache[21] = [
+                  default: _withCtx(() => [...(_cache[27] || (_cache[27] = [
                     _createTextVNode(" 全部重试 ", -1)
                   ]))]),
                   _: 1
@@ -915,11 +1136,12 @@ return (_ctx, _cache) => {
               default: _withCtx(() => [
                 _createVNode(_component_VTable, { density: "compact" }, {
                   default: _withCtx(() => [
-                    _cache[22] || (_cache[22] = _createElementVNode("thead", null, [
+                    _cache[28] || (_cache[28] = _createElementVNode("thead", null, [
                       _createElementVNode("tr", null, [
                         _createElementVNode("th", null, "类型"),
                         _createElementVNode("th", null, "标题"),
                         _createElementVNode("th", null, "集"),
+                        _createElementVNode("th", null, "分类"),
                         _createElementVNode("th", null, "失败原因"),
                         _createElementVNode("th", null, "时间"),
                         _createElementVNode("th", null, "次数")
@@ -933,7 +1155,19 @@ return (_ctx, _cache) => {
                           _createElementVNode("td", null, _toDisplayString(kindLabel(row.kind)), 1),
                           _createElementVNode("td", null, _toDisplayString(row.title), 1),
                           _createElementVNode("td", null, _toDisplayString(row.kind === 'episode' ? `S${row.season}E${row.episode}` : '-'), 1),
-                          _createElementVNode("td", _hoisted_15, _toDisplayString(row.message), 1),
+                          _createElementVNode("td", null, [
+                            _createVNode(_component_VChip, {
+                              size: "x-small",
+                              variant: "tonal",
+                              color: "error"
+                            }, {
+                              default: _withCtx(() => [
+                                _createTextVNode(_toDisplayString(failureKindLabels[row.error_kind] || row.error_kind || '未归类'), 1)
+                              ]),
+                              _: 2
+                            }, 1024)
+                          ]),
+                          _createElementVNode("td", _hoisted_21, _toDisplayString(row.message), 1),
                           _createElementVNode("td", null, _toDisplayString(row.time), 1),
                           _createElementVNode("td", null, _toDisplayString(row.count), 1)
                         ]))
@@ -969,7 +1203,7 @@ return (_ctx, _cache) => {
                   disabled: !latestRunId.value || running.value,
                   onClick: rollbackLatestRun
                 }, {
-                  default: _withCtx(() => [...(_cache[23] || (_cache[23] = [
+                  default: _withCtx(() => [...(_cache[29] || (_cache[29] = [
                     _createTextVNode(" 回滚最近一轮 ", -1)
                   ]))]),
                   _: 1
@@ -981,7 +1215,7 @@ return (_ctx, _cache) => {
               default: _withCtx(() => [
                 _createVNode(_component_VTable, { density: "compact" }, {
                   default: _withCtx(() => [
-                    _cache[25] || (_cache[25] = _createElementVNode("thead", null, [
+                    _cache[31] || (_cache[31] = _createElementVNode("thead", null, [
                       _createElementVNode("tr", null, [
                         _createElementVNode("th", null, "类型"),
                         _createElementVNode("th", null, "标题"),
@@ -999,7 +1233,7 @@ return (_ctx, _cache) => {
                           _createElementVNode("td", null, _toDisplayString(kindLabel(row.kind)), 1),
                           _createElementVNode("td", null, _toDisplayString(row.title), 1),
                           _createElementVNode("td", null, _toDisplayString(row.kind === 'episode' ? `S${row.season}E${row.episode}` : '-'), 1),
-                          _createElementVNode("td", _hoisted_16, _toDisplayString(row.preview) + "（" + _toDisplayString(row.chars) + " 字）", 1),
+                          _createElementVNode("td", _hoisted_22, _toDisplayString(row.preview) + "（" + _toDisplayString(row.chars) + " 字）", 1),
                           _createElementVNode("td", null, _toDisplayString(row.time), 1),
                           _createElementVNode("td", null, [
                             _createVNode(_component_VBtn, {
@@ -1010,7 +1244,7 @@ return (_ctx, _cache) => {
                               disabled: running.value,
                               onClick: $event => (rollbackOne(row))
                             }, {
-                              default: _withCtx(() => [...(_cache[24] || (_cache[24] = [
+                              default: _withCtx(() => [...(_cache[30] || (_cache[30] = [
                                 _createTextVNode(" 回滚 ", -1)
                               ]))]),
                               _: 1
@@ -1032,7 +1266,7 @@ return (_ctx, _cache) => {
     _createVNode(_component_VCard, { variant: "outlined" }, {
       default: _withCtx(() => [
         _createVNode(_component_VCardTitle, { class: "text-subtitle-1" }, {
-          default: _withCtx(() => [...(_cache[26] || (_cache[26] = [
+          default: _withCtx(() => [...(_cache[32] || (_cache[32] = [
             _createTextVNode("最近日志", -1)
           ]))]),
           _: 1
@@ -1040,14 +1274,14 @@ return (_ctx, _cache) => {
         _createVNode(_component_VCardText, { class: "moe-logs" }, {
           default: _withCtx(() => [
             (!(status.value.logs || []).length)
-              ? (_openBlock(), _createElementBlock("div", _hoisted_17, "暂无日志"))
+              ? (_openBlock(), _createElementBlock("div", _hoisted_23, "暂无日志"))
               : _createCommentVNode("", true),
             (_openBlock(true), _createElementBlock(_Fragment, null, _renderList((status.value.logs || []).slice().reverse(), (log, index) => {
               return (_openBlock(), _createElementBlock("div", {
                 key: index,
                 class: "moe-log-line"
               }, [
-                _createElementVNode("span", _hoisted_18, "[" + _toDisplayString(log.time) + "]", 1),
+                _createElementVNode("span", _hoisted_24, "[" + _toDisplayString(log.time) + "]", 1),
                 _createElementVNode("span", {
                   class: _normalizeClass(log.level === 'error' ? 'text-error' : (log.level === 'warning' ? 'text-warning' : ''))
                 }, _toDisplayString(log.message), 3)
@@ -1064,6 +1298,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0c528ec3"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-1fadbbb5"]]);
 
 export { AppPage as default };
