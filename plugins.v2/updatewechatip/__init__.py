@@ -512,8 +512,11 @@ class UpdateWeChatIp(_PluginBase):
 
     @staticmethod
     def _result_brief(value: str, limit: int = 120) -> str:
-        """把企微接口返回压成单行并截断，完整内容由调用方放进悬停提示。"""
-        text = " ".join(str(value or "").split())
+        """把接口返回压成单行摘要：JSON 截断，HTML 页面只给长度。"""
+        text = str(value or "")
+        if text.lstrip().startswith("<"):
+            return f"HTML页面({len(text)} 字符)"
+        text = " ".join(text.split())
         return text if len(text) <= limit else text[:limit] + "…"
 
     def get_page(self) -> List[dict]:
@@ -678,7 +681,8 @@ class UpdateWeChatIp(_PluginBase):
             'confirm_type': "0"
         }
         response = self._se.get(url, params=params, headers=self._headers)
-        logger.info(f"登录完成,返回值:{response.text}")
+        logger.info(f"登录完成，状态码:{response.status_code}，响应长度:{len(response.text)}，"
+                    f"需短信验证:{'tl_key' in response.url}")
         return response
 
     def _confirm_captcha(self, tl_key, captcha):
@@ -689,9 +693,9 @@ class UpdateWeChatIp(_PluginBase):
             "tl_key": tl_key
         }
         res = self._se.post(_url, json=_data, headers=self._headers)
-        logger.info(f"提交验证码返回值:{res.text}")
+        logger.info(f"提交验证码返回值:{self._result_brief(res.text)}")
         res = self._se.get(f"https://work.weixin.qq.com/wework_admin/login/choose_corp?tl_key={tl_key}")
-        logger.info(f"choose_corp接口返回值:{res.text}")
+        logger.info(f"choose_corp接口返回值:{self._result_brief(res.text)}")
 
     def _party_cache(self):
         logger.info("开始获取企业信息,判断是否登录成功")
