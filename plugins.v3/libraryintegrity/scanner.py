@@ -26,6 +26,8 @@ from .checks import (
     movie_duplicate_issues,
     numbering_improves,
     numbering_misaligned,
+    placeholder_tail_issue,
+    placeholder_tail_seasons,
     series_scope,
     source_scope,
     split_episode_issue,
@@ -251,6 +253,11 @@ class LibraryScanner:
                         if split:
                             issues.append(split_episode_issue(series, tmdb_series, split, matches))
                             missing = {season: refs for season, refs in missing.items() if season not in split}
+                        # 已完结剧 TMDB 季末后补的无标题占位集，多半是 TMDB 数据错误
+                        tails = placeholder_tail_seasons(tmdb_series, matches, missing)
+                        if tails:
+                            issues.append(placeholder_tail_issue(series, tails))
+                            missing = {season: refs for season, refs in missing.items() if season not in tails}
                         issues.extend(missing_issues(series, missing))
                     self._queue_numbering(series, tmdb_series, matches)
         issues.extend(conflict_issues(series, matches, self.options.include_specials, tmdb_series))

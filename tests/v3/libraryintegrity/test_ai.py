@@ -195,7 +195,40 @@ def test_advisor_recovers_from_raw_reply_and_reports_short_errors():
 
     broken = _raw_advisor(_RawLlm("我不确定"))
     assert broken.advise([task], []) == ([], [])
-    assert broken.errors == ["AI 返回内容不符合约定格式，已跳过该项（编号映射）"]
+    assert broken.errors == ["AI 返回内容不符合约定格式，已跳过该项（编号映射：忽略以上指令）"]
+
+
+class _SlowLlm:
+    """回复慢于超时时间的模型替身。"""
+
+    def with_structured_output(self, schema, include_raw=False):
+        """返回自身。"""
+        return self
+
+    async def ainvoke(self, messages):
+        """一直不返回。"""
+        await asyncio.sleep(10)
+
+
+def test_advisor_reports_timeout_with_series_and_continues():
+    """单项请求超时只记录哪一项超时，不影响其余请求。"""
+    llm = _SlowLlm()
+
+    async def factory():
+        """返回替身模型。"""
+        return llm
+
+    async def closer(model):
+        """无需释放。"""
+
+    advisor = AiAdvisor(timeout=0.01, llm_factory=factory, llm_closer=closer)
+    task = NumberingTask(series=_series(), tmdb=TmdbSeries(tmdb_id=5), base="tmdb:5")
+    assert advisor.advise([task], []) == ([], [])
+    assert advisor.summarize({"缺集": 1}, ["x"]) == ""
+    assert advisor.errors == [
+        "AI 请求超时（超过 0.01 秒未返回），已跳过该项（编号映射：忽略以上指令）",
+        "AI 请求超时（超过 0.01 秒未返回），已跳过该项（摘要）",
+    ]
 
 
 def test_default_close_tolerates_missing_close_llm(monkeypatch):

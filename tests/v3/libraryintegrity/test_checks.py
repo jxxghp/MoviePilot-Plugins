@@ -464,6 +464,58 @@ def test_split_episode_seasons_needs_two_paired_seasons():
     assert split_episode_seasons(matches, tmdb, find_missing(tmdb, matches, TODAY)) == []
 
 
+def _titled_tmdb(count: int, placeholders: int, gap: int, status: str = "Ended") -> TmdbSeries:
+    """构造单季剧：前 count 集有标题，末尾 placeholders 集只有集号，其 ID 比前面大 gap。"""
+    tmdb = TmdbSeries(tmdb_id=100, status=status)
+    refs = [
+        TmdbEpisodeRef(tmdb_id=20000 + n, season=1, episode=n, air_date="2020-09-10", name=f"剧情{n}")
+        for n in range(1, count + 1)
+    ]
+    refs += [
+        TmdbEpisodeRef(tmdb_id=20000 + count + gap + n, season=1, episode=count + n, air_date="2021-01-09", name=f"第 {count + n} 集")
+        for n in range(1, placeholders + 1)
+    ]
+    tmdb.seasons[1] = refs
+    return tmdb
+
+
+def test_placeholder_tail_of_ended_series_is_not_missing():
+    """已完结剧季末后补的无标题集（如长安诺 E57-E60）不报缺集，改为一条无法核对。"""
+    from app.plugins.libraryintegrity.checks import placeholder_tail_issue, placeholder_tail_seasons
+
+    tmdb = _titled_tmdb(56, 4, gap=3_500_000)
+    series = _series([_episode(1, n) for n in range(1, 57)])
+    matches = match_episodes(series, tmdb)
+    missing = find_missing(tmdb, matches, TODAY)
+    tails = placeholder_tail_seasons(tmdb, matches, missing)
+    assert [ref.episode for ref in tails[1]] == [57, 58, 59, 60]
+    issue = placeholder_tail_issue(series, tails)
+    assert issue.type == IssueType.UNCHECKED and issue.severity == Severity.INFO
+    assert issue.summary == "TMDB 第 1 季末尾 E57-E60 疑似多余的占位集，未报缺集"
+
+
+def test_placeholder_tail_requires_all_signals():
+    """仍在播出、与前面同批建立、库内中间也缺、或库内最后一集也无标题时，照常报缺集。"""
+    from app.plugins.libraryintegrity.checks import placeholder_tail_seasons
+
+    def tails(tmdb, numbers):
+        """按库内集号判定。"""
+        series = _series([_episode(1, n) for n in numbers])
+        matches = match_episodes(series, tmdb)
+        return placeholder_tail_seasons(tmdb, matches, find_missing(tmdb, matches, TODAY))
+
+    full = range(1, 57)
+    assert tails(_titled_tmdb(56, 4, gap=3_500_000, status="Returning Series"), full) == {}
+    assert tails(_titled_tmdb(56, 4, gap=1), full) == {}
+    assert tails(_titled_tmdb(56, 4, gap=3_500_000), [n for n in full if n != 30]) == {}
+    # 缺的不只是占位集：库内只到 E50，E51-E56 有正式标题
+    assert tails(_titled_tmdb(56, 4, gap=3_500_000), range(1, 51)) == {}
+    # 全剧都只有集号（如蜗居），无从判断末尾是否多余
+    untitled = _titled_tmdb(56, 4, gap=3_500_000)
+    untitled.seasons[1] = [replace(ref, name=f"第 {ref.episode} 集") for ref in untitled.seasons[1]]
+    assert tails(untitled, full) == {}
+
+
 def test_empty_tmdb_season_is_not_misaligned_and_hints_waiting():
     """TMDB 已建季但没有单集：不算整体错位，提示等待 TMDB 补全而不是编号映射。"""
     from app.plugins.libraryintegrity.checks import numbering_misaligned

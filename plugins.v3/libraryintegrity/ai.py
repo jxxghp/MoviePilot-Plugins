@@ -313,13 +313,24 @@ def ai_available() -> bool:
     return True
 
 
+# 单次请求超时（秒）；推理型模型处理一部剧的全部单集清单常需一两分钟
+DEFAULT_TIMEOUT = 180
+
+
+def _job_label(key: Any, schema: Optional[type[BaseModel]]) -> str:
+    """错误提示中标明是哪一项请求，如「编号映射：长安诺」。"""
+    label = SCHEMA_LABELS.get(schema, "摘要" if schema is None else "AI")
+    series = getattr(key, "series", None)
+    return f"{label}：{series.title}" if series is not None and series.title else label
+
+
 class AiAdvisor:
     """批量请求 AI；同一轮请求共用一个模型实例，并在同一事件循环内释放。默认不限制调用次数。"""
 
     def __init__(
         self,
         max_calls: Optional[int] = None,
-        timeout: float = 60,
+        timeout: float = DEFAULT_TIMEOUT,
         llm_factory: Callable[[], Awaitable[Any]] = _default_llm,
         llm_closer: Callable[[Any], Awaitable[Any]] = _default_close,
     ) -> None:
@@ -392,12 +403,15 @@ class AiAdvisor:
                 try:
                     results.append((key, await self._ask(llm, schema, prompt)))
                 except AiFormatError as err:
-                    label = SCHEMA_LABELS.get(schema, "AI")
+                    label = _job_label(key, schema)
                     self.errors.append(f"AI 返回内容不符合约定格式，已跳过该项（{label}）")
                     logger.debug(f"影视库完整性检查：AI {label}回复无法解析：{err}")
+                except (asyncio.TimeoutError, TimeoutError):
+                    self.errors.append(f"AI 请求超时（超过 {self.timeout:g} 秒未返回），已跳过该项（{_job_label(key, schema)}）")
                 except Exception as err:  # noqa: BLE001 - 模型或网络异常不应中断扫描
                     detail = str(err).splitlines()[0][:120] if str(err) else ""
-                    self.errors.append(f"AI 请求失败：{err.__class__.__name__} {detail}".strip())
+                    reason = f"{err.__class__.__name__} {detail}".strip()
+                    self.errors.append(f"AI 请求失败：{reason}（{_job_label(key, schema)}）")
         finally:
             try:
                 await self._llm_closer(llm)
