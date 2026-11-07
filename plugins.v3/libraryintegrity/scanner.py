@@ -21,6 +21,7 @@ from .checks import (
     duplicate_issues,
     find_missing,
     identity_coverage,
+    mapping_date_check,
     match_episodes,
     missing_issues,
     movie_duplicate_issues,
@@ -272,7 +273,7 @@ class LibraryScanner:
     # ------------------------------------------------------------------
 
     def _supplement_from_nfo(self, nfo: NfoReader, series: LibrarySeries) -> None:
-        """按需读取 NFO：补剧集 ID、补单集 ID、补 strm 技术参数，并校验季集号。"""
+        """按需读取 NFO：补剧集 ID、补单集 ID、补 strm 技术参数与播出日期，并校验季集号。"""
         if not series.tmdb_id and series.path:
             info = nfo.series(series.path)
             if info and info.tmdb_id:
@@ -308,6 +309,8 @@ class LibraryScanner:
             if info.stale:
                 note += "（NFO 早于视频文件，可能已过期）"
             episode.conflicts.append(note)
+        if not episode.air_date and info.aired:
+            episode.air_date = info.aired
         for version in episode.versions:
             if version.kind == "strm":
                 version.fill("resolution", info.resolution, "nfo")
@@ -394,12 +397,18 @@ class LibraryScanner:
         if not numbering_improves(before, after):
             logger.info(f"影视库完整性检查：{task.series.title} 的 AI 映射建议未通过验证，已丢弃")
             return
+        # 集数凑得上不代表对得上：映射到的 TMDB 单集播出日期须与库内首播日期大体一致
+        dates = mapping_date_check(task.series, task.tmdb, proposed)
+        if not dates.passed:
+            logger.info(f"影视库完整性检查：{task.series.title} 的 AI 映射建议播出日期不符，已丢弃（{dates.describe()}）")
+            return
         rule = "\n".join(mapping.describe(task.base) for mapping in proposed)
         self._add([suggestion_issue(
             task.series,
             "AI 建议：按映射规则对应库内编号",
             rule.splitlines() + [
                 f"采纳后：无法对应的集 {before.unmatched} → {after.unmatched}，缺集 {before.missing} → {after.missing}",
+                dates.describe(),
                 f"AI 理由：{answer.reason}（把握 {answer.confidence:.0%}）",
             ],
             "mapping",
