@@ -40,7 +40,7 @@ class UpdateWeChatIp(_PluginBase):
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本，必须和 package.v2.json 中保持一致
-    plugin_version = "1.0.11-3"
+    plugin_version = "1.0.12"
     # 作者信息
     plugin_author = "书小白"
     author_url = "https://github.com/thshu/MoviePilot-Plugins"
@@ -665,21 +665,30 @@ class UpdateWeChatIp(_PluginBase):
         logger.info(f"构建二维码地址为:{img_url}")
         return img_url
 
-    def _check(self, key) -> Dict:
+    def _check(self, key, timeout: int = 30) -> Dict:
+        """等待手机确认扫码，超时或二维码失效时返回 None。"""
         logger.info("开始获取扫码结果")
-        for _ in range(2):
-            url = "https://work.weixin.qq.com/wework_admin/wwqrlogin/mng/check"
-            params = {
-                'qrcode_key': key,
-                'status': "QRCODE_SCAN_ING"
-            }
-            response = self._se.get(url, params=params, headers=self._headers)
-            data = response.json().get('data', {})
-            logger.info(f"扫码结果获取完成:{response.text}")
+        url = "https://work.weixin.qq.com/wework_admin/wwqrlogin/mng/check"
+        params = {
+            'qrcode_key': key,
+            'status': "QRCODE_SCAN_ING"
+        }
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                response = self._se.get(url, params=params, headers=self._headers, timeout=10)
+                data = response.json().get('data', {})
+            except Exception as e:
+                logger.error(f"获取扫码结果异常: {e}")
+                return None
             if data.get("status") == "QRCODE_SCAN_SUCC":
+                logger.info("扫码已确认")
                 return data
-            time.sleep(1)
-        logger.info("获取扫码结果超时")
+            if not data:
+                logger.info(f"二维码无效或已过期:{self._result_brief(response.text, 80)}")
+                return None
+            time.sleep(2)
+        logger.info(f"获取扫码结果超时，{timeout} 秒内未确认")
         return None
 
     def _loginpage_wx(self, key, code) -> requests.Response:
@@ -785,6 +794,15 @@ class UpdateWeChatIp(_PluginBase):
                         userid=userid,
                         text=f"登录失败,返回值:{self._party_cache_data}",
                     )
+        else:
+            logger.error("未检测到扫码确认，二维码可能已过期")
+            self.post_message(
+                channel=channel,
+                title="登录失败",
+                userid=userid,
+                text="未检测到扫码确认：二维码可能已过期，或手机上还没点确认。\n"
+                     "请重新发送 /update_wechat_ip 获取二维码后再操作。",
+            )
 
     @staticmethod
     def _fail_hint(res) -> str:
