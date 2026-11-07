@@ -799,6 +799,76 @@ def split_episode_issue(series: LibrarySeries, tmdb: TmdbSeries, seasons: list[i
     )
 
 
+# 只有集号、没有真正标题的单集名，如「第 57 集」「Episode 57」「第57话」
+_PLACEHOLDER_NAME = re.compile(r"^(?:第\s*\d+\s*[集话話]|(?:episode|ep\.?)\s*\d+)$", re.IGNORECASE)
+# TMDB 单集 ID 全站递增；末尾几集的 ID 比前面的集大出这么多，说明是很久以后才补建的
+_LATE_ID_GAP = 100_000
+ENDED_STATUSES = {"ended", "canceled", "cancelled"}
+
+
+def _placeholder_name(name: str) -> bool:
+    """单集名为空或只有集号。"""
+    text = (name or "").strip()
+    return not text or bool(_PLACEHOLDER_NAME.match(text))
+
+
+def placeholder_tail_seasons(
+    tmdb: TmdbSeries, matches: list[EpisodeMatch], missing: dict[int, list[TmdbEpisodeRef]]
+) -> dict[int, list[TmdbEpisodeRef]]:
+    """找出缺集恰好是 TMDB 季末"后补占位集"的季，这些缺集多半是 TMDB 数据错误。
+
+    典型如长安诺：全剧 56 集，E56 已是大结局，TMDB 却在数年后被补了 E57-E60，标题只有「第 N 集」。
+    判定条件（须同时满足）：剧集已完结；缺的正好是库内最后一集之后的全部 TMDB 单集；
+    这些单集都没有真正的标题，而库内最后一集有；它们的 TMDB ID 远大于该季其余单集（后补建）。
+    仍在播出的剧、或与前面同批建立的无标题集（只是还没人填标题）不在此列，照常报缺集。
+    """
+    if (tmdb.status or "").strip().lower() not in ENDED_STATUSES:
+        return {}
+    covered: dict[int, set[int]] = defaultdict(set)
+    for match in matches:
+        for ref in match.refs:
+            covered[ref.season].add(ref.tmdb_id)
+    result: dict[int, list[TmdbEpisodeRef]] = {}
+    for season, refs in missing.items():
+        have = covered.get(season)
+        season_refs = sorted(tmdb.seasons.get(season, []), key=lambda r: r.episode)
+        if season == 0 or not have or not refs:
+            continue
+        last = max((i for i, ref in enumerate(season_refs) if ref.tmdb_id in have), default=-1)
+        tail = season_refs[last + 1:]
+        if last < 0 or not tail or {ref.tmdb_id for ref in tail} != {ref.tmdb_id for ref in refs}:
+            continue
+        if _placeholder_name(season_refs[last].name) or not all(_placeholder_name(ref.name) for ref in tail):
+            continue
+        earlier = max(ref.tmdb_id for ref in season_refs[:last + 1])
+        if min(ref.tmdb_id for ref in tail) - earlier < _LATE_ID_GAP:
+            continue
+        result[season] = sorted(refs, key=lambda r: r.episode)
+    return result
+
+
+def placeholder_tail_issue(series: LibrarySeries, tails: dict[int, list[TmdbEpisodeRef]]) -> Issue:
+    """TMDB 季末疑似多余的占位集，不报缺集，改为一条无法核对。"""
+    details = [
+        f"第 {season} 季：TMDB 末尾 {format_episode_ranges(ref.episode for ref in refs)} 只有集号、没有标题，"
+        f"且是在其余单集建立很久之后才补建的"
+        for season, refs in sorted(tails.items())
+    ]
+    details.append("剧集已完结，库内最后一集之前的单集都有正式标题，这几集多半是 TMDB 上多余的占位条目，未计入缺集")
+    details.append("若确实还有这几集，可对照播出平台核实；也可到 TMDB 删除或修正这些条目")
+    numbers = "，".join(
+        f"第 {season} 季末尾 {format_episode_ranges(ref.episode for ref in refs)}" for season, refs in sorted(tails.items())
+    )
+    return _series_issue(
+        series,
+        IssueType.UNCHECKED,
+        severity=Severity.INFO,
+        summary=f"TMDB {numbers} 疑似多余的占位集，未报缺集",
+        details=details,
+        scope=series_scope(series.tmdb_id, series.server, series.item_id, series.origin),
+    )
+
+
 def unreliable_missing_issue(series: LibrarySeries, missing: dict[int, list[TmdbEpisodeRef]]) -> Issue:
     """库内编号与 TMDB 不一致时，缺集结果不可信，不逐季报告缺集，改为一条无法核对。"""
     total = sum(len(refs) for refs in missing.values())
