@@ -143,15 +143,16 @@
   },
   "AutoSports": {
     "name": "Sportscult 比赛自动下载及简单刮削",
-    "description": "添加 Sportscult 站点索引器，并可根据设置的球队名自动下载最新比赛，进行文件整理及简单的刮削，在使用前务必查看配置说明：https://github.com/Sinterdial/MoviePilot-Plugins/blob/main/README.md",
+    "description": "添加 Sportscult 站点索引器，并可根据设置的球队名自动下载最新比赛，进行文件整理及简单的刮削；同时注册 AutoSports 媒体数据源，可在搜索中按体育比赛规则识别本站种子，在使用前务必查看配置说明：https://github.com/Sinterdial/MoviePilot-Plugins/blob/main/README.md",
     "labels": "站点",
-    "version": "3.0.1",
+    "version": "3.1.0",
     "icon": "https://raw.githubusercontent.com/Sinterdial/MoviePilot-Plugins/main/icons/autosports.png",
     "author": "Sinterdial",
     "level": 2,
     "release": true,
     "system_version": ">=3.0.0",
     "history": {
+      "v3.1.0": "1. 新增 AutoSports 媒体数据源，内置搜索可识别并下载 Sportscult 种子；2. 本站种子默认不受 MP 过滤规则限制，可用「内置搜索也按过滤规则筛选本站种子」开关改为遵循规则；3. 插件自动搜索不再套用 MP 种子过滤规则，避免 720p 或无分辨率比赛种子被误过滤；4. 历史记录支持分页（每页 35 条）并显示赛事 logo 与球队队徽；5. 重写球队名匹配（支持变音符号、比赛日期消歧），football-data.org 请求支持插件代理与失败缓存，已入库扫描增加短时缓存，索引器已存在时不再重复添加；6. 未配置 API key 时插件自动停止运行并提示；7. 代码结构重构：按识别、搜索、目录监控、页面四个子模块拆分，便于维护",
       "v3.0.1": "迁移至v3，使用SDK加载模块，优化自定义赛事的指引信息",
       "v2.0.6": "1. 修复欧冠淘汰赛识别错误的问题；2. 修复带WEB等后缀时无法识别对阵信息的问题",
       "v2.0.5": "1. 增加离线识别杯赛轮次的鲁棒性；2. 默认排除非足球比赛",
