@@ -40,7 +40,7 @@ class UpdateWeChatIp(_PluginBase):
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本，必须和 package.v2.json 中保持一致
-    plugin_version = "1.0.11"
+    plugin_version = "1.0.11-2"
     # 作者信息
     plugin_author = "书小白"
     author_url = "https://github.com/thshu/MoviePilot-Plugins"
@@ -544,10 +544,10 @@ class UpdateWeChatIp(_PluginBase):
                     "text": "成功" if data.status else "失败"}]},
                 {"component": "td", "props": {"class": "text-no-wrap"}, "text": data.app_id},
                 {"component": "td", "props": {"class": "text-no-wrap font-monospace"}, "text": data.ip},
-                {"component": "td",
-                 "props": {"style": {"maxWidth": "320px", "whiteSpace": "normal", "wordBreak": "break-all"},
-                           "title": data.result},
-                 "text": self._result_brief(data.result)},
+                {"component": "td", "content": [{
+                    "component": "span",
+                    "props": {"style": {"whiteSpace": "nowrap", "fontFamily": "monospace"}},
+                    "text": data.result}]},
                 {"component": "td", "props": {"class": "text-no-wrap text-caption"},
                  "text": data.UpdateTime.strftime('%Y-%m-%d %H:%M:%S')},
             ]}
