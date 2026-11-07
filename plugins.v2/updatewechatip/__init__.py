@@ -40,7 +40,7 @@ class UpdateWeChatIp(_PluginBase):
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本，必须和 package.v2.json 中保持一致
-    plugin_version = "1.0.11-2"
+    plugin_version = "1.0.11-3"
     # 作者信息
     plugin_author = "书小白"
     author_url = "https://github.com/thshu/MoviePilot-Plugins"
@@ -528,6 +528,16 @@ class UpdateWeChatIp(_PluginBase):
         text = " ".join(text.split())
         return text if len(text) <= limit else text[:limit] + "…"
 
+    @staticmethod
+    def _log_result_text(status: bool, result: str) -> str:
+        """记录表的返回值列：成功显示响应原文，失败只显示 humanMessage/errMsg。"""
+        text = str(result or "")
+        if status:
+            return text
+        matched = re.search(r'"humanMessage"\s*:\s*"([^"]*)"', text, re.I) or \
+            re.search(r'"errmsg"\s*:\s*"([^"]*)"', text, re.I)
+        return matched.group(1) if matched else UpdateWeChatIp._result_brief(text, 60)
+
     def get_page(self) -> List[dict]:
         """返回详情页 JSON。"""
         # ---------- 获取并排序更新日志 ----------
@@ -547,7 +557,7 @@ class UpdateWeChatIp(_PluginBase):
                 {"component": "td", "content": [{
                     "component": "span",
                     "props": {"style": {"whiteSpace": "nowrap", "fontFamily": "monospace"}},
-                    "text": data.result}]},
+                    "text": self._log_result_text(data.status, data.result)}]},
                 {"component": "td", "props": {"class": "text-no-wrap text-caption"},
                  "text": data.UpdateTime.strftime('%Y-%m-%d %H:%M:%S')},
             ]}
@@ -849,7 +859,17 @@ class UpdateWeChatIp(_PluginBase):
                 'app_id': appId,
                 'ipList[]': self._ip
             }
-            res = self._se.post(url, data=data, headers=self._headers)
+            try:
+                res = self._se.post(url, data=data, headers=self._headers, timeout=15)
+            except requests.RequestException as e:
+                logger.error(f"{appId}更新IP白名单请求异常: {e}")
+                _update_log.append(UpdateLogDto(
+                    status=False,
+                    ip=self._ip,
+                    app_id=appId,
+                    result=f"请求异常: {e}"
+                ))
+                continue
             if 'err' in res.text:
                 logger.error(f"{appId}更新IP白名单失败（{self._fail_hint(res)}），返回值：{self._result_brief(res.text)}")
             else:
