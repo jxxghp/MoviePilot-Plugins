@@ -516,6 +516,65 @@ def test_placeholder_tail_requires_all_signals():
     assert tails(untitled, full) == {}
 
 
+def test_undated_episodes_before_an_aired_one_count_as_missing():
+    """TMDB 中没填播出日期、但排在已播出单集之前的集算已播出；排在最后一个已播出单集之后的不算。"""
+    tmdb = _tmdb({1: 10})
+    tmdb.seasons[1] = [
+        replace(ref, air_date="" if 3 <= ref.episode <= 9 and ref.episode != 6 else ref.air_date) for ref in tmdb.seasons[1]
+    ]
+    tmdb.seasons[1][-1] = replace(tmdb.seasons[1][-1], air_date="")
+    series = _series([_episode(1, 1), _episode(1, 2)])
+    missing = find_missing(tmdb, match_episodes(series, tmdb), TODAY)
+    assert [ref.episode for ref in missing[1]] == [3, 4, 5, 6]
+    issue = missing_issues(series, missing)[0]
+    assert issue.details[0] == "E03 第3集（TMDB 未填播出日期）"
+
+
+def test_part_files_of_one_episode_are_not_versions():
+    """同一集拆成 Part1/Part2 的文件不报多版本；分段的两个不同版本仍报。"""
+    def versions(*names):
+        """按文件名构造版本。"""
+        return [VersionInfo(path=f"/tv/Season 5/{name}") for name in names]
+
+    tmdb = _tmdb({5: 9})
+    split = replace(_episode(5, 8), versions=versions("S05E08-Part1 - 第 8 集.strm", "S05E08-Part2 - 第 8 集.strm"))
+    assert duplicate_issues(_series([split]), match_episodes(_series([split]), tmdb), False, False) == []
+    two = replace(_episode(5, 8), versions=versions(
+        "S05E08-Part1 - 1080p.strm", "S05E08-Part2 - 1080p.strm", "S05E08 - 2160p.strm",
+    ))
+    issues = duplicate_issues(_series([two]), match_episodes(_series([two]), tmdb), False, False)
+    assert [issue.summary for issue in issues] == ["S05E08 有 2 个版本"]
+    # 媒体服务器没有合并分段时是两个条目
+    parts = [
+        replace(_episode(5, 8, item_id="p1"), path="/tv/S05E08.cd1.mkv"),
+        replace(_episode(5, 8, item_id="p2"), path="/tv/S05E08.cd2.mkv"),
+    ]
+    assert duplicate_issues(_series(parts), match_episodes(_series(parts), tmdb), False, False) == []
+
+
+def test_mapping_date_check_rejects_shift_to_wrong_year():
+    """映射到的 TMDB 单集播出日期与库内首播日期相差太远时不通过；没有日期时无法否定。"""
+    from app.plugins.libraryintegrity.checks import NumberMapping, mapping_date_check
+
+    tmdb = TmdbSeries(tmdb_id=100, seasons={1: [
+        TmdbEpisodeRef(tmdb_id=n, season=1, episode=n, air_date=str(date(2005, 4, 15) + timedelta(days=7 * n)))
+        for n in range(1, 301)
+    ]})
+    episodes = [_episode(5, n) for n in range(1, 11)]
+    for n, episode in enumerate(episodes, start=1):
+        episode.air_date = str(date(2005, 4, 15) + timedelta(days=7 * (199 + n)))
+    series = _series(episodes)
+    right = mapping_date_check(series, tmdb, [NumberMapping(5, 1, 10, 1, 200)])
+    assert right.passed and (right.checked, right.agreed) == (10, 10)
+    wrong = mapping_date_check(series, tmdb, [NumberMapping(5, 1, 10, 1, 143)])
+    assert not wrong.passed and wrong.agreed == 0
+    assert wrong.sample == "库内 S05E01（2009-02-13）→ TMDB S01E143（2008-01-11）"
+    for episode in episodes:
+        episode.air_date = ""
+    unknown = mapping_date_check(series, tmdb, [NumberMapping(5, 1, 10, 1, 143)])
+    assert unknown.passed and unknown.describe() == "库内这些单集没有首播日期，未核对播出日期"
+
+
 def test_empty_tmdb_season_is_not_misaligned_and_hints_waiting():
     """TMDB 已建季但没有单集：不算整体错位，提示等待 TMDB 补全而不是编号映射。"""
     from app.plugins.libraryintegrity.checks import numbering_misaligned

@@ -17,6 +17,7 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError
 
 from app.sdk.logging import logger
 
+from .checks import DATE_TOLERANCE_DAYS, parse_air_date
 from .models import LibrarySeries, TmdbSeries
 
 SYSTEM_PROMPT = (
@@ -204,6 +205,26 @@ def _data(text: str) -> str:
     return f"<data>\n{text}\n</data>"
 
 
+def _date_anchors(task: NumberingTask) -> list[str]:
+    """为含无法对应单集的每个库内季，找出与该季首个有日期单集播出日期最接近的 TMDB 单集，作为起始集参考。"""
+    seasons = {int(m.group(1)) for m in (re.match(r"S(\d+)E", label) for label in task.unmatched) if m}
+    refs = [ref for refs in task.tmdb.seasons.values() for ref in refs if parse_air_date(ref.air_date)]
+    anchors = []
+    for season in sorted(seasons):
+        first = next((
+            e for e in sorted(task.series.episodes, key=lambda e: e.episode or 0)
+            if e.season == season and parse_air_date(e.air_date)
+        ), None)
+        if first is None or not refs:
+            continue
+        local = parse_air_date(first.air_date)
+        best = min(refs, key=lambda r: (abs((parse_air_date(r.air_date) - local).days), r.season == 0, r.season, r.episode))
+        gap = abs((parse_air_date(best.air_date) - local).days)
+        if gap <= DATE_TOLERANCE_DAYS:
+            anchors.append(f"库内 {first.label}（{local}）≈ TMDB S{best.season}E{best.episode}（{best.air_date}）")
+    return anchors
+
+
 def numbering_prompt(task: NumberingTask) -> str:
     """生成编号映射提示。"""
     seasons = []
@@ -214,15 +235,18 @@ def numbering_prompt(task: NumberingTask) -> str:
     lines = []
     for episode in sorted(task.series.episodes, key=lambda e: (e.season or 0, e.episode or 0))[:MAX_EPISODE_LINES]:
         name = episode.path.replace("\\", "/").rsplit("/", 1)[-1]
-        lines.append(f"{episode.label} | {name}")
+        lines.append(f"{episode.label} | {episode.air_date or '未知'} | {name}")
+    anchors = _date_anchors(task)
     return (
         f"剧集 TMDB ID {task.tmdb.tmdb_id}，TMDB 名称：{task.tmdb.name}\n"
         f"TMDB 季结构：\n" + "\n".join(seasons) + "\n\n"
-        f"库内单集（季集号 | 文件名）：\n{_data(chr(10).join(lines))}\n\n"
+        f"库内单集（季集号 | 首播日期 | 文件名）：\n{_data(chr(10).join(lines))}\n\n"
         f"按季集号无法在 TMDB 中找到的库内单集：{'、'.join(task.unmatched)}\n\n"
-        "请给出把这些库内编号对应到 TMDB 季集号的映射规则。每条规则把库内某一季中连续的一段集号"
+        + (f"按播出日期最接近的 TMDB 单集（供确定起始集参考）：\n{chr(10).join(anchors)}\n\n" if anchors else "")
+        + "请给出把这些库内编号对应到 TMDB 季集号的映射规则。每条规则把库内某一季中连续的一段集号"
         "整体平移到 TMDB 某一季的某集起，例如库内 S1 第 13 到 24 集对应 TMDB S2 第 1 集起。"
-        "常见原因是动画按绝对集数编号、季被拆分或合并。无法判断时返回空 mappings。"
+        "常见原因是动画按绝对集数编号、季被拆分或合并。有首播日期时按日期确定起始集，"
+        "映射到的 TMDB 单集播出日期应与库内首播日期一致，建议会按日期核对。无法判断时返回空 mappings。"
     )
 
 

@@ -154,6 +154,8 @@ def parse_episode(item: dict) -> LibraryEpisode:
         tmdb_id_source="emby" if tmdb_id else "",
         path=str(item.get("Path") or ""),
         versions=parse_versions(item),
+        # PremiereDate 是条目的默认字段，无需在 Fields 中声明
+        air_date=str(item.get("PremiereDate") or "")[:10],
     )
 
 

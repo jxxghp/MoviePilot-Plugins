@@ -56,6 +56,7 @@ class NfoInfo:
     resolution: Optional[str] = None
     video_codec: Optional[str] = None
     hdr: Optional[str] = None
+    aired: str = ""
     stale: bool = False
 
 
@@ -94,6 +95,7 @@ def parse_nfo_text(text: str, root_tag: str) -> list[NfoInfo]:
             tmdb_id=_tmdb_id(element),
             season=parse_int(_text(element, "season")),
             episode=parse_int(_text(element, "episode")),
+            aired=(_text(element, "aired") or _text(element, "premiered"))[:10],
         )
         video = element.find("fileinfo/streamdetails/video")
         if video is not None:
