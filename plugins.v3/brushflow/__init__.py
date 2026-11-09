@@ -1,5 +1,6 @@
 import base64
 import copy
+import hashlib
 import json
 import re
 import threading
@@ -14,6 +15,7 @@ from zoneinfo import ZoneInfo
 
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import Query
+from torrentool.api import Torrent
 
 from app import schemas
 from app.api.endpoints.plugin import register_plugin_api
@@ -220,17 +222,24 @@ class BrushFlow(_PluginBase):
     plugin_name = "站点刷流"
     plugin_desc = "自动托管多个站点刷流任务，并独立调度、统计与诊断。"
     plugin_icon = "brush-flow.png"
-    plugin_version = "6.1.5"
+    plugin_version = "6.1.6"
     plugin_author = "jxxghp,InfinityPacer,Seed680"
     author_url = "https://github.com/InfinityPacer"
     plugin_config_prefix = "brushflow_"
     plugin_order = 21
     auth_level = 2
 
-    DATA_SCHEMA_VERSION = 2
+    DATA_SCHEMA_VERSION = 3
     MAX_RUN_HISTORY = 50
     GLOBAL_BRUSH_TAG = "刷流"
-    TASK_DATA_NAMES = ("torrents", "archived", "unmanaged", "statistic", "runs")
+    TASK_DATA_NAMES = (
+        "torrents",
+        "archived",
+        "unmanaged",
+        "statistic",
+        "runs",
+        "download_failures",
+    )
 
     def init_plugin(self, config: dict = None) -> None:
         """初始化全局开关、任务配置、运行锁和历史数据迁移"""
@@ -885,6 +894,8 @@ class BrushFlow(_PluginBase):
                     self._save_task_data(task_id, data_name, rows)
         for task in tasks:
             self._recalculate_statistics(task.id)
+            if self._get_task_data(task.id, "download_failures") is None:
+                self._save_task_data(task.id, "download_failures", {})
         self.save_data("task_data_schema_version", self.DATA_SCHEMA_VERSION)
 
     def _migrate_torrent_identity_data(self) -> None:
@@ -2485,6 +2496,135 @@ class BrushFlow(_PluginBase):
             logger.error(f"处理种子下载提示地址失败：{str(err)}")
             return torrent_url
 
+    @staticmethod
+    def __torrent_content_is_valid(content: Union[str, bytes]) -> bool:
+        """校验间接下载响应是否为可解析且包含文件的种子内容。"""
+        if not isinstance(content, bytes) or not content:
+            return False
+        try:
+            torrent = Torrent.from_string(content)
+            return bool(getattr(torrent, "files", None))
+        except Exception:
+            return False
+
+    @staticmethod
+    def __response_message(response: Any) -> Optional[str]:
+        """提取站点响应中的短错误消息，避免把完整响应写入日志。"""
+        try:
+            payload = response.json()
+        except (AttributeError, TypeError, ValueError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        for key in ("message", "msg", "error"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()[:200]
+        return None
+
+    @staticmethod
+    def __download_failure_key(torrent: TorrentInfo) -> Optional[str]:
+        """按任务、站点和候选身份生成不含下载凭据的退避指纹。"""
+        identity = "\x1f".join(
+            str(value or "")
+            for value in (
+                torrent.site,
+                torrent.page_url,
+                torrent.title,
+                torrent.size,
+                torrent.pubdate,
+                torrent.enclosure,
+            )
+        )
+        if not identity.strip("\x1f"):
+            return None
+        return hashlib.sha256(identity.encode("utf-8")).hexdigest()
+
+    def __active_download_failures(self) -> Dict[str, dict]:
+        """读取并清理当前任务尚未到期的间接下载退避记录。"""
+        stored = self._current_task_data("download_failures", {})
+        if not isinstance(stored, dict):
+            return {}
+        now = time.time()
+        active: Dict[str, dict] = {}
+        for key, record in stored.items():
+            if not isinstance(record, dict):
+                continue
+            try:
+                retry_after = float(record.get("retry_after", 0))
+            except (TypeError, ValueError):
+                continue
+            if retry_after > now:
+                active[str(key)] = record
+        if len(active) != len(stored):
+            self._save_current_task_data("download_failures", active)
+        return active
+
+    def __download_failure_reason(self, torrent: TorrentInfo) -> Optional[str]:
+        """返回候选尚未结束的退避原因；已过期记录会被自动清理。"""
+        key = self.__download_failure_key(torrent)
+        if not key:
+            return None
+        record = self.__active_download_failures().get(key)
+        if not record:
+            return None
+        reason = str(record.get("message") or "间接下载暂时退避").strip()
+        return reason or "间接下载暂时退避"
+
+    def __record_download_failure(self, torrent: TorrentInfo, message: str) -> None:
+        """记录间接下载候选至本地时区次日，避免同一资源反复消耗站点额度。"""
+        key = self.__download_failure_key(torrent)
+        if not key:
+            return
+        failures = self.__active_download_failures()
+        reason = str(message or "间接下载返回内容无效").strip()[:200]
+        now = datetime.now(ZoneInfo(settings.TZ))
+        next_day = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        failures[key] = {
+            "retry_after": next_day.timestamp(),
+            "message": reason or "间接下载返回内容无效",
+        }
+        if len(failures) > 256:
+            failures = dict(
+                sorted(
+                    failures.items(),
+                    key=lambda item: float(item[1].get("retry_after", 0)),
+                    reverse=True,
+                )[:256]
+            )
+        self._save_current_task_data("download_failures", failures)
+
+    def __download_indirect_content(
+        self,
+        torrent: TorrentInfo,
+        torrent_url: str,
+        proxies: Any,
+    ) -> Optional[Union[str, bytes]]:
+        """下载并校验间接地址，拒绝把站点 JSON 或页面内容传给下载器。"""
+        if torrent_url.startswith("magnet:"):
+            return torrent_url
+        response = RequestUtils(cookies=None, proxies=proxies, ua=torrent.site_ua).get_res(
+            url=torrent_url
+        )
+        if not response or not response.ok:
+            status = getattr(response, "status_code", None) if response else None
+            message = self.__response_message(response) if response else None
+            reason = message or (f"HTTP {status}" if status else "无法打开下载地址")
+            logger.warning(f"刷流任务间接下载失败：{reason}：{torrent.title}")
+            return None
+        content = response.content
+        if isinstance(content, bytes) and content.startswith(b"magnet:"):
+            return content.decode("utf-8", errors="ignore")
+        if self.__torrent_content_is_valid(content):
+            return content
+        message = self.__response_message(response) or "返回内容不是有效的种子文件"
+        self.__record_download_failure(torrent, message)
+        task = self._get_task_config()
+        logger.error(
+            f"刷流任务 [{task.name if task else '未知'}] 间接下载失败：{message}：{torrent.title}"
+        )
+        return None
+
     def __download(self, torrent: TorrentInfo) -> Optional[str]:
         """按当前任务配置向 qBittorrent 或 Transmission 添加种子"""
         task = self._get_task_config()
@@ -2498,6 +2638,9 @@ class BrushFlow(_PluginBase):
         cookies = torrent.site_cookie
         indirect_download = isinstance(torrent_content, str) and torrent_content.startswith("[")
         if indirect_download:
+            if failure_reason := self.__download_failure_reason(torrent):
+                logger.info(f"刷流任务 [{task.name}] 跳过当日退避种子：{torrent.title}（{failure_reason}）")
+                return None
             torrent_content = self.__get_redict_url(
                 torrent_content,
                 proxies=proxies,
@@ -2509,6 +2652,10 @@ class BrushFlow(_PluginBase):
             return None
         if task.site_skip_tips and isinstance(torrent_content, str):
             torrent_content = self.__reset_download_url(torrent_content, torrent.site)
+        if indirect_download:
+            torrent_content = self.__download_indirect_content(torrent, torrent_content, proxies)
+            if not torrent_content:
+                return None
         if isinstance(torrent_content, str) and not torrent_content.startswith("magnet") and not indirect_download:
             # 站点可能返回登录页或首次下载确认页；交给主程序下载链校验并完成确认，避免把 HTML 传给下载器。
             download_torrent = copy.copy(torrent)
