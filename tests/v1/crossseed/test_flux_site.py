@@ -36,9 +36,13 @@ from app.plugins.crossseed import (
     CSSiteConfig,
     CrossSeed,
     CrossSeedHelper,
-    FLUX_SITE_NAME,
+    FLUX_SITE_NAMES,
+    FLUX_TOKEN_PREFIX,
     TorInfo,
 )
+
+# 测试里代表 FluxTorrent 架构站点的站点名（白名单首项）
+FLUX_SITE_NAME = FLUX_SITE_NAMES[0]
 
 
 # 站点真实响应形状：data.results 数组，query 是回标的原指纹，
@@ -148,6 +152,45 @@ def test_flux_url_tolerates_trailing_slash():
         "https://pt.example.com/api/v1/crossseed/lookup"
     assert site.get_torrent_url("1") == \
         "https://pt.example.com/api/v1/crossseed/dl/1"
+
+
+def test_hxpt_site_name_is_recognised():
+    """好学已由 NexusPHP 迁移到 FluxTorrent 架构，站点名命中白名单。
+
+    两者对外契约完全一致（同一套 ``/api/v1/crossseed/*`` 开放 API），
+    故走同一条适配路径。
+    """
+    site = CSSiteConfig(name="好学", url="https://www.hxpt.org", passkey="fxo_token")
+
+    assert site.is_flux is True
+    assert site.get_api_url() == "https://www.hxpt.org/api/v1/crossseed/lookup"
+    assert site.get_torrent_url("9") == "https://www.hxpt.org/api/v1/crossseed/dl/9"
+
+
+def test_fxo_credential_detects_flux_architecture():
+    """自定义站点名任意填时，凭据形态仍能正确分派。
+
+    MoviePilot 的自定义站点名可以随便填，只靠站点名会漏判；``fxo_`` 开放
+    API 令牌只有 FluxTorrent 架构会签发，故凭据形态是可靠的第二判据。
+    """
+    site = CSSiteConfig(name="我的站", url="https://pt.example.com", passkey="fxo_abc")
+
+    assert site.is_flux is True
+    assert site.get_api_url() == "https://pt.example.com/api/v1/crossseed/lookup"
+    assert site.get_torrent_url("1") == "https://pt.example.com/api/v1/crossseed/dl/1"
+
+
+def test_flux_token_prefix_constant_matches_site_contract():
+    """令牌前缀常量必须是站点实际签发的形态。"""
+    assert FLUX_TOKEN_PREFIX == "fxo_"
+
+
+def test_non_flux_site_with_non_flux_credential_stays_upstream():
+    """非白名单站点名 + 非 fxo_ 凭据 ⇒ 不走 Flux 分派。"""
+    site = CSSiteConfig(name="青蛙", url="https://pt.example.org/", passkey="np_passkey")
+
+    assert site.is_flux is False
+    assert site.get_api_url() == "https://pt.example.org/api/pieces-hash"
 
 
 def test_flux_detection_requires_exact_site_name():

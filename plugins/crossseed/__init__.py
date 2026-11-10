@@ -29,10 +29,18 @@ from app.utils.string import StringUtils
 from app.utils.timer import TimerUtils
 
 
-# FluxTorrent 站点在 MoviePilot 站点列表里的**精确名称**。
-# 站点名是上游唯一的分派依据（上游对「憨憨」也是这么做的），
-# 所以这个名字必须与站点列表里填的一致，大小写敏感。
-FLUX_SITE_NAME = "FluxTorrent"
+# FluxTorrent 架构站点在 MoviePilot 站点列表里的**精确名称**。
+# 站点名是上游主要的分派依据（上游对「憨憨」也是这么做的），
+# 所以这些名字必须与站点列表里填的一致，大小写敏感。
+#   - "FluxTorrent"：自建的 FluxTorrent 站
+#   - "好学"：好学（hxpt.org）已由 NexusPHP 整体迁移到 FluxTorrent 架构，
+#     对外契约与 FluxTorrent 完全一致，故复用同一条适配路径
+FLUX_SITE_NAMES = ("FluxTorrent", "好学")
+
+# FluxTorrent 开放 API 令牌前缀（站点【开放API】页签签发，形如 fxo_<uuid>）。
+# 该前缀只有 FluxTorrent 架构的站点会签发，故也能用来判别架构：自定义站点
+# 的名字可以任意填，只靠站点名会漏判，凭据形态则不会。
+FLUX_TOKEN_PREFIX = "fxo_"
 
 
 class CSSiteConfig(object):
@@ -79,8 +87,17 @@ class CSSiteConfig(object):
 
     @property
     def is_flux(self) -> bool:
-        """是否 FluxTorrent 站点（站点名精确匹配）。"""
-        return (self.name or "").strip() == FLUX_SITE_NAME
+        """是否 FluxTorrent 架构站点。
+
+        两条判据任一成立即认为是：
+
+        1. 站点名精确命中白名单（``FLUX_SITE_NAMES``）；
+        2. 凭据是 FluxTorrent 开放 API 令牌（``fxo_`` 前缀）——自定义站点名
+           可任意填写，只靠站点名会漏判，凭据形态则不会。
+        """
+        if (self.name or "").strip() in FLUX_SITE_NAMES:
+            return True
+        return (self.passkey or "").strip().startswith(FLUX_TOKEN_PREFIX)
 
     def get_api_url(self):
         if self.is_flux:
@@ -265,7 +282,7 @@ class CrossSeed(_PluginBase):
     # 插件图标
     plugin_icon = "qingwa.png"
     # 插件版本
-    plugin_version = "2.4.2"
+    plugin_version = "2.4.3"
     # 插件作者
     plugin_author = "233@qingwa"
     # 作者主页
@@ -774,7 +791,7 @@ class CrossSeed(_PluginBase):
                                                     '2. 支持辅种站点列表：青蛙、AGSVPT、红豆饭、麒麟、UBits、聆音等，配置passkey时，站点名称需严格和上面选项一致，只有选中的站点会辅种，passkey可保存多个； '
                                                     '3. 请勿与IYUU辅种插件同时添加相同站点，可能会有冲突，且意义不大；'
                                                     '4. 测试站点是否支持的方法：【站点域名/api/pieces-hash】接口访问返回405则大概率支持；'
-                                                    '5. FluxTorrent 站点（站点名须精确为 FluxTorrent）：配置格式 FluxTorrent:fxo_开头的开放API令牌，'
+                                                    '5. FluxTorrent 架构站点（FluxTorrent / 好学）：配置格式 站点名:fxo_开头的开放API令牌，'
                                                     '令牌需在站点【开放API】页签签发并勾选 crossseed 权限，注意这里填的不是 Tracker passkey； '
                                         }
                                     }
