@@ -20,9 +20,12 @@ from uuid import uuid4
 from .quality import (
     ai_flavor_score,
     classify_failure,
+    common_prefix_length,
     max_similarity,
+    stray_english_words,
     summarize_failure_kinds,
     suspicious_names,
+    text_similarity,
 )
 
 from app.sdk.logging import logger
@@ -60,6 +63,9 @@ _FAILURE_RETRY_LIMIT = 3
 _TMDB_DETAIL_TTL = 1800.0
 # 质量闸门判定为「中文占比过低」时用于区分可重试失败与素材缺失
 _UNTRANSLATED_PREFIX = "简介中文占比过低"
+# 同季分集「开头骨架」相似度阈值：同一部剧的多集开头高度一致时，
+# 通常是套了同一个模板，即使全文 Jaccard 没到阈值也应该判雷同。
+_EPISODE_HEAD_SIMILARITY = 0.7
 
 # MusicBrainz：MV 没有 TMDB 演职员数据，团体成员只能取自这里
 MB_API = "https://musicbrainz.org/ws/2"
@@ -150,6 +156,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "quality_ai_flavor_min_score": 60,
     "quality_name_check": True,
     "quality_similarity_threshold": 0.85,
+    # 质量闸门失败后自动用保守提示词改写一次（禁止人名、禁止剧透）
+    "quality_gate_retry": True,
     # 文风模板与剧透策略
     "style_preset": "objective",
     "allow_spoiler": False,
@@ -339,6 +347,7 @@ def normalize_config(config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "scan_placeholder_only",
         "quality_ai_flavor_gate",
         "quality_name_check",
+        "quality_gate_retry",
         "allow_spoiler",
         "episode_title_enabled",
         "series_enabled",
@@ -1529,6 +1538,20 @@ EPISODE_EXPAND_SYSTEM = (
     "4. 简体中文、一段连贯文字，不要小标题或列表，不要加前缀，直接输出正文。"
 )
 
+# 质量闸门失败后的保守改写：只改表达，不改事实，去掉人名、剧透与套话
+QUALITY_RETRY_SYSTEM = (
+    "你是严谨的影视资料编辑，负责改写一段未通过质量检查的简介。\n"
+    "硬性要求：\n"
+    "1. 全篇不得出现任何具体人名（演员、角色、导演、编剧都不要写）；需要指代人物时用身份或关系，"
+    "如「老刑警」「他的搭档」「女主角」。\n"
+    "2. 不得提及结局与关键反转，不得编造资料中没有的情节。\n"
+    "3. 不要使用「随着」「在这个」「与此同时」「令人」「不禁」「仿佛」「最终」「悄然」"
+    "「交织」「羁绊」这类套话，句长要有起伏。\n"
+    "4. 不要写分辨率、编码、片源、音轨、字幕等技术或文件信息。\n"
+    "5. 全部使用简体中文，不要混入英文单词或英文句子（片名、品牌等专有名词除外）。\n"
+    "6. 简体中文，一段连贯文字，不要小标题、列表或前缀，直接输出正文。"
+)
+
 MV_AI_SYSTEM = (
     "你是音乐视频（MV）资料编辑，负责为单支 MV 写中文简介。\n"
     "要求：\n"
@@ -1585,6 +1608,13 @@ _STYLE_TARGETS = (
 MV_TEXT_NOISE_PATTERN = re.compile(
     r"(?i)(2160p|1080[pi]|720p|576p|480[pi]|4k|uhd|web-?dl|blu-?ray|蓝光|hevc|avc|vp9|av1|aac|opus|flac|pcm|mp3|prores|"
     r"编码|码率|画质|超清|高清|分辨率|片源|压制|音轨|轨道|文件大小|webrip|hdtv)"
+)
+
+# 明确的技术标记：命中即可判定「在描述画质/编码」。
+# 不含「蓝光」「高清」这类可能出现在发行描述里的词，避免把「第四卷蓝光碟」误判成技术堆砌。
+_TECHNICAL_MARK_PATTERN = re.compile(
+    r"(?i)(\b(?:2160p|1080[pi]|720p|576p|480[pi]|4k|uhd|web-?dl|webrip|blu-?ray|bdrip|remux)\b|"
+    r"\b(?:hevc|avc|vp9|av1|x26[45]|h\.?26[45])\b|码率|文件大小)"
 )
 
 # MV 文件名里的画质、编码、来源等噪声词
@@ -3899,6 +3929,8 @@ class OverviewEnhancer:
         en_overview = ""
         if mode != "ai" and visible_length(zh_overview) < 20:
             en_overview = clean_text(self._tmdb.movie_detail(job["tmdb_id"], "en-US").get("overview"))
+        # 记录素材原文：幻觉人名检测用它放行「资料里本来就有的名字」
+        job["source_text"] = zh_overview or en_overview
 
         if mode == "translate":
             if visible_length(zh_overview) >= 20:
@@ -4159,6 +4191,8 @@ class OverviewEnhancer:
         if mode != "ai" and visible_length(zh_overview) < max(20, min_chars):
             en_map = self._tmdb.season_episodes(job["tmdb_id"], int(job.get("season") or 0), "en-US")
             en_overview = clean_text((en_map.get(int(job.get("episode") or 0)) or {}).get("overview"))
+        # 记录素材原文：幻觉人名检测用它放行「资料里本来就有的名字」
+        job["source_text"] = zh_overview or en_overview
         context = self._episode_context(job, zh_episode, zh_overview, en_overview)
         has_tmdb = visible_length(zh_overview) >= 20 or visible_length(en_overview) >= 20
 
@@ -4285,6 +4319,8 @@ class OverviewEnhancer:
                 _row_value(self._tmdb.tv_detail(job["tmdb_id"], "en-US"), "overview")
             )
         base_text = season_overview or zh_overview
+        # 记录素材原文：幻觉人名检测用它放行「资料里本来就有的名字」
+        job["source_text"] = base_text or en_overview
         has_material = (
             visible_length(base_text) >= 20 or visible_length(en_overview) >= 20
         )
@@ -4503,6 +4539,368 @@ class OverviewEnhancer:
                 "message": "AI 生成（素材偏少，已尽量扩写）",
             }
         return plan
+
+    # ------------------------------------------------------------ 存量简介体检
+
+    def audit_result(self) -> Dict[str, Any]:
+        """读取最近一次存量体检结果（只读，供页面刷新后恢复）。"""
+        with self._lock:
+            audit = self._state.get("audit")
+            if not isinstance(audit, dict):
+                return {
+                    "items": [],
+                    "scanned": 0,
+                    "total": 0,
+                    "time": "",
+                    "errors": [],
+                    "truncated": False,
+                }
+            return {
+                "items": list(audit.get("items") or []),
+                "scanned": int(audit.get("scanned") or 0),
+                "total": int(audit.get("total") or 0),
+                "time": str(audit.get("time") or ""),
+                "errors": list(audit.get("errors") or []),
+                "limit": int(audit.get("limit") or 0),
+                "truncated": bool(audit.get("truncated")),
+            }
+
+    def audit_quality(self, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """存量简介质量体检：只读扫描，不调用大模型、不写库。
+
+        与「试跑」的区别：试跑判断「需不需要补」，本方法判断「已有简介够不够好」，
+        因此覆盖旧版本写入、手动修改以及其他插件写入的内容。检测项包括简介缺失 /
+        过短、技术词、模板化开头、AI 味偏重与同季雷同。
+        """
+        payload = payload or {}
+        media_type = str(payload.get("media_type") or "all")
+        if media_type not in {"all", "movie", "tv", "mv"}:
+            media_type = "all"
+        limit = _bounded_int(payload.get("limit"), 500, 1, 2000)
+        clients, errors = self._resolve_clients()
+        if not clients:
+            return {
+                "items": [],
+                "scanned": 0,
+                "total": 0,
+                "time": "",
+                "errors": errors or ["没有可用的媒体服务器"],
+            }
+        libraries = _as_str_list(self._config.get("libraries"))
+        min_chars_map = {
+            MOVIE: int(self._config.get("movie_min_chars") or 0),
+            EPISODE: int(self._config.get("episode_min_chars") or 0),
+            MV: int(self._config.get("mv_min_chars") or 0),
+        }
+        flavor_gate = bool(self._config.get("quality_ai_flavor_gate"))
+        flavor_min = int(self._config.get("quality_ai_flavor_min_score") or 0)
+        similarity_threshold = float(self._config.get("quality_similarity_threshold") or 0)
+        scan_limit = max(50000, int(self._config.get("max_items_per_run") or 200) * 10)
+        scanned = 0
+        rows: List[Dict[str, Any]] = []
+        for client in clients:
+            parents = client.resolve_library_ids(libraries) if libraries else []
+            if libraries and not parents:
+                errors.append(
+                    f"{client.name} 未匹配到配置的媒体库：{'、'.join(libraries)}，本次跳过"
+                )
+                continue
+            targets = parents or [None]
+            if media_type == "mv" and self._config.get("mv_enabled"):
+                mv_names = _as_str_list(self._config.get("mv_libraries")) or ["mv"]
+                mv_parents = client.resolve_library_ids(mv_names)
+                if not mv_parents:
+                    errors.append(
+                        f"{client.name} 未匹配到 MV 媒体库：{'、'.join(mv_names)}"
+                    )
+                for parent in mv_parents:
+                    for item in client.iter_items(
+                        "Movie,MusicVideo,Video",
+                        [parent],
+                        max_items=scan_limit,
+                        extra_fields="Path",
+                    ):
+                        scanned += 1
+                        row = self._audit_row(
+                            client, item, MV, min_chars_map, flavor_min, flavor_gate
+                        )
+                        if row:
+                            rows.append(row)
+            if media_type in {"all", "movie"}:
+                for parent in targets:
+                    for item in client.iter_items("Movie", [parent], max_items=scan_limit):
+                        scanned += 1
+                        row = self._audit_row(
+                            client, item, MOVIE, min_chars_map, flavor_min, flavor_gate
+                        )
+                        if row:
+                            rows.append(row)
+            if media_type in {"all", "tv"}:
+                for parent in targets:
+                    episode_rows: List[Tuple[Dict[str, Any], Optional[Dict[str, Any]]]] = []
+                    for item in client.iter_items("Episode", [parent], max_items=scan_limit):
+                        scanned += 1
+                        row = self._audit_row(
+                            client, item, EPISODE, min_chars_map, flavor_min, flavor_gate
+                        )
+                        episode_rows.append((item, row))
+                    # 同季雷同：旧版本常见「整季共用一段简介」，只在有问题的清单里补标记，
+                    # 避免对全库做 O(n²) 比较。
+                    if similarity_threshold > 0:
+                        bucket: Dict[str, List[Tuple[int, str]]] = {}
+                        for position, (item, _) in enumerate(episode_rows):
+                            text = clean_text(self._overview_of(item))
+                            if visible_length(text) < 20:
+                                continue
+                            bucket.setdefault(
+                                f"{item.get('SeriesId')}|{item.get('ParentIndexNumber')}", []
+                            ).append((position, text))
+                        for entries in bucket.values():
+                            if len(entries) < 2:
+                                continue
+                            base_position, base_text = entries[0]
+                            base_marked = False
+                            for position, text in entries[1:]:
+                                similarity = text_similarity(text, base_text)
+                                if similarity < similarity_threshold:
+                                    continue
+                                if not base_marked:
+                                    # 基准条（通常是本季第一集）也要标出来，
+                                    # 否则整组共用同一段简介时只有后续几集进清单。
+                                    base_item, base_row = episode_rows[base_position]
+                                    if base_row is None:
+                                        base_row = self._audit_row(
+                                            client,
+                                            base_item,
+                                            EPISODE,
+                                            min_chars_map,
+                                            flavor_min,
+                                            flavor_gate,
+                                            force=True,
+                                        )
+                                        if base_row is not None:
+                                            episode_rows[base_position] = (
+                                                base_item,
+                                                base_row,
+                                            )
+                                    if base_row is not None:
+                                        base_row["reasons"].append(
+                                            f"与同季其他集雷同（{similarity:.0%}）"
+                                        )
+                                        base_row["similarity"] = round(similarity, 3)
+                                    base_marked = True
+                                item, row = episode_rows[position]
+                                if row is None:
+                                    row = self._audit_row(
+                                        client,
+                                        item,
+                                        EPISODE,
+                                        min_chars_map,
+                                        flavor_min,
+                                        flavor_gate,
+                                        force=True,
+                                    )
+                                    if row is None:
+                                        continue
+                                    episode_rows[position] = (item, row)
+                                row["reasons"].append(
+                                    f"与同季其他集雷同（{similarity:.0%}）"
+                                )
+                                row["similarity"] = round(similarity, 3)
+                    # 分集条目通常没有自己的 TMDB 标识，重写前从所属剧集补齐，
+                    # 否则体检清单里的分集会全部因为「缺 TMDB」被跳过。
+                    if episode_rows:
+                        series_ids = sorted(
+                            {
+                                str(item.get("SeriesId") or "")
+                                for item, _ in episode_rows
+                                if item.get("SeriesId")
+                            }
+                        )
+                        series_map = (
+                            client.get_items_by_ids(
+                                series_ids, "ProviderIds,Name,ProductionYear"
+                            )
+                            if series_ids
+                            else {}
+                        )
+                        for item, row in episode_rows:
+                            if row is None:
+                                continue
+                            series = series_map.get(str(item.get("SeriesId") or "")) or {}
+                            provider = series.get("ProviderIds")
+                            provider = provider if isinstance(provider, dict) else {}
+                            tmdb_raw = str(provider.get("Tmdb") or "").strip()
+                            # 分集自身的 ProviderIds.Tmdb 是「单集 TMDB ID」，
+                            # 不能拿去查 season_episodes；一律以所属剧集的 TMDB 为准。
+                            row["tmdb_id"] = int(tmdb_raw) if tmdb_raw.isdigit() else None
+                    rows.extend(row for _, row in episode_rows if row)
+        rows.sort(key=lambda item: (-len(item.get("reasons") or []), int(item.get("chars") or 0)))
+        total = len(rows)
+        saved = rows[:limit]
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with self._lock:
+            self._state["audit"] = {
+                "time": now,
+                "scanned": scanned,
+                "total": total,
+                "limit": limit,
+                "truncated": total > len(saved),
+                "items": saved,
+                "errors": errors[:10],
+            }
+        self._save_state()
+        self._log(f"存量体检完成：扫描 {scanned} 条，发现 {total} 条低质简介")
+        return {
+            "items": saved,
+            "scanned": scanned,
+            "total": total,
+            "time": now,
+            "limit": limit,
+            "truncated": total > len(saved),
+            "errors": errors[:10],
+        }
+
+    def _audit_row(
+        self,
+        client: EmbyClient,
+        item: Dict[str, Any],
+        kind: str,
+        min_chars_map: Dict[str, int],
+        flavor_min: int,
+        flavor_gate: bool,
+        force: bool = False,
+    ) -> Optional[Dict[str, Any]]:
+        """检查单条已有简介，返回体检行；没有问题且未强制时返回 None。"""
+        item_id = str(item.get("Id") or "")
+        if not item_id:
+            return None
+        path = str(item.get("Path") or "")
+        if kind != MV and "/MV/" in path:
+            # MV 库条目在 Emby 里是 Movie 类型，按路径归到 MV：
+            # 这样体检阈值用 mv_min_chars，重写也走 MV 流程（不依赖 TMDB）。
+            kind = MV
+        text = clean_text(self._overview_of(item))
+        length = visible_length(text)
+        reasons: List[str] = []
+        hints: List[str] = []
+        minimum = max(1, int(min_chars_map.get(kind) or 0))
+        # 体检比自动处理更保守：低于阈值一半才算「低质」，
+        # 阈值一半到阈值之间只记为「偏短可扩写」，避免把 TMDB 的一两句正常简介
+        # 全部打成低质（分集简介 40~79 字很常见）。
+        hard_minimum = max(1, int(minimum * 0.5))
+        if length < hard_minimum:
+            reasons.append("简介缺失" if not length else f"简介过短（{length} 字）")
+        elif length < minimum:
+            hints.append(f"偏短（{length} 字，可扩写）")
+        if text and kind != MV:
+            # 「蓝光碟」「第四卷」这类发行描述不算技术堆砌：
+            # 要求命中至少两个技术词，或出现分辨率/编码这类明确标记。
+            noise_hits = len(MV_TEXT_NOISE_PATTERN.findall(text))
+            technical = noise_hits >= 2 or bool(_TECHNICAL_MARK_PATTERN.search(text))
+            if technical:
+                reasons.append("仍在描述画质/编码等技术信息")
+        if text and kind != MV and TEMPLATE_SENTENCE_PATTERN.match(text) and length < 80:
+            reasons.append("模板化开头")
+        flavor = 0
+        flavor_reasons: List[str] = []
+        if text and flavor_gate and length >= 20:
+            flavor, flavor_reasons = ai_flavor_score(text)
+            if flavor_min and flavor < flavor_min:
+                reasons.append(
+                    f"AI 味偏重（{flavor} 分：{'、'.join(flavor_reasons[:2])}）"
+                )
+        if not reasons and not force:
+            return None
+        provider = item.get("ProviderIds")
+        provider = provider if isinstance(provider, dict) else {}
+        tmdb_raw = str(provider.get("Tmdb") or "").strip()
+        episode = kind == EPISODE
+        return {
+            "key": f"{client.name}|{item_id}",
+            "kind": kind,
+            "server": client.name,
+            "item_id": item_id,
+            "title": str(item.get("SeriesName") or item.get("Name") or ""),
+            "episode_title": str(item.get("Name") or "") if episode else "",
+            "year": str(item.get("ProductionYear") or ""),
+            "season": int(item.get("ParentIndexNumber") or 0) if episode else 0,
+            "episode": int(item.get("IndexNumber") or 0) if episode else 0,
+            "tmdb_id": None if episode else (int(tmdb_raw) if tmdb_raw.isdigit() else None),
+            "chars": length,
+            "reasons": reasons,
+            "hints": hints,
+            "flavor": flavor,
+            "flavor_reasons": flavor_reasons[:3],
+            "similarity": 0.0,
+            "locked": "Overview"
+            in [str(value) for value in (item.get("LockedFields") or [])],
+            "current": text[:400],
+            "preview": text[:140],
+            "path": path,
+        }
+
+    def audit_repair(self, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """批量重写体检选中的低质简介（后台执行，仍走完整质量闸门）。
+
+        勾选的行来自最近一次体检结果；缺少 TMDB 标识或定位信息的条目会被跳过，
+        不会因为一条不可重写就阻塞整批。
+        """
+        payload = payload or {}
+        keys = [
+            str(value)
+            for value in (payload.get("keys") or [])
+            if str(value or "").strip()
+        ]
+        if not keys:
+            return {"started": False, "message": "未选择条目"}
+        with self._lock:
+            audit = self._state.get("audit")
+            rows = list(audit.get("items") or []) if isinstance(audit, dict) else []
+        index = {str(row.get("key")): row for row in rows if isinstance(row, dict)}
+        maximum = int(self._config.get("max_items_per_run") or 200)
+        jobs: List[Dict[str, Any]] = []
+        skipped = 0
+        for key in keys[:maximum]:
+            row = index.get(key)
+            if not row:
+                skipped += 1
+                continue
+            kind = str(row.get("kind") or "")
+            if kind != MV and not row.get("tmdb_id"):
+                skipped += 1
+                continue
+            jobs.append(
+                {
+                    "key": key,
+                    "kind": kind,
+                    "server": row.get("server"),
+                    "item_id": row.get("item_id"),
+                    "title": row.get("title") or "",
+                    "year": row.get("year") or "",
+                    "tmdb_id": row.get("tmdb_id"),
+                    "season": int(row.get("season") or 0),
+                    "episode": int(row.get("episode") or 0),
+                    "episode_title": row.get("episode_title") or "",
+                    "current": row.get("current") or "",
+                    "current_len": int(row.get("chars") or 0),
+                    "reason": "force",
+                    "path": row.get("path") or "",
+                }
+            )
+        if not jobs:
+            return {
+                "started": False,
+                "message": "没有可重写的条目（可能缺少 TMDB 标识）",
+                "skipped": skipped,
+            }
+        result = self._start_jobs(jobs, trigger="audit")
+        if result.get("started"):
+            suffix = f"，{skipped} 条缺少定位信息已跳过" if skipped else ""
+            result["message"] = f"已提交 {len(jobs)} 条重写{suffix}"
+            result["submitted"] = len(jobs)
+            result["skipped"] = skipped
+        return result
 
     # ------------------------------------------------------------------ 执行
 
@@ -5140,7 +5538,21 @@ class OverviewEnhancer:
                     # 素材本身没有中文且翻译失败：记为「中文缺失跳过」并写入止损缓存，
                     # 避免每轮扫描重复调用 AI 翻译
                     return {"status": "skipped", "message": issue, "untranslated": True}
-                return {"status": "failed", "message": issue, "error_kind": classify_failure(issue, "quality_gate")}
+                retried = self._quality_retry_text(job, text, issue)
+                if retried:
+                    # 质量闸门失败先自动保守改写一次，仍不过才进失败清单
+                    self._log(
+                        f"{job.get('title')} {job.get('item_id')} 质量闸门未通过（{issue}），"
+                        "已自动保守改写并重新校验通过",
+                        "info",
+                    )
+                    text = retried
+                else:
+                    return {
+                        "status": "failed",
+                        "message": issue,
+                        "error_kind": classify_failure(issue, "quality_gate"),
+                    }
         if not maintenance and text_signature(text) == text_signature(job.get("current")):
             return {"status": "skipped", "message": "内容与现有简介一致"}
         if not maintenance and not text:
@@ -5228,6 +5640,50 @@ class OverviewEnhancer:
             "people": [person["Name"] for person in (people or [])],
         }
 
+    def _quality_retry_text(
+        self, job: Dict[str, Any], text: str, issue: str
+    ) -> str:
+        """质量闸门失败后用更保守的提示词改写一次，通过校验才返回新文案。
+
+        只对可修复的问题有意义（人名、AI 味、雷同、模板句）；「中文占比过低」
+        属于素材缺失，已在调用方按跳过处理。开关关闭或模型不可用时返回空串，
+        调用方会沿用原本的失败处理。
+        """
+        if not self._config.get("quality_gate_retry"):
+            return ""
+        if not self._llm.available():
+            return ""
+        kind = str(job.get("kind") or "")
+        target_keys = {
+            MOVIE: "movie_target_chars",
+            MV: "mv_target_chars",
+            SERIES: "series_target_chars",
+            SEASON: "series_target_chars",
+            EPISODE: "episode_target_chars",
+        }
+        target = int(self._config.get(target_keys.get(kind, "episode_target_chars")) or 0)
+        target = max(60, target)
+        label = str(job.get("title") or "")
+        if kind == EPISODE:
+            label = f"{label} S{job.get('season')}E{job.get('episode')}"
+        user_prompt = (
+            f"作品：{label}\n"
+            f"现稿未通过检查，问题：{issue}\n"
+            f"现稿：\n{text}\n\n"
+            f"请按硬性要求改写为约 {target} 字的中文简介。"
+        )
+        answer = clean_text(self._llm_generate(QUALITY_RETRY_SYSTEM, user_prompt), 4000)
+        if not answer:
+            return ""
+        answer = clean_text(strip_technical_sentences(answer), 4000)
+        if kind == EPISODE:
+            answer = clean_text(strip_template_opening(answer), 4000)
+        if visible_length(answer) < 10:
+            return ""
+        if self._quality_issue(answer, kind, job):
+            return ""
+        return answer
+
     def _quality_issue(
         self, text: str, kind: str, job: Optional[Dict[str, Any]] = None
     ) -> str:
@@ -5252,6 +5708,9 @@ class OverviewEnhancer:
         minimum = float(self._config.get("quality_min_cjk_ratio") or 0.25)
         if ratio < minimum:
             return f"简介中文占比过低（{ratio:.0%}），疑似未翻译"
+        stray = stray_english_words(body)
+        if stray:
+            return f"简介混入英文单词：{'、'.join(stray[:3])}"
         if kind != MV and MV_TEXT_NOISE_PATTERN.search(body) and visible_length(body) <= 80:
             return "简介仍在描述画质/编码等技术信息"
         if kind != MV and TEMPLATE_SENTENCE_PATTERN.match(body) and visible_length(body) < 80:
@@ -5264,7 +5723,11 @@ class OverviewEnhancer:
                     detail = "、".join(reasons[:3]) or "文案模板化"
                     return f"AI 味过重（{score} 分：{detail}）"
             if self._config.get("quality_name_check"):
-                suspects = suspicious_names(body, job.get("known_names") or [])
+                suspects = suspicious_names(
+                    body,
+                    job.get("known_names") or [],
+                    job.get("source_text") or job.get("current") or "",
+                )
                 if suspects:
                     return f"简介出现疑似编造人名：{'、'.join(suspects[:3])}"
             threshold = float(self._config.get("quality_similarity_threshold") or 0)
@@ -5283,6 +5746,20 @@ class OverviewEnhancer:
                     similarity, _ = max_similarity(body, others)
                     if similarity >= threshold:
                         return f"与同季其他集简介高度相似（{similarity:.0%}）"
+                    # 整集套模板时全文相似度未必到阈值，但开头往往一模一样：
+                    # 用前 40 字再做一次骨架比较，专抓「年轻女子继续…」这类结构。
+                    head = clean_text(body)[:40]
+                    if visible_length(head) >= 12:
+                        for other in others:
+                            other_head = clean_text(other)[:40]
+                            if visible_length(other_head) < 12:
+                                continue
+                            if (
+                                common_prefix_length(head, other_head) >= 18
+                                or text_similarity(head, other_head)
+                                >= _EPISODE_HEAD_SIMILARITY
+                            ):
+                                return "与同季其他集开头高度相似，疑似模板化"
         return ""
 
     def _save_backup(self, job: Dict[str, Any], overview: str, locked: List[str]) -> None:

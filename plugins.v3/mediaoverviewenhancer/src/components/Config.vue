@@ -802,6 +802,17 @@ onMounted(() => {
         hide-details
         :disabled="!localConfig.quality_gate"
       />
+      <VSwitch
+        v-model="localConfig.quality_gate_retry"
+        label="质量闸门失败后自动保守改写一次"
+        color="primary"
+        hide-details
+        :disabled="!localConfig.quality_gate"
+      />
+      <div class="text-caption text-medium-emphasis mb-2">
+        开启后，未通过人名 / AI 味 / 雷同 / 模板句检查的文案会用「禁止出现人名、禁止剧透、禁用套话」
+        的提示词自动改写一次并重新校验；仍不通过才进入失败清单。中文占比过低属于素材缺失，不会触发改写。
+      </div>
       <VRow dense>
         <VCol cols="12" md="6">
           <VTextField
