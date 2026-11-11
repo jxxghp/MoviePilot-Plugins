@@ -62,3 +62,8 @@ PTZONE（ptzone.xyz）按配置地址向 `attendance.php` 提交 POST 签到，�
 AGSVPT（agsvpt.com）使用专用签到处理器，先读取 `attendance.php`，出现“立即签到”按钮时提交 POST，并通过签到成功或奖励文案确认结果。
 
 馒头（m-team）没有独立签到接口，通过前端 `updateLastBrowse` 接口生成签名并更新访问时间保号：需要在站点配置的请求头（Authorization/Token）中填写浏览器登录态，登录态过期后需重新登录站点更新。
+
+高清视界（hdarea.club）从 `3.0.8` 起支持官方 API：在 MoviePilot 站点 **API Key** 中填写站点存取令牌，
+并勾选令牌的 `user` 权限以执行 `POST /api/v1/user/signin`。模拟登录使用 `GET /api/v1/user/profile`，需要 `read` 权限。
+API Key 已配置时，签到及失败后的登录确认都不使用 Cookie；API 失败不会重试网页签到或被当成签到成功。
+未配置 API Key 的存量站点仍使用原有 `sign_in.php` Cookie 签到。
