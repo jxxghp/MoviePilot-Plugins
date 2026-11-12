@@ -91,7 +91,8 @@ class UpdateWeChatIp(_PluginBase):
 
     # IPv4 查询地址（均为实测可用接口，已移除失效域名）
     _ip_urls = ["https://myip.ipip.net", "https://ddns.oray.com/checkip",
-                "https://ip.3322.net", "https://ipv4.ddnspod.com"]
+                "https://ip.3322.net", "https://ipv4.ddnspod.com",
+                "https://ipv4.ip.mir6.com"]
     _ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
 
     _headers = {
