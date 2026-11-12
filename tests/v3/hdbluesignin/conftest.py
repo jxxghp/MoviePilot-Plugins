@@ -36,7 +36,15 @@ def host_runtime(block_real_network):
             # 官方清理会重置工厂；恢复根 harness 的原装配，避免污染后续插件用例。
             # 装配或官方清理失败时也必须执行恢复。
             try:
+                from app.runtime.config import settings
+                from app.runtime.settings import configure_runtime_setting_provider
+                from app.startup.composition.chain import configure_module_runtime_provider
+                from app.startup.composition.site import configure_site_protocol_composition
+
                 manager_module.configure_plugin_runtime_factory(previous_runtime_factory)
+                configure_runtime_setting_provider(lambda key: getattr(settings, key))
+                configure_module_runtime_provider()
+                configure_site_protocol_composition()
             finally:
                 if previous is None:
                     sys.modules.pop(name, None)
