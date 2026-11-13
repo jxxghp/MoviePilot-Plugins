@@ -10,10 +10,12 @@ from app.sdk.network import RequestUtils
 
 class YemaPT(_ISiteSigninHandler):
     """
-    YemaPT 签到
+    YemaPT 使用 Cookie 签到，API Key 登录验证由宿主开放接口处理。
     """
     # 匹配的站点Url，每一个实现类都需要设置为自己的站点Url
     site_url = "yemapt.org"
+    # 旧签到接口使用网页 Cookie，AuthKey 由宿主开放 API 验证。
+    signin_session_field = "cookie"
 
     @classmethod
     def match(cls, url: str) -> bool:

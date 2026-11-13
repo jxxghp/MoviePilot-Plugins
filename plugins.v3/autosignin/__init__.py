@@ -40,7 +40,7 @@ class AutoSignIn(_PluginBase):
     # 插件图标
     plugin_icon = "signin.png"
     # 插件版本
-    plugin_version = "3.0.9"
+    plugin_version = "3.0.10"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -62,8 +62,6 @@ class AutoSignIn(_PluginBase):
     _RANDOM_EXECUTIONS = 2
     _RANDOM_BEGIN_HOUR = 9
     _RANDOM_END_HOUR = 23
-    # 仅提供 API 访问验证的协议，认证、地址与域名别名交由宿主适配器解释。
-    _API_LOGIN_PROTOCOLS = frozenset({"HDDolby", "Piggo"})
 
     # 定时器
     _scheduler: Optional[BackgroundScheduler] = None
@@ -1885,7 +1883,8 @@ class AutoSignIn(_PluginBase):
         # 开始记时
         start_time = datetime.now()
         api_result = None
-        if site_module and hasattr(site_module, "signin"):
+        if (site_module and hasattr(site_module, "signin")
+                and not self._api_login_preferred(site_info, site_module, "signin")):
             try:
                 state, message = site_module().signin(site_info)
             except Exception as e:
@@ -1903,7 +1902,9 @@ class AutoSignIn(_PluginBase):
                     api_result.message.replace("模拟登录失败", "签到失败", 1),
                     False, api_result.logged_in,
                 )
-        if not result.completed and api_result is None and not getattr(site_module, "signin_is_login", False):
+        if not result.completed and api_result is None and (
+                not getattr(site_module, "signin_is_login", False)
+                or self._api_login_preferred(site_info, site_module, "login")):
             # 签到入口可能不存在或未包含用户导航，另行访问首页/登录接口确认保号访问。
             login_result = self._login_result(site_info, site_module)
             if login_result.success:
@@ -2016,7 +2017,8 @@ class AutoSignIn(_PluginBase):
 
     def _login_result(self, site_info: CommentedMap, site_module: Any) -> SiteResult:
         """依次使用专用登录、宿主 API 检测和首页验证，访问统计由调用方记录。"""
-        if site_module and hasattr(site_module, "login"):
+        if (site_module and hasattr(site_module, "login")
+                and not self._api_login_preferred(site_info, site_module, "login")):
             try:
                 state, message = site_module().login(site_info)
             except Exception as e:
@@ -2029,15 +2031,27 @@ class AutoSignIn(_PluginBase):
             state, message = self.__login_base(site_info)
         return self._site_result(site_info.get("name"), state, message, "模拟登录")
 
+    @staticmethod
+    def _api_login_preferred(site_info: CommentedMap, site_module: Any, action: str) -> bool:
+        """
+        有 API Key 时，登录检测使用宿主，旧签到仅在具备所需会话凭据时执行。
+
+        :param site_info: 当前站点认证配置
+        :param site_module: 声明旧签到会话字段的专用处理器
+        :param action: signin 表示签到，login 表示登录验证
+        :return: 是否应交由宿主 API 连接检测
+        """
+        session_field = getattr(site_module, "signin_session_field", None)
+        return bool(session_field and str(site_info.get("apikey") or "").strip()
+                    and (action == "login" or not str(site_info.get(session_field) or "").strip()))
+
     def _api_login_result(self, site_info: CommentedMap) -> Optional[SiteResult]:
         """
-        对 API 访问协议复用宿主连接检测，其他站点交给原有网页处理。
+        由宿主自动选择 API 连接适配器，明确不支持的站点交给原有网页处理。
 
         :param site_info: 已合并用户凭据和网络配置的站点资源
-        :return: API 登录结果，其他协议返回 None
+        :return: API 登录结果，宿主明确不支持该站点时返回 None
         """
-        if not any(site_info.get(key) in self._API_LOGIN_PROTOCOLS for key in ("schema", "parser")):
-            return None
         try:
             connection = self.chain.run_module(
                 "test_site", site={**site_info, "domain": site_info.get("url") or site_info.get("domain")},
@@ -2046,7 +2060,7 @@ class AutoSignIn(_PluginBase):
             if connection is None:
                 return SiteResult(site_info.get("name"), "模拟登录失败，站点模块未返回连接检测结果", False)
             if not connection.supported:
-                return SiteResult(site_info.get("name"), "模拟登录失败，站点模块未提供 API 连接检测能力", False)
+                return None
             return self._site_result(
                 site_info.get("name"), connection.success,
                 "模拟登录成功" if connection.success is True else connection.message, "模拟登录",
