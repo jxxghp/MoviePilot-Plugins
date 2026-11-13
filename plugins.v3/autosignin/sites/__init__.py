@@ -24,6 +24,8 @@ class _ISiteSigninHandler(metaclass=ABCMeta):
     site_url = ""
     # 签到入口若已经执行登录保号，失败后不能再调用相同接口作为登录回退。
     signin_is_login: bool = False
+    # 旧签到所需的会话字段，配置 API Key 后可由宿主完成独立登录检测。
+    signin_session_field: str = ""
 
     @abstractmethod
     def match(self, url: str) -> bool:

@@ -21,6 +21,8 @@ class MTorrent(_ISiteSigninHandler):
     site_url = "m-team"
     # 签到接口本身完成登录保号，失败后不再用同一接口做登录回退。
     signin_is_login = True
+    # 更新访问时间需要浏览器 Token，仅配置 API Key 时由宿主资料接口确认访问。
+    signin_session_field = "token"
 
     # updateLastBrowse 是前端 Web API：请求体必须携带毫秒时间戳和 HMAC-SHA1 签名，
     # Authorization 使用浏览器登录态 JWT（localStorage.auth），对应站点配置的 Token 字段。
