@@ -190,11 +190,12 @@ def test_v3_metadata_requires_next_backend_version_and_preserves_v2():
     assert AutoSignIn.plugin_version == v3["version"]
     assert Version(v3["version"]).major == 3
     assert f'v{v3["version"]}' in v3["history"]
-    assert v3["system_version"] == ">=3.1.6"
+    assert v3["system_version"] == ">=3.2.6"
     requirement = SpecifierSet(v3["system_version"])
     assert "3.1.5" not in requirement
-    assert "3.1.6" in requirement
-    assert "3.2.0" in requirement
+    assert "3.2.5" not in requirement
+    assert "3.2.6" in requirement
+    assert "3.2.7" in requirement
     assert Version(v2["version"]).major == 2 and v2["v3"] is True
     assert v2["system_version"] == "<=3.1.5"
     legacy_requirement = SpecifierSet(v2["system_version"])
@@ -205,7 +206,7 @@ def test_v3_metadata_requires_next_backend_version_and_preserves_v2():
 
 
 def test_old_v3_can_install_v2_compatible_entry(monkeypatch):
-    """旧版 V3 可选择并通过 V2 安装准入，新样式版本仍受最低版本限制。"""
+    """旧版 V3 可选择兼容 V2，新版 API 检测要求包含站点模块能力的宿主。"""
     import json
     from pathlib import Path
 
@@ -231,4 +232,7 @@ def test_old_v3_can_install_v2_compatible_entry(monkeypatch):
     monkeypatch.setattr(PluginMarketTransport, "get_current_system_version",
                         staticmethod(lambda: Version("3.1.6")))
     assert not transport.check_plugin_install_compatibility(indexes["v2"]["AutoSignIn"])[0]
+    assert not transport.check_plugin_install_compatibility(indexes["v3"]["AutoSignIn"])[0]
+    monkeypatch.setattr(PluginMarketTransport, "get_current_system_version",
+                        staticmethod(lambda: Version("3.2.6")))
     assert transport.check_plugin_install_compatibility(indexes["v3"]["AutoSignIn"])[0]

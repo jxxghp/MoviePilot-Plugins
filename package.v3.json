@@ -45,12 +45,13 @@
     "name": "站点自动签到",
     "description": "自动模拟登录、签到站点。",
     "labels": "站点",
-    "version": "3.0.8",
+    "version": "3.0.9",
     "icon": "signin.png",
     "author": "thsrite",
     "level": 2,
     "release": true,
     "history": {
+      "v3.0.9": "修复高清杜比、猪猪API站点被误判缺少Cookie，复用主程序站点连接检测，访问成功记为仅登录，失败保留实际原因并避免重复请求，需要MoviePilot v3.2.6及以上",
       "v3.0.8": "高清视界已配置API Key时使用官方API签到和登录检测，未配置密钥保留Cookie签到；接口失败不回退Cookie或误报签到成功",
       "v3.0.7": "通知失败原因按语义分类，统一Cookie、Token和登录状态异常，避免附带404或同义文案拆组；配置、防护、验证码、网络与HTTP错误独立归类，原始详情和重试逻辑不变",
       "v3.0.6": "适配瓷器重开后的新站点签到",
@@ -85,7 +86,7 @@
       "v2.5.1": "修复空签到失败问题",
       "v2.5": "MoviePilot V2 版本站点自动签到插件"
     },
-    "system_version": ">=3.1.6"
+    "system_version": ">=3.2.6"
   },
     "MediaDirWatcher": {
       "name": "目录新增监控刮削",
