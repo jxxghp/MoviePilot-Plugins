@@ -1232,5 +1232,22 @@
     "history": {
       "v0.0.1": "初始版本"
     }
+  },
+  "StrmNfo": {
+    "name": "STRM媒体信息补全",
+    "description": "整理入库后自动从 .strm 文件名生成 .strm.nfo（分辨率/编码/HDR/音频/字幕），供 Emby 的 STRM Probe NFO 插件读取，让媒体播放器显示媒体信息；全程不访问云盘。",
+    "labels": "媒体库",
+    "version": "1.0.4",
+    "icon": "scraper.svg",
+    "author": "dmw1215",
+    "level": 1,
+    "release": true,
+    "system_version": ">=3.0.0",
+    "history": {
+      "v1.0.4": "仓库发布版：补 release 发布标记，图标重绘，README 与插件内说明文档完善",
+      "v1.0.2": "补上插件图标 scraper.svg（插件目录与仓库 icons/ 各一份），修复插件列表图标 404",
+      "v1.0.1": "修复扫描死锁（锁改为可重入 RLock）；默认监控目录改为容器内路径 /media/Link；补齐 stop_service 资源释放；事件路径提取兼容字典条目；nfo 原子写入",
+      "v1.0.0": "初始版本：整理完成事件触发 + 定时全量扫描双保险；文件名解析（多轨音频、DDP 全写法、DV 优先、码率、帧率）与独立脚本 strm_nfo_gen.py v3.1 一致"
+    }
   }
 }
