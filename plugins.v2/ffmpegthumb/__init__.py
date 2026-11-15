@@ -45,6 +45,10 @@ class FFmpegThumb(_PluginBase):
     RESULT_SKIPPED = "skipped"
     RESULT_FAILED = "failed"
 
+    # 蓝光原盘不是可直接截帧的成品文件：iso 镜像与 BDMV 目录结构直接跳过
+    SKIP_SUFFIXES = {".iso"}
+    SKIP_DIR_NAMES = {"BDMV"}
+
     # 私有属性
     _scheduler = None
     _enabled = False
@@ -390,6 +394,10 @@ class FFmpegThumb(_PluginBase):
         :param skip_existing: 是否在已有分集图片（与视频同名的 jpg）时跳过
         :return: (是否跳过, 跳过原因)
         """
+        if file_path.suffix.lower() in cls.SKIP_SUFFIXES:
+            return True, "蓝光原盘镜像，无法截帧，跳过"
+        if any(part.upper() in cls.SKIP_DIR_NAMES for part in file_path.parts[:-1]):
+            return True, "蓝光原盘目录结构，无法截帧，跳过"
         thumb_path = cls.build_thumb_path(file_path)
         if thumb_path.exists():
             return True, f"缩略图已存在：{thumb_path.name}"
