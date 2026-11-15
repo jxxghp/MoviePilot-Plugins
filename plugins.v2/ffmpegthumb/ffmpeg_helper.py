@@ -1,27 +1,53 @@
 import json
 import subprocess
+from pathlib import Path
 
-from app.utils.system import SystemUtils
+from app.log import logger
+
+# 单个文件截帧的最长等待时间（秒），避免异常文件让任务无限挂起
+FFMPEG_THUMB_TIMEOUT = 300
 
 
 class FfmpegHelper:
 
     @staticmethod
-    def get_thumb(video_path: str, image_path: str, frames: str = None):
+    def get_thumb(video_path: str, image_path: str, frames: str = None) -> bool:
         """
         使用ffmpeg从视频文件中截取缩略图
+
+        - ``-ss`` 放在 ``-i`` 之前，由 ffmpeg 直接定位后精确解码，避免每个文件都从头解码到目标时间
+        - 固定传入 ``-y``、``-nostdin`` 与超时，防止覆盖确认或异常输入把任务挂住
+
+        :param video_path: 视频文件路径
+        :param image_path: 输出图片路径
+        :param frames: 截取时间点，格式 HH:MM:SS，留空时取 00:03:01
+        :return: 是否成功生成图片
         """
-        if not frames:
-            frames = "00:03:01"
         if not video_path or not image_path:
             return False
-        cmd = 'ffmpeg -i "{video_path}" -ss {frames} -vframes 1 -f image2 "{image_path}"'.format(video_path=video_path,
-                                                                                                 frames=frames,
-                                                                                                 image_path=image_path)
-        result = SystemUtils.execute(cmd)
-        if result:
-            return True
-        return False
+        frames = frames or "00:03:01"
+        command = [
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+            "-ss", str(frames), "-i", str(video_path),
+            "-frames:v", "1", "-f", "image2", "-update", "1", str(image_path)
+        ]
+        try:
+            result = subprocess.run(command,
+                                    stdin=subprocess.DEVNULL,
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE,
+                                    timeout=FFMPEG_THUMB_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            logger.error(f"FFmpeg截取缩略图超时（{FFMPEG_THUMB_TIMEOUT}秒）：{video_path}")
+            return False
+        except Exception as err:
+            logger.error(f"FFmpeg截取缩略图异常：{video_path}，原因：{str(err)}")
+            return False
+        if result.returncode != 0:
+            detail = result.stderr.decode("utf-8", errors="ignore").strip()
+            logger.error(f"FFmpeg截取缩略图失败：{video_path}，原因：{detail[-300:]}")
+            return False
+        return Path(image_path).exists()
 
     @staticmethod
     def extract_wav(video_path: str, audio_path: str, audio_index: str = None):
