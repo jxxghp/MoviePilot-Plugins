@@ -1143,6 +1143,7 @@
     "description": "自动为下载任务打上 PT 站点促销标签（免费/2X免费/50%/2X 等），限时促销到期后自动移除；支持兜底扫描补全手动添加的种子。",
     "labels": "下载,标签",
     "version": "1.0",
+    "v3": false,
     "icon": "seed.png",
     "author": "devin",
     "level": 1,

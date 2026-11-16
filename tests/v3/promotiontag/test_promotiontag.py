@@ -271,7 +271,7 @@ class TestNotify:
 class TestMeta:
 
     def test_plugin_meta(self):
-        assert PromotionTag.plugin_version == "3.0.0"
+        assert PromotionTag.plugin_version == "2.0.0"
         assert PromotionTag.plugin_author == "Guoyin-Wen"
         instance = object.__new__(PromotionTag)
         form, defaults = instance.get_form()
