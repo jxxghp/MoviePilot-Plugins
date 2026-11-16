@@ -1,4 +1,4 @@
-import federation from '@originjs/vite-plugin-federation'
+import { federation } from '@module-federation/vite'
 import vue from '@vitejs/plugin-vue'
 import { defineConfig } from 'vite'
 
@@ -7,31 +7,31 @@ export default defineConfig({
     vue(),
     federation({
       name: 'BrushFlow',
-      filename: 'remoteEntry.js',
+      filename: 'assets/remoteEntry.js',
       exposes: {
         './Page': './src/components/Page.vue',
         './Config': './src/components/Config.vue',
         './Dashboard': './src/components/Dashboard.vue',
         './AppPage': './src/components/AppPage.vue',
       },
+      dts: false,
       shared: {
         vue: {
           requiredVersion: false,
-          generate: false,
+          import: false,
           singleton: true,
         },
         vuetify: {
           requiredVersion: false,
-          generate: false,
+          import: false,
           singleton: true,
         },
         'vuetify/styles': {
           requiredVersion: false,
-          generate: false,
+          import: false,
           singleton: true,
         },
       },
-      format: 'esm',
     }),
   ],
   build: {

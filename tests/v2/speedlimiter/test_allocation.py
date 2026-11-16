@@ -294,3 +294,14 @@ def test_snapshot_failure_never_leaves_unrecoverable_limits(monkeypatch):
     assert data['original_limits']['QB']['upload'] == 500
     p.stop_service()
     assert tr.session.speed_limit_up == 3000 and qb.upload_limit == 512000
+
+
+def test_configurable_recovery_step_remains_gradual(monkeypatch):
+    p, tr, _, _, _ = clients(monkeypatch)
+    apply(p, 100_000)
+    p._recovering = True
+    p._recovery_step = 512
+    p._last_raise = 0
+    old = tr.session.speed_limit_up
+    p._SpeedLimiter__set_limiter(limit_type='未播放', upload_limit=0, download_limit=0)
+    assert tr.session.speed_limit_up == old + 512

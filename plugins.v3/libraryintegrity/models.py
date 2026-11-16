@@ -112,6 +112,8 @@ class LibraryEpisode:
     versions: list[VersionInfo] = field(default_factory=list)
     # 采集阶段发现的编号冲突说明（如 NFO 与媒体服务器季集号不一致）
     conflicts: list[str] = field(default_factory=list)
+    # 首播日期 YYYY-MM-DD（媒体服务器或 NFO 记录），用于核对编号映射建议
+    air_date: str = ""
 
     @property
     def episode_numbers(self) -> list[int]:

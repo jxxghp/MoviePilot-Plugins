@@ -1,5 +1,9 @@
 import ipaddress
 import math
+import os
+import selectors
+import stat
+import subprocess
 import threading
 import time
 from datetime import datetime, timezone
@@ -25,7 +29,7 @@ class SpeedLimiter(_PluginBase):
     # 插件图标
     plugin_icon = "Librespeed_A.png"
     # 插件版本
-    plugin_version = "2.3.0"
+    plugin_version = "2.3.3"
     # 插件作者
     plugin_author = "Shurelol"
     # 作者主页
@@ -70,6 +74,7 @@ class SpeedLimiter(_PluginBase):
         self._session_positions = {}
         self._recovering = False
         self._last_raise = 0
+        self._recovery_step = 256
         self._unlimited_ips = {}
         self._downloader = []
         self._caps = {}
@@ -78,6 +83,17 @@ class SpeedLimiter(_PluginBase):
         self._overhead = 1.25
         self._recovery_delay = 30
         self._stopping = False
+        self._segment_prediction = False
+        self._media_paths = ""
+        self._probe_cache = {}
+        self._probe_pending = False
+        self._probe_generation = 0
+        self._probe_cancel = threading.Event()
+        self._probe_process_lock = threading.Lock()
+        self._probe_process = None
+        self._probe_checked = {}
+        self._probe_signatures = {}
+        self._budget_log = None
 
     def init_plugin(self, config: dict = None):
         """串行更新配置，保留未恢复的快照供失败重试。"""
@@ -91,14 +107,18 @@ class SpeedLimiter(_PluginBase):
         self._downloader = list(dict.fromkeys(self._downloader + list(self._original)))
         self.stop_service()
         self._stopping = False
+        self._probe_cancel = threading.Event()
         self._caps = {}
         config = config or {}
+        self._segment_prediction = bool(config.get("segment_prediction"))
+        self._media_paths = config.get("media_paths") or ""
         self._enabled = bool(config.get("enabled"))
         self._allocation_mode = config.get("allocation_mode") or "ratio"
         self._interval = max(3, int(config.get("interval") or 60))
         self._headroom = max(0, float(config.get("headroom") or 0)) * 1000000
         self._overhead = max(1, float(config.get("overhead") or 1.25))
         self._recovery_delay = max(0, int(config.get("recovery_delay", 30)))
+        self._recovery_step = max(1, min(4096, int(config.get("recovery_step") or 256)))
         for line in (config.get("downloader_limits") or "").splitlines():
             if not line.strip():
                 continue
@@ -442,6 +462,9 @@ class SpeedLimiter(_PluginBase):
             }
         ] + self._allocation_form(), {
             "enabled": False,
+            "recovery_step": 256,
+            "segment_prediction": False,
+            "media_paths": "",
             "allocation_mode": "ratio",
             "downloader_limits": "",
             "interval": 60,
@@ -471,6 +494,9 @@ class SpeedLimiter(_PluginBase):
             ("VTextField", "interval", "检查间隔（秒）", {"type": "number", "min": 3}),
             ("VTextField", "headroom", "预留带宽（Mbps）", {"type": "number", "min": 0}),
             ("VTextField", "overhead", "播放带宽系数", {"type": "number", "min": 1, "step": .05}),
+            ("VSwitch", "segment_prediction", "按播放片段预留", {}),
+            ("VTextarea", "media_paths", "媒体路径映射", {"placeholder": "媒体服务器路径=MP路径", "rows": 2}),
+            ("VTextField", "recovery_step", "每次恢复上传（KB/s）", {"type": "number", "min": 1, "max": 4096}),
             ("VTextField", "recovery_delay", "停止后等待（秒）", {"type": "number", "min": 0}),
             ("VTextarea", "downloader_limits", "下载器上传上限（KB/s）", {
                 "placeholder": "下载器名称=3000", "rows": 2}),
@@ -576,13 +602,13 @@ class SpeedLimiter(_PluginBase):
                                 and session.get("NowPlayingItem", {}).get("MediaType") == "Video":
                             has_remote_playback = True
                             self._note_playback(server, session)
-                            total_bit_rate += self.__get_jellyfin_bitrate(session, session.get("NowPlayingItem", {})) or self._bandwidth
+                            total_bit_rate += self._playback_bitrate(session) or self._bandwidth
                     # 未设置不限速范围，则默认不限速内网ip
                     elif not IpUtils.is_private_ip(session.get("RemoteEndPoint")) \
                             and session.get("NowPlayingItem", {}).get("MediaType") == "Video":
                         has_remote_playback = True
                         self._note_playback(server, session)
-                        total_bit_rate += self.__get_jellyfin_bitrate(session, session.get("NowPlayingItem", {})) or self._bandwidth
+                        total_bit_rate += self._playback_bitrate(session) or self._bandwidth
             elif service.type == "jellyfin":
                 req_url = (f"[HOST]Sessions?api_key=[APIKEY]&"
                            f"activeWithinSeconds={self._jellyfin_session_timeout}")
@@ -652,6 +678,188 @@ class SpeedLimiter(_PluginBase):
             # 暂停或换集保留限速一段时间，再逐步恢复。
             self.__set_limiter(limit_type="未播放", upload_limit=self._noplay_up_speed,
                                download_limit=self._noplay_down_speed)
+
+    @staticmethod
+    def segment_rate(buckets: list, offset: float) -> float:
+        """按未来一分钟内的30秒窗口预留，覆盖片段峰值。"""
+        start = max(0, int(offset))
+        if start + 60 > len(buckets):
+            return 0
+        return max(sum(buckets[i:i + 30]) * 8 / 30
+                   for i in range(start, start + 31))
+
+    def _mapped_media_path(self, path: str) -> Optional[str]:
+        if not isinstance(path, str) or not os.path.isabs(path):
+            return None
+        mappings = []
+        for line in self._media_paths.splitlines():
+            source, sep, target = line.partition("=")
+            if sep and os.path.isabs(source.strip()) and os.path.isabs(target.strip()):
+                mappings.append((source.strip().rstrip("/"), target.strip().rstrip("/")))
+        for source, target in sorted(mappings, key=lambda row: len(row[0]), reverse=True):
+            if path == source or path.startswith(source + "/"):
+                return target + path[len(source):]
+        return path
+
+    def _read_probe(self, command: list, consume, cancel, deadline=None):
+        """逐行处理输出，限制时间、输出量，并允许停用时中止。"""
+        with self._probe_process_lock:
+            if cancel.is_set():
+                raise ValueError("探测已取消")
+            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            self._probe_process = process
+        deadline = deadline or time.monotonic() + 20
+        pending = b""
+        received = 0
+        try:
+            with selectors.DefaultSelector() as selector:
+                selector.register(process.stdout, selectors.EVENT_READ)
+                while True:
+                    if cancel.is_set():
+                        raise ValueError("探测已取消")
+                    if time.monotonic() >= deadline:
+                        raise subprocess.TimeoutExpired(command[0], 20)
+                    if not selector.select(.25):
+                        continue
+                    chunk = os.read(process.stdout.fileno(), 65536)
+                    if not chunk:
+                        if pending:
+                            consume(pending.decode("utf-8", errors="replace"))
+                        break
+                    received += len(chunk)
+                    if received > 16 * 1024 * 1024:
+                        raise ValueError("探测输出超过16MiB")
+                    pending += chunk
+                    lines = pending.split(b"\n")
+                    pending = lines.pop()
+                    if len(pending) > 65536:
+                        raise ValueError("探测输出行过长")
+                    for line in lines:
+                        consume(line.decode("utf-8", errors="replace"))
+            if process.wait(timeout=1):
+                raise ValueError("ffprobe探测失败")
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.wait(timeout=1)
+            process.stdout.close()
+            with self._probe_process_lock:
+                if self._probe_process is process:
+                    self._probe_process = None
+
+    def _probe_segment(self, path: str, start: int, duration: float, cancel=None) -> list:
+        """读取本地文件压缩包，统一到播放器使用的相对时间轴。"""
+        cancel = cancel or self._probe_cancel
+        deadline = time.monotonic() + 20
+        origin = []
+        self._read_probe([
+            "ffprobe", "-v", "error", "-protocol_whitelist", "file",
+            "-show_entries", "format=start_time", "-of", "default=nw=1:nk=1", path,
+        ], origin.append, cancel, deadline)
+        timestamp_origin = float(origin[0])
+        if not math.isfinite(timestamp_origin):
+            raise ValueError("媒体起始时间无效")
+        buckets = [0] * 120
+        first_timestamp = float("inf")
+        last_timestamp = float("-inf")
+
+        def packet(line):
+            nonlocal first_timestamp, last_timestamp
+            values = dict(part.split("=", 1) for part in line.split("|") if "=" in part)
+            try:
+                timestamp = float(values["pts_time"]) - timestamp_origin
+                size = int(values["size"])
+                index = math.floor(timestamp - start)
+                if 0 <= index < 120 and size >= 0:
+                    buckets[index] += size
+                    first_timestamp = min(first_timestamp, timestamp)
+                    last_timestamp = max(last_timestamp, timestamp)
+            except (KeyError, ValueError, OverflowError):
+                return
+
+        self._read_probe([
+            "ffprobe", "-v", "error", "-protocol_whitelist", "file",
+            "-read_intervals", f"{start + timestamp_origin}%+120",
+            "-show_packets", "-show_entries", "packet=pts_time,size",
+            "-of", "compact=p=0:nk=0", path,
+        ], packet, cancel, deadline)
+        if not math.isfinite(last_timestamp) or first_timestamp > start + 2:
+            raise ValueError("片段起始数据不完整")
+        covered = min(120, math.floor(last_timestamp - start) + 1)
+        if duration <= start + covered:
+            covered = 120
+        return buckets[:covered]
+
+    def _playback_bitrate(self, session: dict) -> float:
+        item = session.get("NowPlayingItem") or {}
+        fallback = self.__get_jellyfin_bitrate(session, item)
+        state = session.get("PlayState") or {}
+        # 转码、未知传输方式和不可读文件沿用媒体服务器码率。
+        if (not self._segment_prediction or not self._auto_limit
+                or session.get("TranscodingInfo")
+                or state.get("PlayMethod") not in ("DirectPlay", "DirectStream")):
+            return fallback
+        try:
+            position = float(state["PositionTicks"]) / 10000000
+            duration = float(item.get("RunTimeTicks") or 0) / 10000000
+            path = self._mapped_media_path(item.get("Path"))
+            if (not path or not math.isfinite(position) or not math.isfinite(duration)
+                    or position < 0 or duration <= 0):
+                return fallback
+            start = int(position // 30) * 30
+            key = (path, start)
+            cached = self._probe_cache.get(key)
+            estimate = fallback
+            # 新区间尚未扫描完时，复用仍覆盖未来一分钟的相邻区间。
+            candidates = sorted((k for k in self._probe_cache
+                                 if k[0] == path and k[1] <= position),
+                                key=lambda k: k[1], reverse=True)
+            for candidate in candidates:
+                rate = self.segment_rate(self._probe_cache[candidate], position - candidate[1])
+                if rate:
+                    estimate = rate * 1.15 / self._overhead
+                    break
+            fresh = time.monotonic() - self._probe_checked.get(key, 0) < 30
+            if (cached is not None and fresh) or self._probe_pending:
+                return estimate
+            self._probe_pending = True
+            generation = self._probe_generation
+            cancel = self._probe_cancel
+            def probe():
+                signature = None
+                try:
+                    info = os.stat(path)
+                    if not stat.S_ISREG(info.st_mode) or cancel.is_set():
+                        raise ValueError("媒体文件不可读")
+                    signature = (info.st_size, info.st_mtime_ns)
+                    buckets = self._probe_segment(path, start, duration, cancel)
+                except (OSError, ValueError, IndexError, subprocess.SubprocessError) as error:
+                    logger.info(f"片段探测回退，位置{start}秒：{type(error).__name__}")
+                    buckets = []
+                with self._lock:
+                    if generation != self._probe_generation:
+                        return
+                    self._probe_pending = False
+                    if self._probe_signatures.get(path) != signature:
+                        for old in list(self._probe_cache):
+                            if old[0] == path:
+                                self._probe_cache.pop(old)
+                                self._probe_checked.pop(old, None)
+                    self._probe_signatures[path] = signature
+                    self._probe_cache[key] = buckets
+                    self._probe_checked[key] = time.monotonic()
+                    if buckets:
+                        logger.info(f"片段探测完成，位置{start}秒，预计码率{self.segment_rate(buckets, 0) / 1000000:.1f}Mbps")
+                    while len(self._probe_cache) > 32:
+                        old = next(iter(self._probe_cache))
+                        self._probe_cache.pop(old)
+                        self._probe_checked.pop(old, None)
+                    self._probe_signatures = {k[0]: self._probe_signatures.get(k[0]) for k in self._probe_cache}
+            threading.Thread(target=probe, name="playback-bitrate", daemon=True).start()
+            return estimate
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        return fallback
 
     def _note_playback(self, server: str, session: dict):
         """新会话、恢复播放或明显跳转时重新预留缓存带宽。"""
@@ -883,7 +1091,13 @@ class SpeedLimiter(_PluginBase):
     
     def __calc_limit(self, total_bit_rate: float) -> float:
         """扣除播放预算及预留带宽，返回 KiB/s；零预算也不能写成不限速。"""
-        return max(0, (self._bandwidth - total_bit_rate * self._overhead - self._headroom) / 8192)
+        demand = total_bit_rate * self._overhead
+        budget = max(0, (self._bandwidth - demand - self._headroom) / 8192)
+        stamp = (round(demand / 1000000), round(budget / 256))
+        if stamp != self._budget_log:
+            logger.info(f"播放预留{demand / 1000000:.1f}Mbps，下载器可用上传{budget:.0f}KiB/s")
+            self._budget_log = stamp
+        return budget
 
     @staticmethod
     def allocate_uploads(budget: float, ceilings: list, weights: list = None, priority: bool = False) -> list:
@@ -1019,7 +1233,7 @@ class SpeedLimiter(_PluginBase):
             if previous and self._recovering and previous["upload"] > 0 and (up == 0 or up > previous["upload"]):
                 unlimited = up == 0
                 ceiling = up or self._bandwidth / 8 / unit
-                next_up = min(ceiling, previous["upload"] + 256) if can_raise else previous["upload"]
+                next_up = min(ceiling, previous["upload"] + self._recovery_step) if can_raise else previous["upload"]
                 up = 0 if unlimited and next_up >= ceiling else int(next_up)
                 raised |= up == 0 or up > previous["upload"]
             all_restored &= int(target / unit) == up
@@ -1088,6 +1302,17 @@ class SpeedLimiter(_PluginBase):
         """恢复本插件修改的限速；保留失败项，供重载后继续恢复。"""
         with self._lock:
             self._stopping = True
+            self._probe_cancel.set()
+            with self._probe_process_lock:
+                process = self._probe_process
+                if process is not None and process.poll() is None:
+                    process.kill()
+                    process.wait(timeout=1)
+            self._probe_generation += 1
+            self._probe_pending = False
+            self._probe_cache.clear()
+            self._probe_checked.clear()
+            self._probe_signatures.clear()
             services = self.service_infos if self._downloader else {}
             for name in list(self._original):
                 if name not in (services or {}):

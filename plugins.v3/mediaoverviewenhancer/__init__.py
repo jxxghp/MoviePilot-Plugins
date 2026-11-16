@@ -28,7 +28,7 @@ class MediaOverviewEnhancer(_PluginBase):
         "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/"
         "src/assets/images/misc/edit.png"
     )
-    plugin_version = "1.12.0"
+    plugin_version = "1.14.0"
     plugin_label = "元数据,媒体库,AI"
     plugin_author = "miguelito39721"
     plugin_config_prefix = "mediaoverviewenhancer_"
@@ -218,6 +218,14 @@ class MediaOverviewEnhancer(_PluginBase):
             return {"started": False, "message": "插件未启用"}
         return self._engine.start_run(payload or {})
 
+    def engine_write_sample(self, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """把试跑中选定的样张文案直接写入对应条目。"""
+        if self._engine is None:
+            return {"written": False, "message": "引擎未初始化"}
+        if not self.get_state():
+            return {"written": False, "message": "插件未启用"}
+        return self._engine.write_sample(payload or {})
+
     def engine_cancel(self) -> Dict[str, Any]:
         """停止当前任务。"""
         if self._engine is None:
@@ -250,3 +258,25 @@ class MediaOverviewEnhancer(_PluginBase):
         self.update_config(data)
         self.init_plugin(data)
         return {"saved": True, "config": data}
+
+    def engine_audit_result(self) -> Dict[str, Any]:
+        """读取最近一次存量简介体检结果。"""
+        if self._engine is None:
+            return {"items": [], "scanned": 0, "total": 0, "errors": ["引擎未初始化"]}
+        return self._engine.audit_result()
+
+    def engine_audit_quality(self, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """执行存量简介质量体检（只读，不调用大模型）。"""
+        if self._engine is None:
+            return {"items": [], "scanned": 0, "total": 0, "errors": ["引擎未初始化"]}
+        if not self.get_state():
+            return {"items": [], "scanned": 0, "total": 0, "errors": ["插件未启用"]}
+        return self._engine.audit_quality(payload or {})
+
+    def engine_audit_repair(self, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """批量重写体检选中的低质简介。"""
+        if self._engine is None:
+            return {"started": False, "message": "引擎未初始化"}
+        if not self.get_state():
+            return {"started": False, "message": "插件未启用"}
+        return self._engine.audit_repair(payload or {})
