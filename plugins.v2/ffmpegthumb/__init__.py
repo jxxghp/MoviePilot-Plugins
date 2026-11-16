@@ -406,11 +406,11 @@ class FFmpegThumb(_PluginBase):
         if any(part.upper() in cls.SKIP_DIR_NAMES for part in file_path.parts[:-1]):
             return True, "蓝光原盘目录结构，无法截帧，跳过"
         thumb_path = cls.build_thumb_path(file_path)
-        if thumb_path.exists():
+        if thumb_path.is_file() and thumb_path.stat().st_size > 0:
             return True, f"缩略图已存在：{thumb_path.name}"
         if skip_existing:
             scraped_image = file_path.with_suffix(".jpg")
-            if scraped_image.exists():
+            if scraped_image.is_file() and scraped_image.stat().st_size > 0:
                 return True, f"已有分集图片：{scraped_image.name}，跳过"
         return False, ""
 

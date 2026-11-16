@@ -1,6 +1,7 @@
 """FFmpeg缩略图：分集缩略图命名、跳过规则与 ffmpeg 参数顺序。"""
 from pathlib import Path
-from unittest.mock import patch
+import threading
+from unittest.mock import Mock, patch
 
 from app.plugins.ffmpegthumb import FFmpegThumb
 from app.plugins.ffmpegthumb.ffmpeg_helper import FFMPEG_THUMB_TIMEOUT, FfmpegHelper
@@ -167,3 +168,24 @@ def test_ffmpeg_success_with_empty_output_is_failure(tmp_path):
         "app.plugins.ffmpegthumb.ffmpeg_helper.subprocess.run", return_value=result
     ):
         assert not FfmpegHelper.get_thumb(str(video), str(image))
+
+
+def test_empty_existing_images_allow_retry(tmp_path):
+    """空图片不能阻止后续截帧重试。"""
+    video = make_video(tmp_path)
+    FFmpegThumb.build_thumb_path(video).touch()
+    video.with_suffix(".jpg").touch()
+    assert FFmpegThumb.should_skip(video) == (False, "")
+
+
+def test_blank_exclusion_does_not_exclude_scan_root(tmp_path):
+    """空排除行不能被解释为当前目录，导致所有扫描文件被跳过。"""
+    video = make_video(tmp_path)
+    plugin = make_plugin()
+    plugin._scan_paths = str(tmp_path)
+    plugin._exclude_paths = "\n  \n"
+    plugin._event = threading.Event()
+    plugin.gen_file_thumb = Mock(return_value=FFmpegThumb.RESULT_GENERATED)
+    with patch("app.plugins.ffmpegthumb.SystemUtils.list_files", return_value=[video]):
+        plugin._FFmpegThumb__libraryscan()
+    plugin.gen_file_thumb.assert_called_once_with(video)
