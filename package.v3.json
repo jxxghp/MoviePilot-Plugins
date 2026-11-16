@@ -1,4 +1,22 @@
 {
+  "SimpleMovieCalendar": {
+    "name": "简单观影日历",
+    "description": "查看电影数字发行、流媒体上线与蓝光排期；默认探索来源，可手动添加仪表板。",
+    "labels": "影视,日历,探索,仪表盘",
+    "version": "0.1.4",
+    "icon": "Moviepilot_A.png",
+    "author": "随风飞翔",
+    "level": 1,
+    "system_version": ">=3.2.3,<4",
+    "history": {
+      "v0.1.4": "仪表板居中展示豆瓣和 IMDb 评分与评价人数，沿用公开网站的文案。",
+      "v0.1.3": "仪表板为置顶影片的海报添加琥珀色角标和细金边。",
+      "v0.1.2": "仪表板海报下的片名、发行日期与倒计时、发行类型全部居中，同片发行类型去重显示。",
+      "v0.1.1": "仪表板改为横向海报列表，支持横向滚动，展示倒计时、发行类型和数据更新时间。",
+      "v0.1.0": "首版：探索来源、完整多版本排期、可选仪表板、公开数据缓存与失败回退；仅查看排期。"
+    },
+    "plugin_readme": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/plugins.v3/simplemoviecalendar/README.md"
+  },
   "MediaDownloadFolder": {
     "name": "媒体下载目录",
     "description": "按整理命名格式把同一影视作品的下载归入一个目录。",
