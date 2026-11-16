@@ -2,16 +2,27 @@
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import date, datetime
-from typing import Callable, Iterator, Optional, Protocol
+from datetime import date, datetime, timedelta
+from typing import Any, Callable, Iterator, Optional, Protocol
 
 from app.sdk.logging import logger
 
-from .ai import AiAdvisor, IdentityAnswer, IdentityTask, NumberingAnswer, NumberingTask
+from .ai import (
+    FAILED_RETRY_DAYS,
+    AiAdvisor,
+    AiAnswerCache,
+    CachedAnswer,
+    IdentityAnswer,
+    IdentityTask,
+    NumberingAnswer,
+    NumberingTask,
+    task_fingerprint,
+)
 from .checks import (
     EpisodeMatch,
     IgnoreRule,
@@ -42,6 +53,8 @@ from .checks import (
 from .emby import NameParser, fill_from_names, parse_release_name
 from .models import (
     ISSUE_TYPE_LABELS,
+    ORIGIN_EMBY,
+    ORIGIN_LOCAL,
     Issue,
     IssueType,
     LibraryEpisode,
@@ -99,6 +112,14 @@ class ScanOptions:
     ai_summary: bool = False
 
 
+_LABEL = re.compile(r"S(\d+)E(\d+)")
+
+
+def _episode_numbers(labels: list[str]) -> set[tuple[int, int]]:
+    """把 S05E01 形式的标签解析为 (季, 集)。"""
+    return {(int(m.group(1)), int(m.group(2))) for m in (_LABEL.fullmatch(label) for label in labels) if m}
+
+
 class LibraryScanner:
     """执行一次只读扫描；所有外部依赖由调用方注入，便于测试与停止。"""
 
@@ -111,8 +132,9 @@ class LibraryScanner:
         today: Optional[date] = None,
         name_parser: NameParser = parse_release_name,
         advisor: Optional[AiAdvisor] = None,
+        ai_cache: Optional[AiAnswerCache] = None,
     ) -> None:
-        """记录扫描选项与依赖。"""
+        """记录扫描选项与依赖；ai_cache 为空时每次都重新请求 AI。"""
         self.options = options
         self.tmdb = tmdb
         self.stop_event = stop_event
@@ -120,6 +142,7 @@ class LibraryScanner:
         self.today = today or date.today()
         self.name_parser = name_parser
         self.advisor = advisor
+        self.ai_cache = ai_cache
         self.report = Report()
         self._issues: list[Issue] = []
         self._numbering_tasks: list[NumberingTask] = []
@@ -280,10 +303,12 @@ class LibraryScanner:
                 series.tmdb_id = info.tmdb_id
                 series.tmdb_id_source = "nfo"
         for episode in series.episodes:
-            self._supplement_episode(nfo, episode, series.tmdb_id)
+            self._supplement_episode(nfo, episode, series.tmdb_id, series.origin)
 
     @staticmethod
-    def _supplement_episode(nfo: NfoReader, episode: LibraryEpisode, series_tmdb_id: Optional[int]) -> None:
+    def _supplement_episode(
+        nfo: NfoReader, episode: LibraryEpisode, series_tmdb_id: Optional[int], origin: str = ORIGIN_EMBY
+    ) -> None:
         """为单集读取同名 NFO；只在缺单集 ID 或 strm 技术参数未知时读取，避免全量读盘。"""
         needs_id = episode.tmdb_id is None
         needs_tech = any(
@@ -305,7 +330,9 @@ class LibraryScanner:
             and episode.season is not None and episode.episode is not None
             and (info.season != episode.season or info.episode not in episode.episode_numbers)
         ):
-            note = f"NFO 记录为 S{info.season:02d}E{info.episode:02d}，媒体服务器为 {episode.label}"
+            # 本地目录的季集号来自目录与文件名，Emby 的来自媒体服务器
+            where = "库内文件为" if origin == ORIGIN_LOCAL else "媒体服务器为"
+            note = f"NFO 记录为 S{info.season:02d}E{info.episode:02d}，{where} {episode.label}"
             if info.stale:
                 note += "（NFO 早于视频文件，可能已过期）"
             episode.conflicts.append(note)
@@ -357,7 +384,7 @@ class LibraryScanner:
         self._identity_tasks.append(IdentityTask(series=series))
 
     def _run_ai(self) -> None:
-        """查询身份候选，请求 AI 建议，并只保留通过规则验证的建议。"""
+        """查询身份候选，请求 AI 建议，并只保留通过规则验证的建议；输入没变的任务沿用缓存的回答。"""
         assert self.advisor is not None
         if self.tmdb is not None:
             for task in self._identity_tasks:
@@ -368,40 +395,115 @@ class LibraryScanner:
                 except TmdbLookupError as err:
                     logger.debug(f"影视库完整性检查：搜索候选失败 {task.series.title}：{err}")
         identity_tasks = [task for task in self._identity_tasks if task.candidates]
-        if self._numbering_tasks or identity_tasks:
-            self.progress(f"正在请求 AI 建议（{len(self._numbering_tasks) + len(identity_tasks)} 项）")
+        numbering_ask, numbering_reuse = self._split_cached(self._numbering_tasks, NumberingAnswer)
+        identity_ask, identity_reuse = self._split_cached(identity_tasks, IdentityAnswer)
+        numbering: list[tuple[NumberingTask, NumberingAnswer]] = []
+        identity: list[tuple[IdentityTask, IdentityAnswer]] = []
+        if numbering_ask or identity_ask:
+            self.progress(f"正在请求 AI 建议（{len(numbering_ask) + len(identity_ask)} 项）")
             reserve = 1 if self.options.ai_summary else 0
-            numbering, identity = self.advisor.advise(self._numbering_tasks, identity_tasks, reserve=reserve)
-            for task, answer in numbering:
-                self._verify_numbering(task, answer)
-            for task, answer in identity:
-                self._verify_identity(task, answer)
+            numbering, identity = self.advisor.advise(numbering_ask, identity_ask, reserve=reserve)
+        for task, answer in numbering:
+            self._record(task, answer, self._verify_numbering(task, answer), "映射")
+        for task, answer in identity:
+            self._record(task, answer, self._verify_identity(task, answer), "身份")
+        for task, answer, entry in numbering_reuse:
+            self._recheck(task, answer, entry, self._verify_numbering(task, answer), "映射")
+        for task, answer, entry in identity_reuse:
+            self._recheck(task, answer, entry, self._verify_identity(task, answer), "身份")
         if self.options.ai_summary:
             self._summarize()
 
-    def _verify_numbering(self, task: NumberingTask, answer: NumberingAnswer) -> None:
-        """映射建议必须减少无法对应的集数且不制造新的撞集，才作为建议展示。"""
-        if answer.confidence < MIN_AI_CONFIDENCE:
+    def _split_cached(self, tasks: list, schema: type) -> tuple[list, list]:
+        """把任务分成需要请求的和沿用缓存回答的；未通过验证且未到期的回答也沿用，按当前规则重新核对而不再请求。"""
+        if self.ai_cache is None:
+            return list(tasks), []
+        ask: list = []
+        reuse: list = []
+        for task in tasks:
+            entry = self.ai_cache.get(task_fingerprint(task))
+            if entry is None:
+                ask.append(task)
+                continue
+            retry = entry.retry_on()
+            if retry is not None and retry <= self.today:
+                ask.append(task)
+                continue
+            try:
+                answer = schema.model_validate(entry.answer)
+            except ValueError:
+                self.ai_cache.drop(task_fingerprint(task))
+                ask.append(task)
+                continue
+            self.report.stats.ai_cached += 1
+            reuse.append((task, answer, entry))
+        return ask, reuse
+
+    def _record(self, task: NumberingTask | IdentityTask, answer: Any, reason: Optional[str], kind: str) -> None:
+        """记录新请求到的回答；reason 为 None 表示通过，空字符串表示暂时无法验证（不缓存）。"""
+        if reason:
+            retry = self.today + timedelta(days=FAILED_RETRY_DAYS)
+            logger.info(f"影视库完整性检查：{task.series.title} 的 AI {kind}建议未通过验证（{reason}），已丢弃，{retry} 前不再请求")
+        if self.ai_cache is not None and reason != "":
+            self.ai_cache.put(task_fingerprint(task), answer, reason is None, reason or "", self.today)
+
+    def _recheck(
+        self, task: NumberingTask | IdentityTask, answer: Any, entry: CachedAnswer, reason: Optional[str], kind: str
+    ) -> None:
+        """按当前数据与规则重新核对沿用的回答。
+
+        上次通过、这次不再成立时丢弃缓存，下次扫描重新请求；上次未通过、这次通过（如验证规则或库内数据有变化）
+        时改记为通过；仍未通过时等到期再请求。
+        """
+        assert self.ai_cache is not None
+        key = task_fingerprint(task)
+        if entry.passed:
+            if reason is not None:
+                if reason:
+                    logger.info(f"影视库完整性检查：{task.series.title} 上次的 AI {kind}建议按当前数据不再成立（{reason}），下次扫描重新请求")
+                self.ai_cache.drop(key)
             return
+        if reason is None:
+            logger.info(f"影视库完整性检查：{task.series.title} 上次未通过验证的 AI {kind}建议按当前规则已通过，恢复展示")
+            self.ai_cache.put(key, answer, True, "", self.today)
+        elif reason:
+            logger.info(
+                f"影视库完整性检查：{task.series.title} 的 AI {kind}建议上次未通过验证（{reason}），"
+                f"库内情况未变，{entry.retry_on()} 前不再请求"
+            )
+
+    def _verify_numbering(self, task: NumberingTask, answer: NumberingAnswer) -> Optional[str]:
+        """映射建议必须减少无法对应的集数且不制造新的撞集，才作为建议展示；返回未通过的原因，通过时为 None。"""
+        if answer.confidence < MIN_AI_CONFIDENCE:
+            return f"把握 {answer.confidence:.0%}，低于 {MIN_AI_CONFIDENCE:.0%}"
         proposed = [
             NumberMapping(m.library_season, m.library_start, max(m.library_start, m.library_end or m.library_start), m.tmdb_season, m.tmdb_start)
             for m in answer.mappings
             if m.library_season >= 0 and m.library_start >= 1 and m.tmdb_season >= 0 and m.tmdb_start >= 1
         ]
         if not proposed:
-            return
+            return "AI 未给出有效的映射规则"
+        # 只采用涉及无法对应单集的映射：AI 有时顺带改动本来就对得上的季，整组核对会连累正确的那条
+        targets = _episode_numbers(task.unmatched)
+        relevant = [m for m in proposed if any(m.translate(season, number) for season, number in targets)]
+        extra = len(proposed) - len(relevant)
+        if not relevant:
+            return "AI 给出的映射都不涉及无法对应的集"
+        proposed = relevant
         existing = self.options.number_mappings.get(task.base, [])
         args = (self.today, self.options.air_buffer_days, self.options.include_specials)
         before = summarize_match(task.series, task.tmdb, existing or None, *args)
         after = summarize_match(task.series, task.tmdb, existing + proposed, *args)
+        rule_text = "；".join(mapping.describe(task.base) for mapping in proposed)
         if not numbering_improves(before, after):
-            logger.info(f"影视库完整性检查：{task.series.title} 的 AI 映射建议未通过验证，已丢弃")
-            return
+            return (
+                f"按 {rule_text} 对应后无法对应的集 {before.unmatched} → {after.unmatched}，"
+                f"撞集 {before.collisions} → {after.collisions}，没有改善"
+            )
         # 集数凑得上不代表对得上：映射到的 TMDB 单集播出日期须与库内首播日期大体一致
         dates = mapping_date_check(task.series, task.tmdb, proposed)
         if not dates.passed:
-            logger.info(f"影视库完整性检查：{task.series.title} 的 AI 映射建议播出日期不符，已丢弃（{dates.describe()}）")
-            return
+            return f"{rule_text} 播出日期不符：{dates.describe()}"
         rule = "\n".join(mapping.describe(task.base) for mapping in proposed)
         self._add([suggestion_issue(
             task.series,
@@ -409,27 +511,34 @@ class LibraryScanner:
             rule.splitlines() + [
                 f"采纳后：无法对应的集 {before.unmatched} → {after.unmatched}，缺集 {before.missing} → {after.missing}",
                 dates.describe(),
+                *([f"已略去 AI 另给的 {extra} 条映射：只涉及本来就能对应的集"] if extra else []),
                 f"AI 理由：{answer.reason}（把握 {answer.confidence:.0%}）",
             ],
             "mapping",
             rule,
         )])
+        return None
 
-    def _verify_identity(self, task: IdentityTask, answer: IdentityAnswer) -> None:
-        """身份建议必须在候选中，且库内单集按季集号能在该剧中找到足够比例的对应。"""
-        if self.tmdb is None or answer.confidence < MIN_AI_CONFIDENCE:
-            return
+    def _verify_identity(self, task: IdentityTask, answer: IdentityAnswer) -> Optional[str]:
+        """身份建议必须在候选中，且库内单集按季集号能在该剧中找到足够比例的对应。
+
+        返回未通过的原因，通过时为 None；TMDB 暂时查不到候选详情时返回空字符串，表示本轮无法验证。
+        """
+        if self.tmdb is None:
+            return ""
+        if answer.confidence < MIN_AI_CONFIDENCE:
+            return f"把握 {answer.confidence:.0%}，低于 {MIN_AI_CONFIDENCE:.0%}"
         if not 0 <= answer.candidate < len(task.candidates):
-            return
+            return "AI 认为候选中没有同一部剧"
         candidate = task.candidates[answer.candidate]
         try:
             tmdb_series = self.tmdb.get_series(int(candidate["id"]))
-        except (TmdbLookupError, KeyError, TypeError, ValueError):
-            return
+        except (TmdbLookupError, KeyError, TypeError, ValueError) as err:
+            logger.debug(f"影视库完整性检查：{task.series.title} 的 AI 身份建议无法验证：{err}")
+            return ""
         coverage = identity_coverage(task.series, tmdb_series)
         if coverage < MIN_IDENTITY_COVERAGE:
-            logger.info(f"影视库完整性检查：{task.series.title} 的 AI 身份建议覆盖率 {coverage:.0%}，已丢弃")
-            return
+            return f"库内只有 {coverage:.0%} 的单集能在 tmdb:{candidate.get('id')} 中找到对应，低于 {MIN_IDENTITY_COVERAGE:.0%}"
         series = task.series
         rule = f"{source_scope(series.server, series.item_id, series.origin)} => tmdb:{candidate['id']}"
         year = str(candidate.get("first_air_date") or "")[:4]
@@ -444,6 +553,7 @@ class LibraryScanner:
             "identity",
             rule,
         )])
+        return None
 
     def _summarize(self) -> None:
         """为应用忽略规则后的问题生成 AI 摘要。"""

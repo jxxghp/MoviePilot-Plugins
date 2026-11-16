@@ -215,6 +215,7 @@ class Issue(BaseModel):
     scope: str = Field(default="", description="忽略规则使用的范围键，如 tmdb:123:S1")
     adopt_kind: str = Field(default="", description="AI 建议可采纳的规则类型：mapping 或 identity")
     adopt_rule: str = Field(default="", description="采纳后写入配置的规则文本")
+    subscription: str = Field(default="", description="缺集所在季在 MoviePilot 中的订阅状态，如「订阅中，缺 11 集」")
 
 
 class ReportStats(BaseModel):
@@ -229,6 +230,7 @@ class ReportStats(BaseModel):
     tmdb_requests: int = Field(default=0, description="TMDB 查询次数")
     probes: int = Field(default=0, description="本次新读取媒体信息的本地文件数量")
     ai_calls: int = Field(default=0, description="本次调用 AI 的次数")
+    ai_cached: int = Field(default=0, description="沿用上次 AI 回答、本次未请求的任务数")
 
 
 class Report(BaseModel):

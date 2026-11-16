@@ -87,7 +87,7 @@ def build_form(server_items: list[str]) -> list[dict]:
                 ),
                 _row(_col([{
                     "component": "VCronField",
-                    "props": {"model": "cron", "label": "定时扫描周期", "placeholder": "5 位 cron 表达式，留空不定时"},
+                    "props": {"model": "cron", "label": "定时扫描周期", "placeholder": "5 位 cron 表达式，留空不定时", "hint": "按标准 crontab 解析，星期 0 和 7 都表示周日", "persistent-hint": True},
                 }], cols=12, md=4)),
 
                 _section("数据来源"),
@@ -265,6 +265,11 @@ def _issue_row(issue: Issue, plugin_id: str) -> dict:
                                 "text": "警告" if issue.severity == Severity.WARNING else "提示",
                             },
                             {"component": "span", "text": issue.summary},
+                            *([{
+                                "component": "VChip",
+                                "props": {"size": "x-small", "class": "ms-2", "color": "info", "variant": "tonal"},
+                                "text": f"MP {issue.subscription}",
+                            }] if issue.subscription else []),
                         ],
                     },
                     *[
@@ -368,6 +373,7 @@ def build_page(
             f"{stats.series} 部剧 / {stats.episodes} 个单集条目 / {stats.movies} 部电影；"
             f"读取 NFO {stats.nfo_reads} 个，TMDB 查询 {stats.tmdb_requests} 次，"
             f"新读取媒体信息 {stats.probes} 个，AI 调用 {stats.ai_calls} 次"
+            + (f"（另有 {stats.ai_cached} 项沿用上次结果）" if stats.ai_cached else "")
         ),
     })
     notices: list[dict] = []
@@ -433,9 +439,13 @@ def build_summary_text(report: Report, visible: list[Issue], ignored: int) -> st
     counts = Counter(issue.type for issue in visible)
     missing_eps = sum(len(issue.episodes) for issue in visible if issue.type == IssueType.MISSING)
     missing_series = len({(i.server, i.media_id or i.title) for i in visible if i.type == IssueType.MISSING})
+    subscribed = len({
+        (i.server, i.media_id or i.title) for i in visible if i.type == IssueType.MISSING and i.subscription
+    })
     lines = [
         f"扫描 {report.stats.series} 部剧、{report.stats.movies} 部电影，耗时 {report.duration_seconds} 秒",
-        f"缺集：{missing_series} 部剧共 {missing_eps} 集",
+        f"缺集：{missing_series} 部剧共 {missing_eps} 集"
+        + (f"（其中 {subscribed} 部在 MP 订阅中）" if subscribed else ""),
         f"版本偏离：{counts.get(IssueType.VERSION, 0)} 项",
         f"多文件：{counts.get(IssueType.DUPLICATE, 0)} 项",
         f"编号冲突：{counts.get(IssueType.CONFLICT, 0)} 项",
