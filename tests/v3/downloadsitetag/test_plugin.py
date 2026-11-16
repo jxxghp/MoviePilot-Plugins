@@ -391,3 +391,34 @@ def test_recognize_fallback_caches_failure_and_skips_tagging() -> None:
     plugin.chain.recognize_media.assert_called_once()
     plugin.save_data.assert_called_once_with("MediaTitleCache", {"小气鬼": ""})
     plugin._set_torrent_info.assert_not_called()
+
+
+def test_recognize_fallback_reuses_existing_alias_tag() -> None:
+    """种子已有该媒体别名标签时应沿用既有标签，不新增其它语言的重复标签。"""
+    plugin = _make_recognize_plugin()
+    plugin.chain.recognize_media.return_value = SimpleNamespace(
+        title="外语标题", names=["外语标题", "既有剧名"]
+    )
+    torrent = _make_recognize_torrent()
+    torrent["tags"] = "站点,既有剧名"
+
+    _run_complemented_history(plugin, torrent)
+
+    plugin.chain.recognize_media.assert_called_once()
+    # 沿用的既有标签已在种子上, 差集后无标签可写, 缓存记录解析后的标签值
+    plugin._set_torrent_info.assert_not_called()
+    plugin.save_data.assert_called_once_with("MediaTitleCache", {"小气鬼": "既有剧名"})
+
+
+def test_recognize_fallback_adds_new_title_when_no_alias_matched() -> None:
+    """种子标签与识别媒体别名无交集时正常新增识别标题。"""
+    plugin = _make_recognize_plugin()
+    plugin.chain.recognize_media.return_value = SimpleNamespace(
+        title="新剧名", names=["新剧名", "别名"]
+    )
+
+    _run_complemented_history(plugin, _make_recognize_torrent())
+
+    plugin.chain.recognize_media.assert_called_once()
+    assert plugin._set_torrent_info.call_args.kwargs["_tags"] == ["新剧名"]
+    plugin.save_data.assert_called_once_with("MediaTitleCache", {"小气鬼": "新剧名"})

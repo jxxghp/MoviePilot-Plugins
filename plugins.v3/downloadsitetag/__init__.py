@@ -375,7 +375,7 @@ class DownloadSiteTag(_PluginBase):
                             and self._enabled_media_recognize):
                         torrent_name = torrent.get("name") if service.type == "qbittorrent" else torrent.name
                         if torrent_name:
-                            history.title = self._recognize_media_title(torrent_name)
+                            history.title = self._recognize_media_title(torrent_name, torrent_tags)
 
                     # 按设置生成需要写入的标签与分类
                     _tags = []
@@ -478,10 +478,11 @@ class DownloadSiteTag(_PluginBase):
         else:
             return media_title
 
-    def _recognize_media_title(self, torrent_name: str) -> Optional[str]:
+    def _recognize_media_title(self, torrent_name: str, torrent_tags: Optional[List[str]] = None) -> Optional[str]:
         """
         从种子资源名识别媒体标题, 先本地解析再走媒体识别链。
         识别结果按解析出的标题名持久缓存(失败也缓存, 避免每轮定时任务重复调用识别接口)。
+        种子已有该媒体其它语言/别名标签时沿用既有标签, 避免同一媒体打上多语言重复标签。
         """
         if not torrent_name:
             return None
@@ -502,6 +503,12 @@ class DownloadSiteTag(_PluginBase):
             mediainfo = self.chain.recognize_media(meta=meta, mtype=meta.type, cache=True)
             if mediainfo and mediainfo.title:
                 title = mediainfo.title
+                # 识别出的媒体在种子上已有别名标签(如其它语言的标题)时, 沿用既有标签避免重复
+                if torrent_tags:
+                    existing = set(torrent_tags) & set(getattr(mediainfo, "names", None) or [])
+                    if existing:
+                        title = min(existing)
+                        logger.info(f"{self.LOG_TAG}种子已有该媒体别名标签, 沿用: {title}")
                 logger.info(f"{self.LOG_TAG}资源名识别媒体标题: {torrent_name} -> {title}")
         except Exception as e:
             logger.error(f"{self.LOG_TAG}识别媒体标题失败: {torrent_name} {str(e)}")
