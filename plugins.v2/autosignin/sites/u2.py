@@ -22,12 +22,8 @@ class U2(_ISiteSigninHandler):
     # 匹配的站点Url，每一个实现类都需要设置为自己的站点Url
     site_url = "u2.dmhy.org"
 
-    # 已签到
-    _sign_regex = ['<a href="showup.php">已签到</a>',
-                   '<a href="showup.php">Show Up</a>',
-                   '<a href="showup.php">Показать</a>',
-                   '<a href="showup.php">已簽到</a>',
-                   '<a href="showup.php">已簽到</a>']
+    # 顶部导航可能沿用昨日状态，只接受站点明确的当天完成提示。
+    _sign_regex = [r'(?:感谢|感謝)[，,]\s*(?:今天|今日)已[签簽]到[。.!]']
 
     # 签到成功时，U2 可能返回相对路径或绝对 URL 的跳转脚本。
     _success_redirect_regex = re.compile(
@@ -46,11 +42,11 @@ class U2(_ISiteSigninHandler):
 
     @classmethod
     def _has_signed_state(cls, html_text: str) -> bool:
-        """已登录且显示完成状态时确认签到，仍含答题参数的页面不能确认。"""
+        """已登录且显示当天完成提示时确认签到；历史查询表单不代表待答题。"""
         if not html_text or not SiteUtils.is_logged_in(html_text):
             return False
         html = etree.HTML(html_text)
-        return (not html.xpath('//input[@name="req"] | //form[contains(@action, "showup.php")]')
+        return (html is not None and not html.xpath('//input[@name="req"]')
                 and cls.sign_in_result(html_text, cls._sign_regex))
 
     @classmethod
@@ -109,13 +105,18 @@ class U2(_ISiteSigninHandler):
         if html is None:
             return False, '签到失败'
 
-        # 获取签到参数
-        req = html.xpath("//form//input[@name='req']/@value")
-        hash_str = html.xpath("//form//input[@name='hash']/@value")
-        form = html.xpath("//form//input[@name='form']/@value")
-        csrf_token = html.xpath("//form//input[@name='_csrf']/@value")
-        submit_name = html.xpath("//form//td/input[@type='submit']/@name")
-        submit_value = html.xpath("//form//td/input[@type='submit']/@value")
+        # 一次性 req 定位真实答题表单，避免混入历史查询的提交按钮或其他参数。
+        signin_forms = html.xpath("//form[.//input[@name='req']]")
+        if not signin_forms:
+            logger.error(f"{site} 签到失败，未获取到相关签到参数")
+            return False, '签到失败'
+        signin_form = signin_forms[0]
+        req = signin_form.xpath(".//input[@name='req']/@value")
+        hash_str = signin_form.xpath(".//input[@name='hash']/@value")
+        form = signin_form.xpath(".//input[@name='form']/@value")
+        csrf_token = signin_form.xpath(".//input[@name='_csrf']/@value")
+        submit_name = signin_form.xpath(".//td/input[@type='submit']/@name")
+        submit_value = signin_form.xpath(".//td/input[@type='submit']/@value")
         if (
             not req
             or not hash_str
