@@ -9,7 +9,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.sdk.config import settings
-from app.sdk.media import Context, normalize_media_source
+from app.sdk.media import Context, MetaInfo, normalize_media_source
 from app.sdk.events import eventmanager, Event
 from app.db.oper.downloadhistory import DownloadHistoryOper
 from app.sdk.services import DownloaderHelper
@@ -55,7 +55,7 @@ class DownloadSiteTag(_PluginBase):
     # 插件图标
     plugin_icon = "Youtube-dl_B.png"
     # 插件版本
-    plugin_version = "3.2.0"
+    plugin_version = "3.3.0"
     # 插件作者
     plugin_author = "叮叮当"
     # 作者主页
@@ -80,6 +80,8 @@ class DownloadSiteTag(_PluginBase):
     _interval_time = 6
     _interval_unit = "小时"
     _enabled_media_tag = False
+    # 无历史种子识别剧名
+    _enabled_media_recognize = False
     _enabled_tag = True
     _enabled_category = False
     _enabled_del_tags = False
@@ -118,6 +120,7 @@ class DownloadSiteTag(_PluginBase):
             self._interval_time = self.str_to_number(config.get("interval_time"), 6)
             self._interval_unit = config.get("interval_unit") or "小时"
             self._enabled_media_tag = config.get("enabled_media_tag")
+            self._enabled_media_recognize = config.get("enabled_media_recognize")
             self._enabled_tag = config.get("enabled_tag")
             self._enabled_category = config.get("enabled_category")
             self._enabled_del_tags = config.get("enabled_del_tags")
@@ -366,6 +369,14 @@ class DownloadSiteTag(_PluginBase):
                                 and not history.type
                                 and not history.title):
                             continue
+                    # 无下载历史标题时, 通过种子资源名识别媒体标题(结果持久缓存, 同名资源只识别一次)
+                    if (not history.title
+                            and self._enabled_media_tag
+                            and self._enabled_media_recognize):
+                        torrent_name = torrent.get("name") if service.type == "qbittorrent" else torrent.name
+                        if torrent_name:
+                            history.title = self._recognize_media_title(torrent_name)
+
                     # 按设置生成需要写入的标签与分类
                     _tags = []
                     _cat = None
@@ -466,6 +477,37 @@ class DownloadSiteTag(_PluginBase):
             return f"{self._media_prefix}{media_title}"
         else:
             return media_title
+
+    def _recognize_media_title(self, torrent_name: str) -> Optional[str]:
+        """
+        从种子资源名识别媒体标题, 先本地解析再走媒体识别链。
+        识别结果按解析出的标题名持久缓存(失败也缓存, 避免每轮定时任务重复调用识别接口)。
+        """
+        if not torrent_name:
+            return None
+        try:
+            meta = MetaInfo(title=torrent_name)
+        except Exception as e:
+            logger.error(f"{self.LOG_TAG}解析种子名称失败: {torrent_name} {str(e)}")
+            return None
+        # 用解析出的标题名做缓存键, 同一媒体的多站点辅种(资源名不同但解析名相同)天然去重
+        cache_key = (meta.name or "").strip()
+        if not cache_key:
+            return None
+        cache = self.get_data("MediaTitleCache") or {}
+        if cache_key in cache:
+            return cache[cache_key] or None
+        title = None
+        try:
+            mediainfo = self.chain.recognize_media(meta=meta, mtype=meta.type, cache=True)
+            if mediainfo and mediainfo.title:
+                title = mediainfo.title
+                logger.info(f"{self.LOG_TAG}资源名识别媒体标题: {torrent_name} -> {title}")
+        except Exception as e:
+            logger.error(f"{self.LOG_TAG}识别媒体标题失败: {torrent_name} {str(e)}")
+        cache[cache_key] = title or ""
+        self.save_data("MediaTitleCache", cache)
+        return title
 
     def _genre_ids_get_cat(self, mtype, genre_ids=None):
         """
@@ -936,6 +978,43 @@ class DownloadSiteTag(_PluginBase):
                                     }
                                 ]
                             },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 3
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VCheckboxBtn',
+                                        'props': {
+                                            'model': 'enabled_media_recognize',
+                                            'label': '无历史种子识别剧名',
+                                        }
+                                    }
+                                ]
+                            },
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '无历史种子识别剧名：对下载历史中查不到的种子(辅种/外部添加)，从种子资源名识别媒体标题并打剧名标签。首次会对未识别的资源名调用TMDB识别并持久缓存结果，之后不再重复识别。'
+                                        }
+                                    }
+                                ]
+                            }
                         ]
                     },
                     {
@@ -1220,6 +1299,7 @@ class DownloadSiteTag(_PluginBase):
             "onlyonce": False,
             "enabled_tag": True,
             "enabled_media_tag": False,
+            "enabled_media_recognize": False,
             "enabled_category": False,
             "enabled_del_tags": False,
             "category_movie": "电影",
