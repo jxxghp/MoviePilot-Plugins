@@ -223,7 +223,7 @@ class TestInitPlugin:
 class TestMeta:
 
     def test_plugin_meta(self):
-        assert TraktCleaner.plugin_version == "3.0.0"
+        assert TraktCleaner.plugin_version == "2.0.0"
         assert TraktCleaner.plugin_author == "Guoyin-Wen"
         instance = object.__new__(TraktCleaner)
         for name in ("get_data", "save_data", "update_config", "post_message"):

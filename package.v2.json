@@ -1027,6 +1027,7 @@
     "description": "根据 Trakt 播放记录，自动清理下载器中已观看的种子。",
     "labels": "Trakt,清理",
     "version": "1.4",
+    "v3": false,
     "icon": "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/trakt.png",
     "author": "Guoyin-Wen",
     "level": 1,
