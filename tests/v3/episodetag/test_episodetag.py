@@ -221,7 +221,7 @@ class TestInitPlugin:
 class TestMeta:
 
     def test_plugin_meta(self):
-        assert EpisodeTag.plugin_version == "3.0.0"
+        assert EpisodeTag.plugin_version == "2.0.0"
         assert EpisodeTag.plugin_author == "Guoyin-Wen"
         # get_form 第一元素必须是 list（V3 契约：裸 dict 会导致配置页空白）
         instance = object.__new__(EpisodeTag)
