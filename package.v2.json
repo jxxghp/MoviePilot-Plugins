@@ -320,13 +320,14 @@
   },
   "FFmpegThumb": {
     "name": "FFmpeg缩略图",
-    "description": "TheMovieDb没有背景图片时使用FFmpeg截取视频文件缩略图",
+    "description": "为缺少分集剧照的视频截取画面作为分集缩略图，已有分集图片时不重复生成",
     "labels": "刮削",
-    "version": "2.1",
+    "version": "2.2",
     "icon": "ffmpeg.png",
     "author": "jxxghp",
     "level": 1,
     "history": {
+      "v2.2": "跳过已有分集图片与蓝光原盘（iso/BDMV），短剧自动前移截取点，截取时间参数前置提速，失败写入日志",
       "v2.1": "优化执行周期输入，需要MoviePilot v2.2.1+",
       "v2.0": "兼容MoviePilot V2 版本"
     }
