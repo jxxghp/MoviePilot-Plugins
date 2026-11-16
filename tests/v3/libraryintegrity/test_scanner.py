@@ -317,6 +317,7 @@ def test_ai_suggestions_are_verified_before_reporting(tmp_path):
     suggestions = {issue.adopt_kind: issue for issue in report.issues if issue.type == IssueType.SUGGESTION}
     assert suggestions["mapping"].adopt_rule == "tmdb:5 S1E3-E4 => S2E1"
     assert any("无法对应的集 2 → 0" in line for line in suggestions["mapping"].details)
+    assert "库内这些单集没有首播日期，未核对播出日期" in suggestions["mapping"].details
     assert suggestions["identity"].adopt_rule == "emby:Emby/C => tmdb:7"
     assert report.ai_summary == "优先补齐剧A第3集。"
     assert report.stats.ai_calls == 3 and llm.closed
@@ -335,6 +336,22 @@ def test_ai_suggestions_failing_verification_are_dropped(tmp_path):
     series, episodes = _ai_series()
     report = _scanner(tmp_path, advisor=_advisor(llm)).scan([_emby_source(tmp_path, series, episodes)])
     assert not [issue for issue in report.issues if issue.type == IssueType.SUGGESTION]
+
+
+def test_ai_mapping_with_mismatched_air_dates_is_dropped(tmp_path):
+    """集数凑得上但映射到的 TMDB 单集播出日期与库内首播日期相差很远时，建议被丢弃。"""
+    llm = _FakeLlm({
+        "NumberingAnswer": NumberingAnswer(
+            mappings=[MappingItem(library_season=1, library_start=3, library_end=4, tmdb_season=2, tmdb_start=1)],
+            confidence=0.9,
+        ),
+    })
+    series, episodes = _ai_series()
+    for item in episodes["E"]:
+        item["PremiereDate"] = "2019-05-01T00:00:00.0000000Z"
+    report = _scanner(tmp_path, advisor=_advisor(llm)).scan([_emby_source(tmp_path, series, episodes)])
+    assert not [issue for issue in report.issues if issue.adopt_kind == "mapping"]
+    assert any("S01E03 | 2019-05-01 |" in prompt for prompt in llm.prompts)
 
 
 def test_ai_respects_budget_and_ignore_rules(tmp_path):

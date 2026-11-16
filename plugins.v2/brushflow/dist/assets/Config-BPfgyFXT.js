@@ -1,11 +1,5 @@
-import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { B as BrushFlowWorkbench } from './BrushFlowWorkbench-CHjaWIIo.js';
-
-const {openBlock:_openBlock,createBlock:_createBlock} = await importShared('vue');
-
-
-const {onMounted} = await importShared('vue');
-
+import { c as __mf_17, a as __mf_19, b as __mf_9 } from './_plugin-vue_export-helper-C960cP-z.js';
+import { B as BrushFlowWorkbench } from './BrushFlowWorkbench-CfskpesI.js';
 
 const _sfc_main = {
   __name: 'Config',
@@ -20,12 +14,12 @@ const _sfc_main = {
 
 const emit = __emit;
 
-onMounted(() => {
+__mf_17(() => {
   emit('layout', { maxWidth: '80rem' });
 });
 
 return (_ctx, _cache) => {
-  return (_openBlock(), _createBlock(BrushFlowWorkbench, {
+  return (__mf_19(), __mf_9(BrushFlowWorkbench, {
     api: __props.api,
     "plugin-id": "BrushFlow",
     "initial-tab": "config",

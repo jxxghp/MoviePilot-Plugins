@@ -455,7 +455,11 @@ def find_missing(
     include_specials: bool = False,
     only_existing_seasons: bool = False,
 ) -> dict[int, list[TmdbEpisodeRef]]:
-    """计算缺集：已播出（播出日期早于今天减去缓冲天数）且库内未覆盖的 TMDB 单集。"""
+    """计算缺集：已播出（播出日期早于今天减去缓冲天数）且库内未覆盖的 TMDB 单集。
+
+    TMDB 常有整段单集没填播出日期（如熊出没第 1 季 104 集只有 7 集有日期）。没有日期的单集
+    若排在同季某个已播出单集之前，也视为已播出；排在最后一个已播出单集之后的仍视为未播出。
+    """
     covered = {ref.tmdb_id for match in matches for ref in match.refs}
     library_seasons = {ref.season for match in matches for ref in match.refs}
     cutoff = today - timedelta(days=max(0, buffer_days))
@@ -465,8 +469,15 @@ def find_missing(
             continue
         if only_existing_seasons and season not in library_seasons:
             continue
+        dates = {ref.tmdb_id: parse_air_date(ref.air_date) for ref in refs}
+        last_aired = max(
+            (ref.episode for ref in refs if dates[ref.tmdb_id] is not None and dates[ref.tmdb_id] <= cutoff),
+            default=0,
+        )
         for ref in refs:
-            aired = parse_air_date(ref.air_date)
+            aired = dates[ref.tmdb_id]
+            if aired is None and ref.episode < last_aired:
+                aired = cutoff
             if aired is None or aired > cutoff:
                 continue
             if ref.tmdb_id not in covered:
@@ -515,6 +526,61 @@ def summarize_match(
 def numbering_improves(before: MatchSummary, after: MatchSummary) -> bool:
     """映射建议必须减少未匹配集数，且不能增加多个条目撞同一集的情况。"""
     return after.unmatched < before.unmatched and after.collisions <= before.collisions
+
+
+# 库内首播日期与映射目标的 TMDB 播出日期相差不超过该天数即视为相符（时区、地区首播差异）
+DATE_TOLERANCE_DAYS = 14
+# 可核对日期的单集中至少这个比例相符，映射建议才算通过
+MIN_DATE_AGREEMENT = 0.7
+
+
+@dataclass
+class DateCheck:
+    """编号映射的播出日期核对结果。"""
+
+    checked: int = 0
+    agreed: int = 0
+    # 第一处不符的示例，如 "库内 S05E01（2009-01-09）→ TMDB S01E143（2007-06-08）"
+    sample: str = ""
+
+    @property
+    def passed(self) -> bool:
+        """没有可核对的日期时无法否定，视为通过；否则须多数相符。"""
+        return self.checked == 0 or self.agreed >= MIN_DATE_AGREEMENT * self.checked
+
+    def describe(self) -> str:
+        """生成展示给用户的核对说明。"""
+        if self.checked == 0:
+            return "库内这些单集没有首播日期，未核对播出日期"
+        text = f"播出日期核对：{self.checked} 集中 {self.agreed} 集与 TMDB 相差不超过 {DATE_TOLERANCE_DAYS} 天"
+        return f"{text}；不符示例：{self.sample}" if self.sample else text
+
+
+def mapping_date_check(series: LibrarySeries, tmdb: TmdbSeries, mappings: list[NumberMapping]) -> DateCheck:
+    """核对映射涉及的库内单集首播日期与映射到的 TMDB 单集播出日期是否接近。
+
+    只按集数验证时，任何"总数凑得上"的平移都能通过（如把 2009 年的一季接到 2007 年的集号后面），
+    播出日期能识别这类错位。多集文件只核对首集。
+    """
+    result = DateCheck()
+    by_number = tmdb.episode_by_number()
+    for episode in sorted(series.episodes, key=lambda e: (e.season or 0, e.episode or 0)):
+        local = parse_air_date(episode.air_date)
+        if local is None or episode.season is None or episode.episode is None:
+            continue
+        target = next(
+            (t for t in (m.translate(episode.season, episode.episode) for m in mappings) if t is not None), None
+        )
+        ref = by_number.get(target) if target else None
+        remote = parse_air_date(ref.air_date) if ref else None
+        if remote is None:
+            continue
+        result.checked += 1
+        if abs((local - remote).days) <= DATE_TOLERANCE_DAYS:
+            result.agreed += 1
+        elif not result.sample:
+            result.sample = f"库内 {episode.label}（{local}）→ TMDB S{ref.season:02d}E{ref.episode:02d}（{remote}）"
+    return result
 
 
 def identity_coverage(series: LibrarySeries, tmdb: TmdbSeries) -> float:
@@ -572,7 +638,10 @@ def missing_issues(series: LibrarySeries, missing: dict[int, list[TmdbEpisodeRef
             season=season,
             episodes=numbers,
             summary=describe_missing(season, numbers),
-            details=[f"E{ref.episode:02d} {ref.name}（{ref.air_date}）".strip() for ref in sorted(refs, key=lambda r: r.episode)],
+            details=[
+                f"E{ref.episode:02d} {ref.name}（{ref.air_date or 'TMDB 未填播出日期'}）".strip()
+                for ref in sorted(refs, key=lambda r: r.episode)
+            ],
             scope=build_scope(base, season),
         ))
     return issues
@@ -799,6 +868,76 @@ def split_episode_issue(series: LibrarySeries, tmdb: TmdbSeries, seasons: list[i
     )
 
 
+# 只有集号、没有真正标题的单集名，如「第 57 集」「Episode 57」「第57话」
+_PLACEHOLDER_NAME = re.compile(r"^(?:第\s*\d+\s*[集话話]|(?:episode|ep\.?)\s*\d+)$", re.IGNORECASE)
+# TMDB 单集 ID 全站递增；末尾几集的 ID 比前面的集大出这么多，说明是很久以后才补建的
+_LATE_ID_GAP = 100_000
+ENDED_STATUSES = {"ended", "canceled", "cancelled"}
+
+
+def _placeholder_name(name: str) -> bool:
+    """单集名为空或只有集号。"""
+    text = (name or "").strip()
+    return not text or bool(_PLACEHOLDER_NAME.match(text))
+
+
+def placeholder_tail_seasons(
+    tmdb: TmdbSeries, matches: list[EpisodeMatch], missing: dict[int, list[TmdbEpisodeRef]]
+) -> dict[int, list[TmdbEpisodeRef]]:
+    """找出缺集恰好是 TMDB 季末"后补占位集"的季，这些缺集多半是 TMDB 数据错误。
+
+    典型如长安诺：全剧 56 集，E56 已是大结局，TMDB 却在数年后被补了 E57-E60，标题只有「第 N 集」。
+    判定条件（须同时满足）：剧集已完结；缺的正好是库内最后一集之后的全部 TMDB 单集；
+    这些单集都没有真正的标题，而库内最后一集有；它们的 TMDB ID 远大于该季其余单集（后补建）。
+    仍在播出的剧、或与前面同批建立的无标题集（只是还没人填标题）不在此列，照常报缺集。
+    """
+    if (tmdb.status or "").strip().lower() not in ENDED_STATUSES:
+        return {}
+    covered: dict[int, set[int]] = defaultdict(set)
+    for match in matches:
+        for ref in match.refs:
+            covered[ref.season].add(ref.tmdb_id)
+    result: dict[int, list[TmdbEpisodeRef]] = {}
+    for season, refs in missing.items():
+        have = covered.get(season)
+        season_refs = sorted(tmdb.seasons.get(season, []), key=lambda r: r.episode)
+        if season == 0 or not have or not refs:
+            continue
+        last = max((i for i, ref in enumerate(season_refs) if ref.tmdb_id in have), default=-1)
+        tail = season_refs[last + 1:]
+        if last < 0 or not tail or {ref.tmdb_id for ref in tail} != {ref.tmdb_id for ref in refs}:
+            continue
+        if _placeholder_name(season_refs[last].name) or not all(_placeholder_name(ref.name) for ref in tail):
+            continue
+        earlier = max(ref.tmdb_id for ref in season_refs[:last + 1])
+        if min(ref.tmdb_id for ref in tail) - earlier < _LATE_ID_GAP:
+            continue
+        result[season] = sorted(refs, key=lambda r: r.episode)
+    return result
+
+
+def placeholder_tail_issue(series: LibrarySeries, tails: dict[int, list[TmdbEpisodeRef]]) -> Issue:
+    """TMDB 季末疑似多余的占位集，不报缺集，改为一条无法核对。"""
+    details = [
+        f"第 {season} 季：TMDB 末尾 {format_episode_ranges(ref.episode for ref in refs)} 只有集号、没有标题，"
+        f"且是在其余单集建立很久之后才补建的"
+        for season, refs in sorted(tails.items())
+    ]
+    details.append("剧集已完结，库内最后一集之前的单集都有正式标题，这几集多半是 TMDB 上多余的占位条目，未计入缺集")
+    details.append("若确实还有这几集，可对照播出平台核实；也可到 TMDB 删除或修正这些条目")
+    numbers = "，".join(
+        f"第 {season} 季末尾 {format_episode_ranges(ref.episode for ref in refs)}" for season, refs in sorted(tails.items())
+    )
+    return _series_issue(
+        series,
+        IssueType.UNCHECKED,
+        severity=Severity.INFO,
+        summary=f"TMDB {numbers} 疑似多余的占位集，未报缺集",
+        details=details,
+        scope=series_scope(series.tmdb_id, series.server, series.item_id, series.origin),
+    )
+
+
 def unreliable_missing_issue(series: LibrarySeries, missing: dict[int, list[TmdbEpisodeRef]]) -> Issue:
     """库内编号与 TMDB 不一致时，缺集结果不可信，不逐季报告缺集，改为一条无法核对。"""
     total = sum(len(refs) for refs in missing.values())
@@ -828,6 +967,25 @@ def _describe_version(version: VersionInfo) -> str:
     return f"{text or '未知版本'}：{version.path or version.name}"
 
 
+# 分段文件标记，如 S05E08-Part1、-CD2、.disc1；同一集拆成多段的文件不是多个版本
+_PART_MARK = re.compile(r"(?<=[\s._-])(?:part|pt|cd|dis[ck])[\s._-]?\d{1,2}(?=$|[\s._-])", re.IGNORECASE)
+
+
+def part_key(path: str) -> Optional[str]:
+    """去掉文件名中的分段标记，同一版本的各段得到相同的键；文件名没有分段标记时返回 None。"""
+    directory, _, name = (path or "").replace("\\", "/").rpartition("/")
+    stripped = _PART_MARK.sub("", name)
+    return f"{directory}/{stripped}" if stripped != name else None
+
+
+def _distinct_versions(versions: list[VersionInfo]) -> list[VersionInfo]:
+    """把同一版本的多个分段合并为一个，保留首段。"""
+    seen: dict[object, VersionInfo] = {}
+    for index, version in enumerate(versions):
+        seen.setdefault(part_key(version.path or version.name) or index, version)
+    return list(seen.values())
+
+
 def _mixed_kinds(versions: list[VersionInfo]) -> bool:
     """判断多个版本是否同时包含 strm 与本地文件。"""
     return len({version.kind for version in versions}) > 1
@@ -839,21 +997,22 @@ def duplicate_issues(
     ignore_mixed: bool,
     include_specials: bool,
 ) -> list[Issue]:
-    """生成剧集多文件问题：单个条目多版本，或多个条目指向同一集。"""
+    """生成剧集多文件问题：单个条目多版本，或多个条目指向同一集。同一集拆成的多段文件（Part1/Part2）不算。"""
     base = series_scope(series.tmdb_id, series.server, series.item_id, series.origin)
     issues: list[Issue] = []
     for episode in series.episodes:
         if episode.season == 0 and not include_specials:
             continue
-        if len(episode.versions) > 1 and not (ignore_mixed and _mixed_kinds(episode.versions)):
+        versions = _distinct_versions(episode.versions)
+        if len(versions) > 1 and not (ignore_mixed and _mixed_kinds(versions)):
             issues.append(_series_issue(
                 series,
                 IssueType.DUPLICATE,
                 severity=Severity.INFO,
                 season=episode.season,
                 episodes=episode.episode_numbers,
-                summary=f"{episode.label} 有 {len(episode.versions)} 个版本",
-                details=[_describe_version(version) for version in episode.versions],
+                summary=f"{episode.label} 有 {len(versions)} 个版本",
+                details=[_describe_version(version) for version in versions],
                 scope=build_scope(base, episode.season, episode.episode),
             ))
     # 不同条目指向同一集：已匹配的按 TMDB 单集归组，未匹配的按季集号归组
@@ -869,7 +1028,8 @@ def duplicate_issues(
             for number in episode.episode_numbers:
                 groups[("num", None, episode.season, number)].append(episode)
     for (_, _, season, number), episodes in sorted(groups.items(), key=lambda kv: (kv[0][2] or 0, kv[0][3] or 0)):
-        unique = {episode.item_id: episode for episode in episodes}
+        # 媒体服务器没有把分段文件合成一个条目时，各段按路径去掉分段标记后合并
+        unique = {part_key(episode.path) or episode.item_id: episode for episode in episodes}
         if len(unique) < 2 or season is None:
             continue
         if season == 0 and not include_specials:

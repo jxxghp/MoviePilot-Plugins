@@ -9,7 +9,7 @@ from typing import Any, Callable, Optional
 
 from app.sdk.logging import logger
 
-from .checks import parse_int
+from .checks import ENDED_STATUSES, parse_int
 from .models import TmdbEpisodeRef, TmdbSeries
 
 # 已完结剧集的季集结构基本不变，缓存更久；连载中的剧集每天刷新以发现新播出的集
@@ -17,7 +17,6 @@ ENDED_TTL_SECONDS = 30 * 86400
 ONGOING_TTL_SECONDS = 86400
 # 超过该时长未被访问的缓存条目在保存时清理
 PRUNE_SECONDS = 60 * 86400
-ENDED_STATUSES = {"ended", "canceled", "cancelled"}
 
 
 class TmdbLookupError(Exception):
