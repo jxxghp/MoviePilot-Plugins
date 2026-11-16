@@ -7,7 +7,8 @@ from unittest.mock import Mock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.plugins.traktcleaner import TraktCleaner
+from app.plugins.traktcleaner import TraktCleaner, verify_token
+from app.schemas import TokenPayload
 from app.schemas.types import MediaType
 
 
@@ -62,6 +63,7 @@ def test_json_buttons_accept_body_and_return_host_envelope(plugin):
 
     plugin.save_data = save
     app = FastAPI()
+    app.dependency_overrides[verify_token] = lambda: TokenPayload(super_user=True)
     for declaration in plugin.get_api():
         route = dict(declaration)
         assert route.pop("auth") == "bear"
@@ -76,6 +78,24 @@ def test_json_buttons_accept_body_and_return_host_envelope(plugin):
         assert state["pending"] == {}
         assert client.get("/clean_now").status_code == 405
     assert all(call.kwargs["downloader"] == "secondary" for call in plugin.chain.remove_torrents.call_args_list)
+
+
+def test_nonadministrator_cannot_invoke_cleanup_or_clear_seen(plugin):
+    """普通登录用户不能删除下载任务、修改队列或读取管理员授权入口。"""
+    plugin._enabled = True
+    plugin.chain = Mock()
+    app = FastAPI()
+    app.dependency_overrides[verify_token] = lambda: TokenPayload(super_user=False)
+    for declaration in plugin.get_api():
+        route = dict(declaration)
+        route.pop("auth")
+        app.add_api_route(**route)
+    with TestClient(app) as client:
+        assert client.post("/clean_now", json={"torrent_hash": "secondary:hash"}).status_code == 403
+        assert client.post("/clear_seen", json={"torrent_hash": "secondary:hash"}).status_code == 403
+        assert client.get("/authorize_url").status_code == 403
+    plugin.chain.remove_torrents.assert_not_called()
+    plugin.save_data.assert_not_called()
 
 
 def test_legacy_pending_cannot_delete_without_downloader(plugin):
