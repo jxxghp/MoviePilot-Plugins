@@ -6,6 +6,7 @@ from typing import Any, List, Dict, Tuple, Optional
 from urllib.parse import urlencode
 
 import requests
+from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -15,6 +16,7 @@ from app.sdk.media import MetaInfo
 from app.sdk.logging import logger
 from app.sdk.plugin import _PluginBase
 from app.sdk.scheduler import add_plugin_once_job, remove_plugin_once_job
+from app.sdk.security import verify_token
 from app import schemas
 from app.schemas.types import MediaType, MessageType, TorrentStatus
 
@@ -31,6 +33,12 @@ class TraktAuthorizeData(BaseModel):
     url: str = Field(default="", description="用户授权页面地址")
 
 
+def require_administrator(token: schemas.TokenPayload = Depends(verify_token)) -> None:
+    """沿用宿主身份校验，并将清理操作限制为当前超级管理员。"""
+    if token.super_user is not True:
+        raise HTTPException(status_code=403, detail="仅管理员可操作 Trakt 清理队列")
+
+
 class TraktCleaner(_PluginBase):
     """按可确认的观看记录清理指定下载器的任务。"""
     # 插件名称
@@ -40,7 +48,7 @@ class TraktCleaner(_PluginBase):
     # 插件图标
     plugin_icon = "Trakt_A.png"
     # 插件版本
-    plugin_version = "2.0.1"
+    plugin_version = "2.0.2"
     # 插件作者
     plugin_author = "Guoyin-Wen"
     author_url = "https://github.com/Guoyin-Wen"
@@ -1095,6 +1103,7 @@ class TraktCleaner(_PluginBase):
                 "endpoint": self.__authorize_url_api,
                 "methods": ["GET"],
                 "auth": "bear",
+                "dependencies": [Depends(require_administrator)],
                 "response_model": schemas.Response[TraktAuthorizeData],
                 "summary": "获取 Trakt 授权链接",
             },
@@ -1103,6 +1112,7 @@ class TraktCleaner(_PluginBase):
                 "endpoint": self.__clean_now_api,
                 "methods": ["POST"],
                 "auth": "bear",
+                "dependencies": [Depends(require_administrator)],
                 "response_model": schemas.Response[None],
                 "summary": "手动清理待清理队列中的指定种子",
             },
@@ -1111,6 +1121,7 @@ class TraktCleaner(_PluginBase):
                 "endpoint": self.__clear_seen_api,
                 "methods": ["POST"],
                 "auth": "bear",
+                "dependencies": [Depends(require_administrator)],
                 "response_model": schemas.Response[None],
                 "summary": "清除指定种子的发现状态（重置等待计时）",
             },

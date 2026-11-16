@@ -261,7 +261,7 @@ class TestMeta:
     """覆盖 Meta 相关业务边界。"""
     def test_plugin_meta(self):
         """验证 plugin meta 场景的行为约束。"""
-        assert TraktCleaner.plugin_version == "2.0.1"
+        assert TraktCleaner.plugin_version == "2.0.2"
         assert TraktCleaner.plugin_author == "Guoyin-Wen"
         instance = object.__new__(TraktCleaner)
         for name in ("get_data", "save_data", "update_config", "post_message"):
