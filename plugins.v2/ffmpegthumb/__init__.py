@@ -22,13 +22,14 @@ ffmpeg_lock = threading.Lock()
 
 class FFmpegThumb(_PluginBase):
     # 插件名称
+    """为缺少分集图片的视频生成缩略图，并管理扫描任务。"""
     plugin_name = "FFmpeg缩略图"
     # 插件描述
     plugin_desc = "为缺少分集剧照的视频截取画面作为分集缩略图，已有分集图片时不重复生成。"
     # 插件图标
     plugin_icon = "ffmpeg.png"
     # 插件版本
-    plugin_version = "2.2"
+    plugin_version = "2.3"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -63,6 +64,7 @@ class FFmpegThumb(_PluginBase):
 
     def init_plugin(self, config: dict = None):
         # 读取配置
+        """停止旧任务并读取配置，按启用状态安排本实例任务。"""
         if config:
             self._enabled = config.get("enabled")
             self._onlyonce = config.get("onlyonce")
@@ -112,16 +114,20 @@ class FFmpegThumb(_PluginBase):
                 self._scheduler.start()
 
     def get_state(self) -> bool:
+        """返回插件启用状态，供宿主决定是否注册服务。"""
         return self._enabled
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
+        """声明插件远程命令；无命令时沿用宿主空入口。"""
         pass
 
     def get_api(self) -> List[Dict[str, Any]]:
+        """声明插件接口及认证方式；无接口时沿用宿主空入口。"""
         pass
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
+        """返回配置表单及其默认值。"""
         return [
             {
                 'component': 'VForm',
@@ -300,6 +306,7 @@ class FFmpegThumb(_PluginBase):
         }
 
     def get_page(self) -> List[dict]:
+        """返回插件详情页面；没有独立页面时保留空入口。"""
         pass
 
     @eventmanager.register(EventType.TransferComplete)
@@ -335,7 +342,7 @@ class FFmpegThumb(_PluginBase):
         if not self._scan_paths:
             return
         # 排除目录
-        exclude_paths = self._exclude_paths.split("\n")
+        exclude_paths = [line.strip() for line in self._exclude_paths.splitlines() if line.strip()]
         # 已选择的目录
         paths = self._scan_paths.split("\n")
         # 处理结果统计

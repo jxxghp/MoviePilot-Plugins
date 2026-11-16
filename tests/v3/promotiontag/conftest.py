@@ -5,6 +5,7 @@
 pytest_configure 的 plugins.v3 目录注入（app.plugins.__path__），会 ModuleNotFoundError。
 """
 
+import threading
 from unittest.mock import Mock
 
 import pytest
@@ -16,6 +17,7 @@ def plugin(monkeypatch):
     from app.plugins.promotiontag import PromotionTag
 
     instance = object.__new__(PromotionTag)
+    instance._records_lock = threading.RLock()
     for name in ("update_config", "save_data", "post_message"):
         monkeypatch.setattr(instance, name, Mock())
     monkeypatch.setattr(instance, "get_data", Mock(return_value=None))

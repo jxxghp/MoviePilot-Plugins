@@ -19,6 +19,7 @@ from app.sdk.utilities import StringUtils
 
 
 class PromotionTag(_PluginBase):
+    """维护下载任务的促销标签及其到期记录。"""
     # 插件名称
     plugin_name = "促销标签"
     # 插件描述
@@ -26,7 +27,7 @@ class PromotionTag(_PluginBase):
     # 插件图标
     plugin_icon = "seed.png"
     # 插件版本
-    plugin_version = "2.0.0"
+    plugin_version = "2.0.1"
     # 插件作者
     plugin_author = "Guoyin-Wen"
     # 作者主页
@@ -57,8 +58,15 @@ class PromotionTag(_PluginBase):
     _tz_offset = 0         # 站点时间相对本地时间的偏移（分钟），站点比本地快为正
     _tag_prefix = ""       # 标签前缀，便于与其它插件标签区分
 
+    def __init__(self):
+        """隔离实例状态，并串行化事件、扫描和刷新对记录的读改写。"""
+        super().__init__()
+        self._records_lock = threading.RLock()
+        self._event = threading.Event()
+
     def init_plugin(self, config: dict = None):
         # 停止已有的一次性任务
+        """停止旧任务并读取配置，按启用状态安排本实例任务。"""
         self.stop_service()
 
         if config:
@@ -91,6 +99,7 @@ class PromotionTag(_PluginBase):
 
     @staticmethod
     def _to_int(s: Any, default: int) -> int:
+        """将配置转换为整数，非法或缺失值回退到默认值。"""
         try:
             return int(s)
         except (ValueError, TypeError):
@@ -131,16 +140,20 @@ class PromotionTag(_PluginBase):
         return active or None
 
     def get_state(self) -> bool:
+        """返回插件启用状态，供宿主决定是否注册服务。"""
         return self._enabled
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
+        """声明插件远程命令；无命令时沿用宿主空入口。"""
         pass
 
     def get_api(self) -> List[Dict[str, Any]]:
+        """声明插件接口及认证方式；无接口时沿用宿主空入口。"""
         pass
 
     def get_page(self) -> List[dict]:
+        """返回插件详情页面；没有独立页面时保留空入口。"""
         pass
 
     def get_service(self) -> List[Dict[str, Any]]:
@@ -244,28 +257,29 @@ class PromotionTag(_PluginBase):
         遍历种子集合，对处于促销中（state=promo）的记录检查是否到期，
         到期则移除促销标签并把记录置为 expired
         """
-        actions: List[str] = []
-        if not torrents:
+        with self._records_lock:
+            actions: List[str] = []
+            if not torrents:
+                return actions
+            records = self._load_records()
+            changed = False
+            for torrent in torrents:
+                _hash = self._get_hash(torrent, service.type)
+                if not _hash:
+                    continue
+                rec = records.get(f"{service.name}:{_hash}")
+                if not rec or rec.get("state") != "promo":
+                    continue
+                if self._is_expired(rec.get("freedate")):
+                    label = rec.get("label")
+                    if label and self._remove_torrents_tag(service, _hash, [label]):
+                        rec["state"] = "expired"
+                        changed = True
+                        actions.append(f"移除促销标签[{label}]: {_hash[:12]}")
+                        logger.info(f"{self.LOG_TAG}促销已到期，移除标签 [{label}]: {_hash}")
+            if changed:
+                self._save_records(records)
             return actions
-        records = self._load_records()
-        changed = False
-        for torrent in torrents:
-            _hash = self._get_hash(torrent, service.type)
-            if not _hash:
-                continue
-            rec = records.get(f"{service.name}:{_hash}")
-            if not rec or rec.get("state") != "promo":
-                continue
-            if self._is_expired(rec.get("freedate")):
-                label = rec.get("label")
-                if label and self._remove_torrents_tag(service, _hash, [label]):
-                    rec["state"] = "expired"
-                    changed = True
-                    actions.append(f"移除促销标签[{label}]: {_hash[:12]}")
-                    logger.info(f"{self.LOG_TAG}促销已到期，移除标签 [{label}]: {_hash}")
-        if changed:
-            self._save_records(records)
-        return actions
 
     # ==================== 兜底扫描（覆盖非 MoviePilot 触发的下载） ====================
 
@@ -275,116 +289,119 @@ class PromotionTag(_PluginBase):
         通过站点种子列表（TorrentsChain.browse）按 大小 匹配反查促销信息并补标签。
         同时清理已不在下载器中的孤儿记录。
         """
-        if not self.get_state():
-            return
-        services = self.service_infos
-        if not services:
-            return
-        # 站点 domain 索引：[(注册域, 站点domain)]
-        try:
-            indexers = SitesHelper().get_indexers() or []
-        except Exception:
-            indexers = []
-        site_domains: List[Tuple[str, str]] = []
-        for ix in indexers:
-            d = ix.get("domain")
-            if not d:
-                continue
-            reg = StringUtils.get_url_domain(d)
-            if reg:
-                site_domains.append((reg, d))
-
-        records = self._load_records()  # 本地工作集，避免与 _apply_tag 各自落盘互相覆盖
-        all_current = set()  # (downloader_name, hash)，用于孤儿清理
-        enumerated = set()  # 本轮成功完成全量枚举的下载器，孤儿清理仅限此范围
-        actions: List[str] = []
-
-        # 路径一：按下载历史精确匹配（MoviePilot 下载的种子，download_hash == qB hash）
-        # 准确可靠，不依赖 browse；但 downloadhistory 不存促销信息，需在路径二补全
-        dh_map = self._load_downloadhistory_map()
-        for service in services.values():
+        with self._records_lock:
+            if not self.get_state():
+                return
+            services = self.service_infos
+            if not services:
+                return
+            # 站点 domain 索引：[(注册域, 站点domain)]
             try:
-                torrents, error = service.instance.get_torrents()
-            except Exception as e:
-                logger.error(f"{self.LOG_TAG}兜底扫描获取种子失败 {service.name}: {e}")
-                continue
-            if error or not torrents:
-                continue
-            enumerated.add(service.name)
-
-            # 按站点分组：需要补标签的种子（无促销标签 或 记录缺失/已过期）
-            need: Dict[str, List[Tuple[str, Any]]] = {}
-            for t in torrents:
-                _hash = self._get_hash(t, service.type)
-                if not _hash:
+                indexers = SitesHelper().get_indexers() or []
+            except Exception:
+                indexers = []
+            site_domains: List[Tuple[str, str]] = []
+            for ix in indexers:
+                d = ix.get("domain")
+                if not d:
                     continue
-                all_current.add((service.name, _hash))
-                rec = records.get(f"{service.name}:{_hash}")
-                if rec and rec.get("state") == "promo":
-                    continue  # 已在管理中
-                # 下载历史命中的种子登记站点范围（供路径二用），若无站点再按 tracker 识别
-                dh = dh_map.get(_hash)
-                domain = None
-                if dh and dh.get("site"):
-                    domain = self._site_name_to_domain(dh.get("site"), site_domains)
-                    if not domain:
+                reg = StringUtils.get_url_domain(d)
+                if reg:
+                    site_domains.append((reg, d))
+
+            records = self._load_records()  # 本地工作集，避免与 _apply_tag 各自落盘互相覆盖
+            all_current = set()  # (downloader_name, hash)，用于孤儿清理
+            enumerated = set()  # 本轮成功完成全量枚举的下载器，孤儿清理仅限此范围
+            actions: List[str] = []
+
+            # 路径一：按下载历史精确匹配（MoviePilot 下载的种子，download_hash == qB hash）
+            # 准确可靠，不依赖 browse；但 downloadhistory 不存促销信息，需在路径二补全
+            dh_map = self._load_downloadhistory_map()
+            for service in services.values():
+                try:
+                    torrents, error = service.instance.get_torrents()
+                except Exception as e:
+                    logger.error(f"{self.LOG_TAG}兜底扫描获取种子失败 {service.name}: {e}")
+                    continue
+                if error or torrents is None:
+                    continue
+                enumerated.add(service.name)
+
+                # 按站点分组：需要补标签的种子（无促销标签 或 记录缺失/已过期）
+                need: Dict[str, List[Tuple[str, Any]]] = {}
+                for t in torrents:
+                    _hash = self._get_hash(t, service.type)
+                    if not _hash:
+                        continue
+                    all_current.add((service.name, _hash))
+                    rec = records.get(f"{service.name}:{_hash}")
+                    if rec and rec.get("state") == "promo":
+                        continue  # 已在管理中
+                    # 下载历史命中的种子登记站点范围（供路径二用），若无站点再按 tracker 识别
+                    dh = dh_map.get(_hash)
+                    domain = None
+                    if dh and dh.get("site"):
+                        domain = self._site_name_to_domain(dh.get("site"), site_domains)
+                        if not domain:
+                            domain = self._identify_site(t, service.type, site_domains)
+                    else:
                         domain = self._identify_site(t, service.type, site_domains)
-                else:
-                    domain = self._identify_site(t, service.type, site_domains)
-                if domain:
-                    need.setdefault(domain, []).append((_hash, t))
+                    if domain:
+                        need.setdefault(domain, []).append((_hash, t))
 
-            # 路径二：每个站点只抓取一次，建立 size -> TorrentInfo 索引，反查促销补标签
-            browse_cache: Dict[str, Dict[int, Any]] = {}
-            matched = 0
-            for domain, items in need.items():
-                if domain not in browse_cache:
-                    try:
-                        # browse 需纯域名(URL 格式匹配不到站点 cookie 配置)
-                        browse_domain = StringUtils.get_url_domain(domain) or domain
-                        site_torrents = TorrentsChain().browse(domain=browse_domain) or []
-                        idx: Dict[int, Any] = {}
-                        for st in site_torrents:
-                            sz = getattr(st, "size", None)
-                            if sz:
-                                try:
-                                    idx.setdefault(int(sz), st)
-                                except (TypeError, ValueError):
-                                    continue
-                        browse_cache[domain] = idx
-                    except Exception as e:
-                        logger.warning(f"{self.LOG_TAG}兜底抓取站点 {domain} 失败: {e}")
-                        browse_cache[domain] = {}
-                idx = browse_cache.get(domain, {})
-                for _hash, torrent in items:
-                    target = self._match_torrent(torrent, service.type, idx)
-                    if not target:
-                        continue
-                    dl = getattr(target, "downloadvolumefactor", None)
-                    ul = getattr(target, "uploadvolumefactor", None)
-                    freedate = getattr(target, "freedate", None)
-                    label = self._promo_label(dl, ul)
-                    if not label:
-                        continue
-                    if self._apply_tag(service=service, _hash=_hash, dl=dl, ul=ul,
-                                       freedate=freedate, label=label, source="fallback",
-                                       records=records):
-                        matched += 1
-                        actions.append(f"补全促销标签[{self._format_label(label)}]: {_hash[:12]}")
-            if matched:
-                logger.info(f"{self.LOG_TAG}兜底扫描 {service.name} 补全 {matched} 个种子促销标签")
+                # 路径二：每个站点只抓取一次，建立 size -> TorrentInfo 索引，反查促销补标签
+                browse_cache: Dict[str, Dict[int, Any]] = {}
+                matched = 0
+                for domain, items in need.items():
+                    if domain not in browse_cache:
+                        try:
+                            # browse 需纯域名(URL 格式匹配不到站点 cookie 配置)
+                            browse_domain = StringUtils.get_url_domain(domain) or domain
+                            site_torrents = TorrentsChain().browse(domain=browse_domain) or []
+                            idx: Dict[int, Any] = {}
+                            for st in site_torrents:
+                                sz = getattr(st, "size", None)
+                                if sz:
+                                    try:
+                                        size = int(sz)
+                                        # 同大小的种子不保证是同一资源，歧义时拒绝补标签。
+                                        idx[size] = st if size not in idx else None
+                                    except (TypeError, ValueError):
+                                        continue
+                            browse_cache[domain] = idx
+                        except Exception as e:
+                            logger.warning(f"{self.LOG_TAG}兜底抓取站点 {domain} 失败: {e}")
+                            browse_cache[domain] = {}
+                    idx = browse_cache.get(domain, {})
+                    for _hash, torrent in items:
+                        target = self._match_torrent(torrent, service.type, idx)
+                        if not target:
+                            continue
+                        dl = getattr(target, "downloadvolumefactor", None)
+                        ul = getattr(target, "uploadvolumefactor", None)
+                        freedate = getattr(target, "freedate", None)
+                        label = self._promo_label(dl, ul)
+                        if not label:
+                            continue
+                        if self._apply_tag(service=service, _hash=_hash, dl=dl, ul=ul,
+                                           freedate=freedate, label=label, source="fallback",
+                                           records=records):
+                            matched += 1
+                            actions.append(f"补全促销标签[{self._format_label(label)}]: {_hash[:12]}")
+                if matched:
+                    logger.info(f"{self.LOG_TAG}兜底扫描 {service.name} 补全 {matched} 个种子促销标签")
 
-        # 孤儿记录清理：仅针对本轮成功枚举的下载器，记录指向的种子已不存在则移除
-        orphans = [key for key, r in records.items()
-                   if r.get("downloader") in enumerated
-                   and (r.get("downloader"), r.get("hash")) not in all_current]
-        for key in orphans:
-            records.pop(key, None)
-        # 统一保存（含本轮补标签写入 + 孤儿清理）
-        self._save_records(records)
-        if orphans:
-            logger.info(f"{self.LOG_TAG}清理孤儿记录 {len(orphans)} 条")
-        self._notify_actions("兜底扫描补全促销标签", actions)
+            # 孤儿记录清理：仅针对本轮成功枚举的下载器，记录指向的种子已不存在则移除
+            orphans = [key for key, r in records.items()
+                       if r.get("downloader") in enumerated
+                       and (r.get("downloader"), r.get("hash")) not in all_current]
+            for key in orphans:
+                records.pop(key, None)
+            # 统一保存（含本轮补标签写入 + 孤儿清理）
+            self._save_records(records)
+            if orphans:
+                logger.info(f"{self.LOG_TAG}清理孤儿记录 {len(orphans)} 条")
+            self._notify_actions("兜底扫描补全促销标签", actions)
 
     # ==================== 标签读写 ====================
 
@@ -397,43 +414,43 @@ class PromotionTag(_PluginBase):
         records 非 None 时写入该工作集但不落盘（由调用方统一保存，避免覆盖）；
         records 为 None 时（事件触发等单点场景）自行加载并保存。
         """
-        full_label = self._format_label(label)
-        if not self._set_torrents_tag(service, _hash, [full_label]):
-            return False
-        own = records is None
-        if own:
-            records = self._load_records()
-        key = f"{service.name}:{_hash}"
-        records[key] = {
-            "downloader": service.name,
-            "hash": _hash,
-            "dl_factor": dl,
-            "ul_factor": ul,
-            "freedate": freedate,
-            "label": full_label,
-            "state": "promo",
-            "source": source,
-            "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        }
-        if own:
-            self._save_records(records)
-        logger.info(f"{self.LOG_TAG}{service.name} 打{full_label}标签: {_hash}")
-        return True
+        with self._records_lock:
+            full_label = self._format_label(label)
+            if not self._set_torrents_tag(service, _hash, [full_label]):
+                return False
+            own = records is None
+            if own:
+                records = self._load_records()
+            key = f"{service.name}:{_hash}"
+            records[key] = {
+                "downloader": service.name,
+                "hash": _hash,
+                "dl_factor": dl,
+                "ul_factor": ul,
+                "freedate": freedate,
+                "label": full_label,
+                "state": "promo",
+                "source": source,
+                "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            if own:
+                self._save_records(records)
+            logger.info(f"{self.LOG_TAG}{service.name} 打{full_label}标签: {_hash}")
+            return True
 
     def _set_torrents_tag(self, service: ServiceInfo, _hash: str, tags: List[str]) -> bool:
         """添加标签（qB / transmission 分支）"""
         try:
             obj = service.instance
             if service.type == "qbittorrent":
-                obj.set_torrents_tag(ids=_hash, tags=tags)
+                return obj.set_torrents_tag(ids=_hash, tags=tags) is True
             else:
                 # transmission 为合并式设置，需先取出原有标签再合并
                 torrents, error = obj.get_torrents(ids=_hash)
-                existing = []
-                if torrents and not error:
-                    existing = getattr(torrents[0], "labels", None) or []
-                obj.set_torrent_tag(ids=_hash, tags=list(set(existing) | set(tags)))
-            return True
+                if error or not torrents:
+                    return False
+                existing = getattr(torrents[0], "labels", None) or []
+                return obj.set_torrent_tag(ids=_hash, tags=list(set(existing) | set(tags))) is True
         except Exception as e:
             logger.error(f"{self.LOG_TAG}打标签失败 {_hash}: {e}")
             return False
@@ -443,14 +460,20 @@ class PromotionTag(_PluginBase):
         try:
             obj = service.instance
             if service.type == "qbittorrent":
-                obj.remove_torrents_tag(ids=_hash, tag=tags)
+                return obj.remove_torrents_tag(ids=_hash, tag=tags) is True
             else:
                 torrents, error = obj.get_torrents(ids=_hash)
-                existing = []
-                if torrents and not error:
-                    existing = getattr(torrents[0], "labels", None) or []
-                obj.set_torrent_tag(ids=_hash, tags=list(set(existing) - set(tags)))
-            return True
+                if error or not torrents:
+                    return False
+                existing = getattr(torrents[0], "labels", None) or []
+                remaining = list(set(existing) - set(tags))
+                if remaining:
+                    return obj.set_torrent_tag(ids=_hash, tags=remaining) is True
+                # 宿主 set_torrent_tag 拒绝空标签；清空最后一个标签需调用客户端。
+                if obj.trc is None:
+                    return False
+                obj.trc.change_torrent(ids=_hash, labels=[])
+                return True
         except Exception as e:
             logger.error(f"{self.LOG_TAG}移除标签失败 {_hash}: {e}")
             return False
@@ -471,19 +494,21 @@ class PromotionTag(_PluginBase):
         is_free = dl_f == 0
         is_discount = 0 < dl_f < 1
         is_2x = ul_f >= 2
+        discount = f"{dl_f * 100:g}%"
         if is_free and is_2x:
             return "2X免费"
         if is_free:
             return "免费"
         if is_discount and is_2x:
-            return "2X 50%"
+            return f"2X {discount}"
         if is_discount:
-            return "50%"
+            return discount
         if is_2x:
             return "2X"
         return None
 
     def _format_label(self, base: str) -> str:
+        """为促销文案附加用户设置的标签前缀。"""
         return f"{self._tag_prefix}{base}" if self._tag_prefix else base
 
     def _is_expired(self, freedate: Optional[str]) -> bool:
@@ -494,13 +519,11 @@ class PromotionTag(_PluginBase):
         if not freedate:
             return False
         try:
-            fs = str(freedate).replace("T", " ").replace("Z", "")
-            fd = datetime.strptime(fs, "%Y-%m-%d %H:%M:%S")
+            fd = datetime.fromisoformat(str(freedate).replace("Z", "+00:00"))
         except Exception:
             return False
-        now = datetime.now()
-        delta_minutes = (fd - now).total_seconds() // 60 - self._tz_offset
-        return delta_minutes <= 0
+        now = datetime.now(fd.tzinfo)
+        return (fd - now).total_seconds() - self._tz_offset * 60 <= 0
 
     # ==================== 站点 / 种子匹配 ====================
 
@@ -586,10 +609,12 @@ class PromotionTag(_PluginBase):
     # ==================== 记录持久化 ====================
 
     def _load_records(self) -> Dict[str, dict]:
+        """读取本实例持久化的促销记录，损坏或缺失时返回空映射。"""
         data = self.get_data("records")
         return data if isinstance(data, dict) else {}
 
     def _save_records(self, records: Dict[str, dict]):
+        """保存本实例已更新的促销工作集。"""
         self.save_data("records", records)
 
     def _notify_actions(self, title: str, actions: List[str]):
@@ -609,6 +634,7 @@ class PromotionTag(_PluginBase):
 
     @staticmethod
     def _get_hash(torrent: Any, dl_type: str) -> Optional[str]:
+        """从对应下载器的任务对象读取种子哈希。"""
         try:
             return torrent.get("hash") if dl_type == "qbittorrent" else torrent.hashString
         except Exception:
@@ -616,6 +642,7 @@ class PromotionTag(_PluginBase):
 
     @staticmethod
     def _get_trackers(torrent: Any, dl_type: str) -> List[str]:
+        """从对应下载器的任务对象提取有效 Tracker 地址。"""
         try:
             if dl_type == "qbittorrent":
                 tracker = torrent.get("tracker")
@@ -629,6 +656,7 @@ class PromotionTag(_PluginBase):
     # ==================== 配置表单 ====================
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
+        """返回配置表单及其默认值。"""
         downloader_items = [
             {"title": cfg.name, "value": cfg.name}
             for cfg in (DownloaderHelper().get_configs() or {}).values()

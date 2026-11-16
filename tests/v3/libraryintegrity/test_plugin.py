@@ -149,7 +149,7 @@ def test_cron_weekdays_follow_standard_crontab():
     assert len(set(_weekdays("0 3 * * *"))) == 7
     first = build_cron_trigger("0 3 * * 0").get_next_fire_time(None, datetime(2026, 11, 14, 12, 0).astimezone())
     assert first.strftime("%a") == "Sun"
-    for bad in ("0 3 * * 8", "0 3 * * 5-2", "0 3 * *", "0 3 * * 1/0"):
+    for bad in ("0 3 * * 8", "0 3 * * 5-2", "0 3 * *", "0 3 * * 1/0", "0 3 * * 1/", "0 3 * * */"):
         with pytest.raises(ValueError):
             build_cron_trigger(bad)
 
@@ -306,6 +306,7 @@ def test_run_scan_annotates_missing_with_subscriptions(scan_plugin, monkeypatch)
         return Report(finished_at="2026-11-15 03:00:00", issues=[issue])
 
     class _Sub:
+        """提供订阅分页查询需要的最小只读字段。"""
         media_source, media_id, season, state, lack_episode = "themoviedb", "1", 1, "R", 2
 
     monkeypatch.setattr(plugin_module.LibraryScanner, "scan", fake_scan)
@@ -326,7 +327,9 @@ def test_load_subscriptions_reads_all_pages_and_tolerates_failure(monkeypatch):
     from app.sdk import queries
 
     class _Page:
+        """提供订阅分页查询需要的最小只读字段。"""
         def __init__(self, items, has_next):
+            """初始化隔离的测试字段与预设响应。"""
             self.items, self.has_next = items, has_next
 
     pages = []

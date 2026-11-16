@@ -99,6 +99,7 @@ CHANNEL_RE = re.compile(r"(?<![0-9])([1-9])\.([01])(?![0-9])")
 
 
 def _codec_name(matched_text: str):
+    """将发行名称中的音频编码归一为 NFO 使用的编码名。"""
     low = matched_text.lower()
     for pat, name in AUDIO_CODEC_MAP:
         if re.search(pat, low):
@@ -352,6 +353,8 @@ def generate_nfo_for_strm(strm_path, force: bool = False):
       info 为解析出的字段字典（generated 时）或附加说明。
     """
     strm = Path(strm_path)
+    if strm.suffix.lower() != ".strm" or not strm.is_file():
+        return "error", {"error": "STRM 文件不存在或不是有效文件"}
     nfo = strm.with_suffix(".strm.nfo")
     if nfo.exists() and not force:
         return "skipped", {}

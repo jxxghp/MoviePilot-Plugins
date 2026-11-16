@@ -63,7 +63,7 @@ def _is_tv_candidate(candidate: Any) -> bool:
     source = _raw_value(_read_field(candidate, "media_source"))
     if source is None:
         return True
-    return "themoviedb" in str(source).strip().lower()
+    return str(source).strip().lower() == MediaSource.TMDB.value
 
 
 def _candidate_names(candidate: Any) -> set:
@@ -87,7 +87,8 @@ def _candidate_tmdb_id(candidate: Any) -> Optional[int]:
         if value in (None, ""):
             continue
         try:
-            return int(value)
+            parsed = int(value)
+            return parsed if parsed > 0 and not isinstance(value, bool) else None
         except (TypeError, ValueError):
             return None
     return None
@@ -188,13 +189,14 @@ def verify_sequel_season(season_info: Any, season: int,
 
 class DoubanSync(_PluginBase):
     # 插件名称
+    """同步豆瓣想看记录，按统一媒体身份搜索下载或添加订阅。"""
     plugin_name = "豆瓣想看"
     # 插件描述
     plugin_desc = "同步豆瓣想看数据，自动添加订阅。"
     # 插件图标
     plugin_icon = "douban.png"
     # 插件版本
-    plugin_version = "3.1.2"
+    plugin_version = "3.1.3"
     # 插件作者
     plugin_author = "jxxghp,dwhmofly"
     # 作者主页
@@ -225,6 +227,7 @@ class DoubanSync(_PluginBase):
     def init_plugin(self, config: dict = None):
 
         # 停止现有任务
+        """停止旧任务并读取配置，按启用状态安排本实例任务。"""
         self.stop_service()
 
         # 配置
@@ -265,6 +268,7 @@ class DoubanSync(_PluginBase):
                 self.__update_config()
 
     def get_state(self) -> bool:
+        """返回插件启用状态，供宿主决定是否注册服务。"""
         return self._enabled
 
     def __migrate_history_identity(self) -> None:
@@ -783,7 +787,9 @@ class DoubanSync(_PluginBase):
                 return None
             base, season = target
             # 不做年份过滤：原剧首播年份属于第 1 季，年份由目标季的首播日期校验。
-            candidates = chain.search_medias(meta=MetaInfo(title=base),
+            search_meta = MetaInfo(title=base)
+            search_meta.type = MediaType.TV
+            candidates = chain.search_medias(meta=search_meta,
                                              media_source=MediaSource.TMDB)
             tmdb_id = find_unique_exact_tv(candidates, base)
             if not tmdb_id:
@@ -1000,6 +1006,7 @@ class DoubanSync(_PluginBase):
 
     @staticmethod
     def add_subscribe(mediainfo, meta, nickname, real_name):
+        """把已识别作品及指定季加入订阅，保留发起用户。"""
         return SubscribeChain().add(
             title=mediainfo.title,
             year=mediainfo.year,

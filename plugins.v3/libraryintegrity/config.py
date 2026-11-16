@@ -100,6 +100,8 @@ def _standard_weekdays(field: str) -> str:
     names: list[str] = []
     for item in field.split(","):
         body, _, step_text = item.partition("/")
+        if "/" in item and not step_text:
+            raise ValueError(f"星期字段缺少步长：{field}")
         if body == "*":
             low, high = 0, 6
         elif "-" in body:

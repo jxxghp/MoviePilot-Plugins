@@ -623,6 +623,7 @@ class _Sub:
 def test_annotate_subscriptions_marks_missing_issues_by_tmdb_season():
     """缺集问题按 TMDB ID 与季号标注订阅状态；未记录季号的订阅覆盖全部季；其他类型不标注。"""
     def missing(media_id, season):
+        """构造指定季缺集问题供订阅标注使用。"""
         return Issue(type=IssueType.MISSING, media_source="themoviedb", media_id=media_id, season=season)
 
     issues = [

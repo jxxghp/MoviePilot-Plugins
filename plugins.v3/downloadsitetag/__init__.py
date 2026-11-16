@@ -1,4 +1,5 @@
 import datetime
+import json
 import threading
 from dataclasses import dataclass
 from typing import List, Tuple, Dict, Any, Optional
@@ -49,13 +50,14 @@ class _DownloadHistoryView:
 
 class DownloadSiteTag(_PluginBase):
     # 插件名称
+    """按下载历史和可选媒体识别维护任务分类与标签。"""
     plugin_name = "下载任务分类与标签"
     # 插件描述
     plugin_desc = "自动给下载任务分类与打站点标签、剧集名称标签"
     # 插件图标
     plugin_icon = "Youtube-dl_B.png"
     # 插件版本
-    plugin_version = "3.3.0"
+    plugin_version = "3.3.1"
     # 插件作者
     plugin_author = "叮叮当"
     # 作者主页
@@ -108,6 +110,7 @@ class DownloadSiteTag(_PluginBase):
 
     def init_plugin(self, config: dict = None):
         # 初始化删除标签任务rid映射
+        """停止旧任务并读取配置，按启用状态安排本实例任务。"""
         self._del_tags_task_rid = {}
         # 初始化默认的tracker映射
         self._tracker_mappings = self._parse_tracker_mappings(self._tracker_mappings_default)
@@ -196,13 +199,16 @@ class DownloadSiteTag(_PluginBase):
         return active_services
 
     def get_state(self) -> bool:
+        """返回插件启用状态，供宿主决定是否注册服务。"""
         return self._enabled
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
+        """声明插件远程命令；无命令时沿用宿主空入口。"""
         pass
 
     def get_api(self) -> List[Dict[str, Any]]:
+        """声明插件接口及认证方式；无接口时沿用宿主空入口。"""
         pass
 
     def get_service(self) -> List[Dict[str, Any]]:
@@ -267,6 +273,7 @@ class DownloadSiteTag(_PluginBase):
 
     @staticmethod
     def str_to_number(s: Optional[str], i: int) -> int:
+        """将配置转换为整数，非法或缺失值回退到默认值。"""
         try:
             return int(s)
         except (TypeError, ValueError):
@@ -367,7 +374,8 @@ class DownloadSiteTag(_PluginBase):
                         if (not history.torrent_site
                                 and not history.media_id
                                 and not history.type
-                                and not history.title):
+                                and not history.title
+                                and not (self._enabled_media_tag and self._enabled_media_recognize)):
                             continue
                     # 无下载历史标题时, 通过种子资源名识别媒体标题(结果持久缓存, 同名资源只识别一次)
                     if (not history.title
@@ -491,29 +499,33 @@ class DownloadSiteTag(_PluginBase):
         except Exception as e:
             logger.error(f"{self.LOG_TAG}解析种子名称失败: {torrent_name} {str(e)}")
             return None
-        # 用解析出的标题名做缓存键, 同一媒体的多站点辅种(资源名不同但解析名相同)天然去重
-        cache_key = (meta.name or "").strip()
-        if not cache_key:
+        name = (meta.name or "").strip()
+        if not name:
             return None
-        cache = self.get_data("MediaTitleCache") or {}
-        if cache_key in cache:
-            return cache[cache_key] or None
-        title = None
-        try:
-            mediainfo = self.chain.recognize_media(meta=meta, mtype=meta.type, cache=True)
-            if mediainfo and mediainfo.title:
-                title = mediainfo.title
-                # 识别出的媒体在种子上已有别名标签(如其它语言的标题)时, 沿用既有标签避免重复
-                if torrent_tags:
-                    existing = set(torrent_tags) & set(getattr(mediainfo, "names", None) or [])
-                    if existing:
-                        title = min(existing)
-                        logger.info(f"{self.LOG_TAG}种子已有该媒体别名标签, 沿用: {title}")
-                logger.info(f"{self.LOG_TAG}资源名识别媒体标题: {torrent_name} -> {title}")
-        except Exception as e:
-            logger.error(f"{self.LOG_TAG}识别媒体标题失败: {torrent_name} {str(e)}")
-        cache[cache_key] = title or ""
-        self.save_data("MediaTitleCache", cache)
+        # 年份和类型参与缓存身份，防止同名翻拍作品互相污染；不复用旧版仅按名称的缓存。
+        cache_key = json.dumps([name, str(getattr(meta, "year", None) or ""),
+                                str(getattr(meta, "type", None) or "")], ensure_ascii=False)
+        cache = self.get_data("MediaTitleCacheV2") or {}
+        if not isinstance(cache, dict):
+            cache = {}
+        if cache_key not in cache:
+            try:
+                mediainfo = self.chain.recognize_media(meta=meta, mtype=meta.type, cache=True)
+            except Exception as err:
+                # 暂时性服务异常不永久记为未识别，后续扫描仍可重试。
+                logger.error(f"{self.LOG_TAG}识别媒体标题失败: {torrent_name} {err}")
+                return None
+            title = getattr(mediainfo, "title", None)
+            cache[cache_key] = {"title": title, "names": list(getattr(mediainfo, "names", None) or [])} if title else {}
+            self.save_data("MediaTitleCacheV2", cache)
+        entry = cache[cache_key]
+        if not isinstance(entry, dict) or not entry.get("title"):
+            return None
+        title = entry["title"]
+        # 缓存保留标准标题和别名；每颗种子各自沿用已有标签，不传播另一颗种子的标签选择。
+        for alias in [title, *entry.get("names", [])]:
+            if alias in (torrent_tags or []) or self._generate_media_tag(alias) in (torrent_tags or []):
+                return alias
         return title
 
     def _genre_ids_get_cat(self, mtype, genre_ids=None):
@@ -1322,6 +1334,7 @@ class DownloadSiteTag(_PluginBase):
         }
 
     def get_page(self) -> List[dict]:
+        """返回插件详情页面；没有独立页面时保留空入口。"""
         pass
 
     def stop_service(self):

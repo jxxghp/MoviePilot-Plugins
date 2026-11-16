@@ -19,6 +19,17 @@ from app.plugins.doubansync import (
 _RESOLVER = DoubanSync._DoubanSync__resolve_sequel_identity
 
 
+@pytest.mark.parametrize("media_id", ["0", "-1", True])
+def test_invalid_candidate_identity_is_rejected(media_id):
+    """非正数及布尔媒体 ID 不能作为可下载身份。"""
+    assert find_unique_exact_tv([_candidate(media_id=media_id)], "示例剧集") is None
+
+
+def test_candidate_source_must_match_exactly():
+    """包含 TMDB 文本的其他来源不能冒充 TMDB 候选。"""
+    assert find_unique_exact_tv([_candidate(media_source="not-themoviedb")], "示例剧集") is None
+
+
 @pytest.fixture(autouse=True)
 def stub_meta_info(monkeypatch: pytest.MonkeyPatch) -> None:
     """隔离宿主元数据解析：插件仓测试不装配启动阶段的系统配置服务。"""
@@ -27,6 +38,7 @@ def stub_meta_info(monkeypatch: pytest.MonkeyPatch) -> None:
         """只保留标题与季号字段的元数据替身。"""
 
         def __init__(self, title: Any = None, **_: Any) -> None:
+            """初始化隔离的测试字段与预设响应。"""
             self.title = str(title or "")
             self.name = self.title
             self.type = None
@@ -65,6 +77,7 @@ class _StubChain:
     def __init__(self, candidates: Optional[List[Any]] = None,
                  season_info: Optional[Any] = None,
                  error: Optional[Exception] = None) -> None:
+        """初始化隔离的测试字段与预设响应。"""
         self.candidates = candidates
         self.season_info = season_info
         self.error = error

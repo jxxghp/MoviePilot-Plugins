@@ -104,10 +104,12 @@ def test_get_thumb_seeks_before_input(tmp_path):
     captured = {}
 
     class Result:
+        """模拟外部命令返回的执行结果。"""
         returncode = 0
         stderr = b""
 
     def fake_run(command, **kwargs):
+        """模拟命令执行，记录参数并生成占位图片。"""
         captured["command"] = command
         captured["kwargs"] = kwargs
         image.write_bytes(b"jpg")
@@ -130,8 +132,38 @@ def test_get_thumb_returns_false_when_ffmpeg_fails(tmp_path):
     image = tmp_path / "out.jpg"
 
     class Result:
+        """模拟外部命令返回的执行结果。"""
         returncode = 1
         stderr = b"boom"
 
     with patch("app.plugins.ffmpegthumb.ffmpeg_helper.subprocess.run", return_value=Result()):
         assert FfmpegHelper.get_thumb(str(video), str(image)) is False
+
+
+def test_subsecond_video_uses_seek_within_its_duration(tmp_path):
+    """不足一秒的视频也选择实际时长以内的位置，避免最低一秒截取点越界。"""
+    video = make_video(tmp_path)
+    image = tmp_path / "out.jpg"
+
+    def run(command, **kwargs):
+        """模拟成功截取并校验定位参数。"""
+        assert 0 <= float(command[command.index("-ss") + 1]) < 0.5
+        image.write_bytes(b"jpg")
+        return type("Result", (), {"returncode": 0, "stderr": b""})()
+
+    with patch.object(FfmpegHelper, "get_duration", return_value=0.5), patch(
+        "app.plugins.ffmpegthumb.ffmpeg_helper.subprocess.run", side_effect=run
+    ):
+        assert FfmpegHelper.get_thumb(str(video), str(image))
+
+
+def test_ffmpeg_success_with_empty_output_is_failure(tmp_path):
+    """命令成功但未输出有效图片时不能当作已生成。"""
+    video = make_video(tmp_path)
+    image = tmp_path / "empty.jpg"
+    image.touch()
+    result = type("Result", (), {"returncode": 0, "stderr": b""})()
+    with patch.object(FfmpegHelper, "get_duration", return_value=600), patch(
+        "app.plugins.ffmpegthumb.ffmpeg_helper.subprocess.run", return_value=result
+    ):
+        assert not FfmpegHelper.get_thumb(str(video), str(image))

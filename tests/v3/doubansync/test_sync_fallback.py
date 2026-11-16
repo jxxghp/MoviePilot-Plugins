@@ -24,6 +24,7 @@ class _PluginChain:
     def __init__(self, candidates: Optional[List[Dict[str, Any]]] = None,
                  season_info: Optional[Dict[str, Any]] = None,
                  year: str = "2025") -> None:
+        """初始化隔离的测试字段与预设响应。"""
         self.candidates = candidates or []
         self.season_info = season_info or {}
         self.year = year
@@ -58,6 +59,7 @@ class _MediaChain:
     """媒体链桩，只提供身份转换结果。"""
 
     def __init__(self, converted: Optional[Dict[str, Any]]) -> None:
+        """初始化隔离的测试字段与预设响应。"""
         self.converted = converted
         self.convert_calls: List[Dict[str, Any]] = []
 
@@ -118,6 +120,7 @@ def _install_runtime(monkeypatch: pytest.MonkeyPatch, mediachain: _MediaChain) -
         """只保留标题与季号字段的元数据替身，隔离启动阶段的系统配置服务。"""
 
         def __init__(self, title: Any = None, **_: Any) -> None:
+            """初始化隔离的测试字段与预设响应。"""
             self.title = str(title or "")
             self.name = self.title
             self.type = None

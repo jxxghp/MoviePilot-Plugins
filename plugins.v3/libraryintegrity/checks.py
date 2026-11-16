@@ -169,6 +169,7 @@ def format_episode_ranges(numbers: Iterable[int], prefix: str = "E", width: int 
         return ""
 
     def label(value: int) -> str:
+        """按指定前缀和位数格式化季集序号。"""
         return f"{prefix}{value:0{width}d}"
 
     parts: list[str] = []

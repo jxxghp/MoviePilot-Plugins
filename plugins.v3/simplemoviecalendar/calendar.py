@@ -9,8 +9,9 @@ import threading
 import time
 from datetime import date, datetime, timezone
 from urllib.parse import quote, unquote, urljoin, urlsplit
-from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
+
+from app.sdk.network import RequestUtils
 
 BASE_URL = 'https://ys.chenhao.net/'
 DATA_URL = BASE_URL + 'calendar.json'
@@ -64,11 +65,18 @@ def validate_snapshot(value) -> dict:
 
 def fetch_snapshot() -> dict:
     """Fetch only the public endpoint, limiting transfer size and socket wait."""
-    request = Request(DATA_URL, headers={'Accept': 'application/json', 'User-Agent': 'SimpleMovieCalendar/0.1.4'})
-    with urlopen(request, timeout=12) as response:
-        content = response.read(MAX_BYTES + 1)
-    if len(content) > MAX_BYTES:
-        raise ValueError('日历数据过大')
+    request = RequestUtils(timeout=12, verify=True, headers={
+        'Accept': 'application/json', 'User-Agent': 'SimpleMovieCalendar/0.1.5',
+    })
+    with request.get_stream(DATA_URL, raise_exception=True) as response:
+        if response is None:
+            raise OSError('日历数据请求失败')
+        response.raise_for_status()
+        content = bytearray()
+        for chunk in response.iter_content(chunk_size=65536):
+            content.extend(chunk)
+            if len(content) > MAX_BYTES:
+                raise ValueError('日历数据过大')
     return json.loads(content)
 
 

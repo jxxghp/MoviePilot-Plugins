@@ -5,6 +5,7 @@
 pytest_configure 的 plugins.v3 目录注入（app.plugins.__path__），会 ModuleNotFoundError。
 """
 
+import threading
 from unittest.mock import Mock
 
 import pytest
@@ -16,6 +17,10 @@ def plugin(monkeypatch):
     from app.plugins.traktcleaner import TraktCleaner
 
     instance = object.__new__(TraktCleaner)
+    instance._clean_lock = threading.RLock()
+    instance._stopping = False
+    monkeypatch.setattr("app.plugins.traktcleaner.add_plugin_once_job", Mock())
+    monkeypatch.setattr("app.plugins.traktcleaner.remove_plugin_once_job", Mock())
     for name in ("update_config", "save_data", "post_message"):
         monkeypatch.setattr(instance, name, Mock())
     monkeypatch.setattr(instance, "get_data", Mock(return_value=None))

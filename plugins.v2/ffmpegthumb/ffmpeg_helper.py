@@ -1,4 +1,5 @@
 import json
+import math
 import subprocess
 from pathlib import Path
 
@@ -18,6 +19,7 @@ FFMPEG_THUMB_SHORT_SEEK = 30
 
 
 class FfmpegHelper:
+    """封装有限时的媒体探测与缩略图生成。"""
 
     @staticmethod
     def _frames_to_seconds(frames: str) -> float:
@@ -49,7 +51,8 @@ class FfmpegHelper:
                 timeout=FFPROBE_DURATION_TIMEOUT
             )
             if result.returncode == 0:
-                return float(result.stdout.decode("utf-8", errors="ignore").strip() or 0)
+                duration = float(result.stdout.decode("utf-8", errors="ignore").strip() or 0)
+                return duration if math.isfinite(duration) and duration > 0 else 0.0
         except Exception as err:
             logger.warning(f"ffprobe读取视频时长失败：{video_path}，原因：{str(err)}")
         return 0.0
@@ -75,9 +78,9 @@ class FfmpegHelper:
         seek_seconds = FfmpegHelper._frames_to_seconds(frames)
         if duration > 0 and seek_seconds >= duration - FFMPEG_THUMB_TAIL_MARGIN:
             # 目标时间点已经越过视频末尾，退到短片截取点，避免 -ss 越界导致输出空文件
-            fallback = max(1.0, min(FFMPEG_THUMB_SHORT_SEEK, duration / 2))
+            fallback = min(FFMPEG_THUMB_SHORT_SEEK, duration / 2)
             logger.info(f"视频时长 {duration:.0f} 秒，截取点 {frames} 越界，改取 {fallback:.0f} 秒：{video_path}")
-            frames = f"{fallback:.1f}"
+            frames = f"{fallback:.6f}"
         command = [
             "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
             "-ss", str(frames), "-i", str(video_path),
@@ -99,7 +102,8 @@ class FfmpegHelper:
             detail = result.stderr.decode("utf-8", errors="ignore").strip()
             logger.error(f"FFmpeg截取缩略图失败：{video_path}，原因：{detail[-300:]}")
             return False
-        return Path(image_path).exists()
+        output = Path(image_path)
+        return output.is_file() and output.stat().st_size > 0
 
     @staticmethod
     def extract_wav(video_path: str, audio_path: str, audio_index: str = None):

@@ -34,20 +34,11 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app.sdk.events import eventmanager, Event
 from app.sdk.plugin import _PluginBase
-from app.schemas.types import EventType, NotificationType
+from app.schemas.types import EventType, MessageType
 from app.sdk.config import settings
 from app.sdk.logging import logger
 
-# nfo.py 与本文件同目录。MoviePilot 加载插件时可能是包加载（相对导入成立），
-# 也可能是单文件 spec 加载（无包上下文），两种都试，失败则降级为不可用
-# （插件仍能加载，触发时记日志，不让整个插件起不来）。
-try:
-    from .nfo import generate_nfo_for_strm
-except ImportError:  # pragma: no cover - 取决于宿主加载方式
-    try:
-        from nfo import generate_nfo_for_strm
-    except ImportError:
-        generate_nfo_for_strm = None
+from .nfo import generate_nfo_for_strm
 
 
 class StrmNfo(_PluginBase):
@@ -60,7 +51,7 @@ class StrmNfo(_PluginBase):
     # 插件图标
     plugin_icon = "scraper.svg"
     # 插件版本
-    plugin_version = "1.0.4"
+    plugin_version = "1.0.5"
     # 插件标签
     plugin_label = "媒体库"
     # 插件作者
@@ -88,13 +79,19 @@ class StrmNfo(_PluginBase):
     # 扫描互斥锁。必须是 RLock（可重入）：_scan_with_trigger 持锁调用
     # _do_scan，扫描中 _process_one -> _record_failure 与结尾的 _save_run
     # 会在同一线程里再次加锁；用普通 Lock 会在第一次扫描结束时就死锁。
-    _lock = threading.RLock()
+    def __init__(self):
+        """为每个插件实例分别分配扫描锁与停止信号。"""
+        super().__init__()
+        self._lock = threading.RLock()
+        self._executor_lock = threading.Lock()
+        self._stopped = threading.Event()
 
     def init_plugin(self, config: dict = None) -> None:
         """读取配置；onlyonce 时安排一次全量扫描。"""
         # 先释放上一轮的资源（线程池、一次性调度器），再按新配置重建，
         # 保证重复初始化 / 插件重载时不会残留旧任务。
         self.stop_service()
+        self._stopped.clear()
 
         config = config or {}
         self._enabled = bool(config.get("enabled"))
@@ -106,7 +103,7 @@ class StrmNfo(_PluginBase):
         self._max_per_run = self._safe_int(config.get("max_per_run"), 500)
         self._notify = bool(config.get("notify"))
 
-        if self._executor is None:
+        if self._enabled and self._executor is None:
             self._executor = ThreadPoolExecutor(
                 max_workers=1, thread_name_prefix="strmnfo"
             )
@@ -146,18 +143,23 @@ class StrmNfo(_PluginBase):
         注册的定时扫描）由宿主自行管理，不在这里处理。
         """
         self._enabled = False
+        self._stopped.set()
         if self._scheduler is not None:
             try:
-                self._scheduler.shutdown(wait=False)
+                self._scheduler.shutdown(wait=True)
             except Exception:  # noqa: BLE001 - 停止时尽力释放，不阻断流程
                 pass
             self._scheduler = None
-        if self._executor is not None:
+        with self._executor_lock:
+            executor, self._executor = self._executor, None
+        if executor is not None:
             try:
-                self._executor.shutdown(wait=False, cancel_futures=True)
+                executor.shutdown(wait=True, cancel_futures=True)
             except Exception:  # noqa: BLE001 - 同上
                 pass
-            self._executor = None
+        # 宿主周期任务可能独立于线程池运行；等待其观察到停止信号后再允许重载。
+        with self._lock:
+            pass
 
     @staticmethod
     def _safe_int(value: Any, default: int) -> int:
@@ -165,7 +167,7 @@ class StrmNfo(_PluginBase):
         try:
             result = int(float(value))
             return result if result > 0 else default
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return default
 
     def _current_config(self) -> dict:
@@ -206,11 +208,16 @@ class StrmNfo(_PluginBase):
         """注册定时全量扫描服务。"""
         if not self._enabled:
             return []
+        try:
+            trigger = CronTrigger.from_crontab(self._cron, timezone=settings.TZ)
+        except ValueError as err:
+            logger.error(f"STRM媒体信息补全：定时周期无效：{err}")
+            return []
         return [
             {
                 "id": "StrmNfo",
                 "name": "STRM媒体信息补全",
-                "trigger": CronTrigger.from_crontab(self._cron),
+                "trigger": trigger,
                 "func": self._scan,
                 "kwargs": {},
             }
@@ -372,6 +379,12 @@ class StrmNfo(_PluginBase):
             logger.error("STRM媒体信息补全：nfo 模块未加载，跳过本次生成")
             return
         event_data = event.event_data or {}
+        transfer = event_data.get("transferinfo")
+        target = transfer.get("target_item") or transfer.get("target_diritem") if isinstance(transfer, dict) else (
+            getattr(transfer, "target_item", None) or getattr(transfer, "target_diritem", None))
+        storage = target.get("storage") if isinstance(target, dict) else getattr(target, "storage", None)
+        if storage and storage != "local":
+            return
         paths = self._extract_strm_paths(event_data)
         if not paths:
             return
@@ -387,7 +400,7 @@ class StrmNfo(_PluginBase):
             return
         if not self._enabled:
             self.post_message(
-                mtype=NotificationType.Plugin,
+                mtype=MessageType.Plugin,
                 title="[STRM媒体信息补全]",
                 text="插件未启用，命令已忽略。",
             )
@@ -436,13 +449,10 @@ class StrmNfo(_PluginBase):
         if target_item:
             if isinstance(target_item, dict):
                 tp = target_item.get("path") or ""
-                tn = target_item.get("name") or ""
             else:
                 tp = getattr(target_item, "path", "") or ""
-                tn = getattr(target_item, "name") or ""
-            if tp and tn:
-                paths.append(os.path.join(str(tp), str(tn)))
-            elif tp:
+            # FileItem.path 已包含文件名，不能再拼接 name。
+            if tp:
                 paths.append(str(tp))
 
         # 去重（保持顺序）
@@ -458,22 +468,26 @@ class StrmNfo(_PluginBase):
 
     def _submit_paths(self, paths: List[str], trigger: str):
         """把一批路径投递到后台线程执行，避免阻塞事件总线。"""
-        if self._executor is None:
-            self._executor = ThreadPoolExecutor(
-                max_workers=1, thread_name_prefix="strmnfo"
-            )
-        self._executor.submit(self._run_batch, list(paths), trigger)
+        with self._executor_lock:
+            if not self._enabled or self._stopped.is_set():
+                return
+            if self._executor is None:
+                self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="strmnfo")
+            self._executor.submit(self._run_batch, list(paths), trigger)
 
     def _submit_scan(self, trigger: str):
         """投递一次全量扫描到后台线程。"""
-        if self._executor is None:
-            self._executor = ThreadPoolExecutor(
-                max_workers=1, thread_name_prefix="strmnfo"
-            )
-        self._executor.submit(self._scan_with_trigger, trigger)
+        with self._executor_lock:
+            if not self._enabled or self._stopped.is_set():
+                return
+            if self._executor is None:
+                self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="strmnfo")
+            self._executor.submit(self._scan_with_trigger, trigger)
 
     def _scan_with_trigger(self, trigger: str):
         """带触发来源标记的全量扫描入口。"""
+        if not self._enabled or self._stopped.is_set():
+            return
         if not self._lock.acquire(blocking=False):
             logger.info("STRM媒体信息补全：上一轮扫描尚未结束，跳过本轮")
             return
@@ -490,27 +504,36 @@ class StrmNfo(_PluginBase):
 
     def _run_batch(self, paths: List[str], trigger: str):
         """处理事件给出的路径列表（文件/目录/媒体文件都兼容）。"""
+        with self._lock:
+            if self._stopped.is_set() or not self._enabled:
+                return
+            self._run_paths(paths, trigger)
+
+    def _run_paths(self, paths: List[str], trigger: str):
+        """串行处理去重后的事件文件，并在整个事件范围内限制数量。"""
         counts = {"scanned": 0, "generated": 0, "skipped": 0, "unparsed": 0, "errors": 0}
+        seen = set()
         for raw in paths:
+            if self._stopped.is_set() or not self._enabled:
+                break
             p = Path(raw)
             try:
                 if p.is_dir():
-                    found = list(p.rglob("*.strm")) + list(p.rglob("*.STRM"))
-                    for f in found[: self._max_per_run]:
-                        self._process_one(f, counts)
+                    found = self._strm_files(p)
                 elif p.suffix.lower() == ".strm":
-                    self._process_one(p, counts)
+                    found = [p]
                 elif p.is_file():
                     # 媒体文件本身：找同名的 .strm（xxx.mkv.strm 或 xxx.strm）
-                    for cand in (p.with_name(p.name + ".strm"),
-                                 p.with_suffix(".strm")):
-                        if cand.exists():
-                            self._process_one(cand, counts)
-                            break
+                    found = [cand for cand in (p.with_name(p.name + ".strm"), p.with_suffix(".strm")) if cand.is_file()][:1]
                 else:
-                    # 路径已不存在（比如已被清理）：按 .strm 猜一次
-                    if p.suffix.lower() == ".strm":
-                        self._process_one(p, counts)
+                    found = []
+                for candidate in found:
+                    if self._stopped.is_set() or counts["scanned"] >= self._max_per_run:
+                        break
+                    key = os.path.abspath(candidate)
+                    if key not in seen:
+                        seen.add(key)
+                        self._process_one(candidate, counts)
             except OSError as err:  # noqa: BLE001
                 counts["errors"] += 1
                 logger.warning(f"STRM媒体信息补全：处理 {p} 失败：{err}")
@@ -525,25 +548,27 @@ class StrmNfo(_PluginBase):
         """全量扫描：扫一遍所有监控目录，增量生成（已有 nfo 的跳过）。"""
         counts = {"scanned": 0, "generated": 0, "skipped": 0, "unparsed": 0, "errors": 0}
         watch = [line.strip() for line in self._watch_paths.splitlines() if line.strip()]
-        exclude = [line.strip() for line in self._exclude_paths.splitlines() if line.strip()]
         if not watch:
             logger.warning("STRM媒体信息补全：未配置监控目录，本次扫描跳过")
             return
+        seen = set()
         for root in watch:
             root_path = Path(root)
             if not root_path.is_dir():
                 logger.warning(f"STRM媒体信息补全：监控目录不存在或不可读：{root}")
                 continue
             try:
-                files = list(root_path.rglob("*.strm")) + list(root_path.rglob("*.STRM"))
+                for f in self._strm_files(root_path):
+                    if self._stopped.is_set() or not self._enabled:
+                        return
+                    key = os.path.abspath(f)
+                    if key not in seen:
+                        seen.add(key)
+                        self._process_one(f, counts)
             except OSError as err:  # noqa: BLE001
                 counts["errors"] += 1
                 logger.warning(f"STRM媒体信息补全：扫描 {root} 失败：{err}")
                 continue
-            for f in files:
-                if any(str(f).startswith(ex) for ex in exclude if ex):
-                    continue
-                self._process_one(f, counts)
         self._save_run(trigger, counts)
         logger.info(
             f"STRM媒体信息补全（{trigger}）：扫描 {counts['scanned']}，"
@@ -552,15 +577,30 @@ class StrmNfo(_PluginBase):
         )
         if self._notify and trigger in ("scan", "manual"):
             self.post_message(
-                mtype=NotificationType.Plugin,
+                mtype=MessageType.Plugin,
                 title="[STRM媒体信息补全]",
                 text=(f"全量扫描完成：扫描 {counts['scanned']} 个 .strm，"
                       f"生成 {counts['generated']} 个 nfo，跳过 {counts['skipped']}，"
                       f"无法解析 {counts['unparsed']}，失败 {counts['errors']}。"),
             )
 
+    @staticmethod
+    def _strm_files(root: Path):
+        """逐项枚举目录内的 STRM，兼容混合大小写且不跟随目录软链接。"""
+        return (path for path in root.rglob("*") if path.suffix.lower() == ".strm")
+
+    def _allowed_path(self, path: Path) -> bool:
+        """按路径层级检查监控与排除目录，保留软链接本身的媒体库位置。"""
+        absolute = Path(os.path.abspath(path))
+        watch = [Path(os.path.abspath(line.strip())) for line in self._watch_paths.splitlines() if line.strip()]
+        exclude = [Path(os.path.abspath(line.strip())) for line in self._exclude_paths.splitlines() if line.strip()]
+        return any(absolute.is_relative_to(root) for root in watch) and not any(
+            absolute.is_relative_to(root) for root in exclude)
+
     def _process_one(self, strm_path: Path, counts: dict):
         """给一个 .strm 生成 nfo，并累计计数与失败记录。"""
+        if self._stopped.is_set() or not self._enabled or not self._allowed_path(strm_path):
+            return
         counts["scanned"] += 1
         if generate_nfo_for_strm is None:
             counts["errors"] += 1
