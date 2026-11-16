@@ -40,7 +40,7 @@ class AutoSignIn(_PluginBase):
     # 插件图标
     plugin_icon = "signin.png"
     # 插件版本
-    plugin_version = "3.0.10"
+    plugin_version = "3.0.11"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -1877,20 +1877,24 @@ class AutoSignIn(_PluginBase):
 
     def signin_site(self, site_info: CommentedMap) -> SiteResult:
         """
-        执行专用或网页签到，宿主接管的 API 访问只记录登录证据。
+        优先执行专用或 Cookie 网页签到，缺少会话时才仅验证 API 登录。
         """
         site_module = self.__build_class(site_info.get("url"))
         # 开始记时
         start_time = datetime.now()
         api_result = None
+        api_only = self._api_login_preferred(site_info, site_module, "signin")
         if (site_module and hasattr(site_module, "signin")
-                and not self._api_login_preferred(site_info, site_module, "signin")):
+                and not api_only):
             try:
                 state, message = site_module().signin(site_info)
             except Exception as e:
                 traceback.print_exc()
                 state, message = False, f"签到失败：{str(e)}"
             result = self._site_result(site_info.get("name"), state, message, "签到")
+        elif not api_only and str(site_info.get("cookie") or "").strip():
+            # 连接检测只提供登录证据；有网页会话时仍须真正请求签到入口。
+            result = self.__signin_base(site_info)
         else:
             api_result = self._api_login_result(site_info)
             if api_result is None:
