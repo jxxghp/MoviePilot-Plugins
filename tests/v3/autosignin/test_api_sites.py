@@ -330,7 +330,8 @@ def test_remaining_real_api_protocols_keep_authentication_and_business_status(
     result = getattr(plugin, action)(site)
     assert result.logged_in is success
     assert result.success is (success and action == "login_site")
-    request = client.get_res if protocol == "HDArea" else client.response_manager
+    # HDArea 与 FluxTorrent（后端 #7404 起）走 get_res，其余 API 协议仍为 response_manager
+    request = client.get_res if protocol in ("HDArea", "FluxTorrent") else client.response_manager
     request.assert_called_once()
     assert request.call_args.kwargs["url"] == endpoint
     assert request.call_args.kwargs["allow_redirects"] is False
