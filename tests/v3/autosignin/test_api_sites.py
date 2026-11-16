@@ -57,7 +57,7 @@ def plugin(monkeypatch):
 @pytest.mark.parametrize("action", ["signin_site", "login_site"])
 @pytest.mark.parametrize("schema", ["HDDolby", "Piggo", "SunnyPT", "Milkie", "FluxTorrent", "FutureApiProtocol"])
 @pytest.mark.parametrize("resource_key", ["schema", "parser"])
-@pytest.mark.parametrize("cookie", ["", "unused-cookie"])
+@pytest.mark.parametrize("cookie", ["", " "])
 def test_api_access_reuses_host_configuration_without_cookie(plugin, action, schema, resource_key, cookie):
     """两种资源协议字段均保留完整配置，API 鉴权由宿主适配器负责。"""
     site = _site(schema=None, render=True, cookie=cookie)
@@ -101,7 +101,7 @@ def test_missing_module_result_remains_explicit_failure(plugin, action):
 def test_module_exception_hides_credentials_and_does_not_retry(plugin):
     """传输异常保留可诊断原因并移除可能回显的各类认证值。"""
     plugin.chain.run_module.side_effect = ValueError("HTTP 503 synthetic-key synthetic-token synthetic-cookie")
-    result = plugin.signin_site(_site(token="synthetic-token", cookie="synthetic-cookie"))
+    result = plugin.login_site(_site(token="synthetic-token", cookie="synthetic-cookie"))
     assert not result.completed and "HTTP 503" in result.message
     assert "synthetic-" not in result.message
     plugin.chain.run_module.assert_called_once()
@@ -117,6 +117,56 @@ def test_other_protocols_preserve_web_signin_and_login(plugin, monkeypatch, acti
     site = _site(name="网页站点", url="https://generic.test/", cookie="synthetic-cookie", schema="NexusPhp")
     assert getattr(plugin, action)(site).success is True
     handler.assert_called_once_with(site)
+    if action == "signin_site":
+        plugin.chain.run_module.assert_not_called()
+    else:
+        plugin.chain.run_module.assert_called_once()
+
+
+@pytest.mark.parametrize("render", [False, True])
+@pytest.mark.parametrize("resource_key", ["schema", "parser"])
+@pytest.mark.parametrize("protocol", [
+    name for name, adapter in SPIDER_PARSER_CLASSES.items()
+    if callable(getattr(adapter, "test_connection", None))
+])
+def test_cookie_signin_requests_attendance_even_with_api_adapter(plugin, monkeypatch, render, resource_key, protocol):
+    """有 Cookie 的所有 API 协议及域名绑定站点仍真正签到，成功后不额外检测 API 登录。"""
+    page = '<a href="logout.php">退出</a><b>今日已签到</b>'
+    reply = _response({})
+    reply._content = page.encode()
+    client = Mock(get_res=Mock(return_value=reply))
+    browser = Mock(get_page_source=Mock(return_value=page))
+    requests = Mock(return_value=client)
+    monkeypatch.setattr("app.plugins.autosignin.RequestUtils", requests)
+    monkeypatch.setattr("app.plugins.autosignin.PlaywrightHelper", Mock(return_value=browser))
+    plugin.chain.run_module.return_value = SiteConnectionResult(True, False, "API Key 已过期")
+    site = _site(schema=None, cookie="synthetic-cookie", render=render, proxy=False)
+    site[resource_key] = protocol
+
+    assert plugin.signin_site(site) == SiteResult("高清杜比", "签到成功", True, True)
+
+    getter = browser.get_page_source if render else client.get_res
+    getter.assert_called_once()
+    assert getter.call_args.kwargs["url"] == "https://www.uhddolby.com/attendance.php"
+    options = getter.call_args.kwargs if render else requests.call_args.kwargs
+    assert options["cookies"] == "synthetic-cookie"
+    assert options["ua"] == "AutoSignIn-Test" and options["timeout"] == 25
+    plugin.chain.run_module.assert_not_called()
+    plugin.stats.success.assert_called_once()
+    plugin.stats.fail.assert_not_called()
+
+
+@pytest.mark.parametrize("success", [False, True])
+def test_web_signin_failure_can_use_api_login_once(plugin, monkeypatch, success):
+    """网页签到真实失败后才用宿主补充登录证据，接口成功也不能冒充签到完成。"""
+    client = Mock(get_res=Mock(return_value=_response({}, status=503)))
+    monkeypatch.setattr("app.plugins.autosignin.RequestUtils", Mock(return_value=client))
+    plugin.chain.run_module.return_value = SiteConnectionResult(True, success, "API Key 已过期")
+    result = plugin.signin_site(_site(cookie="synthetic-cookie", proxy=False))
+    assert result.success is False and result.logged_in is success
+    if not success:
+        assert "503" in result.message and "API Key 已过期" in result.message
+    client.get_res.assert_called_once_with(url="https://www.uhddolby.com/attendance.php")
     plugin.chain.run_module.assert_called_once()
 
 
@@ -219,10 +269,15 @@ def test_piggo_real_business_failures_remain_failures(plugin, monkeypatch, statu
 
 
 @pytest.mark.parametrize("success", [False, True])
-def test_scheduled_signin_and_login_share_api_result_and_history(plugin, monkeypatch, success):
-    """正常任务入口保存两类历史并复用 API 回执，失败自动重试，成功归入仅登录。"""
-    site = _site()
+@pytest.mark.parametrize("web_signin", [False, True])
+def test_scheduled_signin_and_login_share_result_and_history(plugin, monkeypatch, success, web_signin):
+    """任务入口保存网页签到或仅 API 登录历史，失败重试，登录任务复用本轮结果。"""
+    site = _site(cookie="synthetic-cookie" if web_signin else "")
     data = {}
+    reply = _response({}, status=200 if success else 503)
+    reply._content = '<a href="logout.php">退出</a><b>今日已签到 ✓</b>'.encode()
+    client = Mock(get_res=Mock(return_value=reply))
+    monkeypatch.setattr("app.plugins.autosignin.RequestUtils", Mock(return_value=client))
     plugin.chain.run_module.return_value = SiteConnectionResult(True, success, "APIKEY已过期")
     plugin._sign_sites = [1]
     plugin._login_sites = [1]
@@ -241,11 +296,12 @@ def test_scheduled_signin_and_login_share_api_result_and_history(plugin, monkeyp
     today = datetime.today().strftime("%Y-%m-%d")
     signin = data[f"签到-{today}"]
     login = data[f"登录-{today}"]
-    assert signin["results"]["1"]["success"] is False
+    assert signin["results"]["1"]["success"] is (success and web_signin)
     assert signin["results"]["1"]["logged_in"] is success
     assert login["results"]["1"]["success"] is success
     assert signin["retry"] == login["retry"] == ([] if success else [1])
-    plugin.chain.run_module.assert_called_once()
+    assert plugin.chain.run_module.call_count == (0 if web_signin and success else 1)
+    assert client.get_res.call_count == int(web_signin)
     plugin.post_message.assert_called_once()
 
 
@@ -277,7 +333,7 @@ def test_every_registered_api_adapter_is_dispatched(plugin, monkeypatch, action,
         monkeypatch.setattr(import_module(f"app.modules.indexer.spider.{module_name}"),
                             "get_configured_system_config", lambda: None)
     plugin.chain.run_module.side_effect = _dispatch
-    site = _site(schema=None, url="https://compat.test/", cookie="unused-cookie")
+    site = _site(schema=None, url="https://compat.test/")
     site[resource_key] = protocol
     result = getattr(plugin, action)(site)
     assert result.logged_in is success
@@ -325,7 +381,7 @@ def test_remaining_real_api_protocols_keep_authentication_and_business_status(
         monkeypatch.setattr(module, "defer_site_request", Mock())
     plugin.chain.run_module.side_effect = _dispatch
     site = _site(schema=None, url="https://compat.test/", api_domain="api.custom.test", render=True,
-                 cookie="unused-cookie")
+                 cookie="")
     site[resource_key] = canonical
     result = getattr(plugin, action)(site)
     assert result.logged_in is success
@@ -343,9 +399,8 @@ def test_remaining_real_api_protocols_keep_authentication_and_business_status(
     response.close.assert_called_once()
 
 
-@pytest.mark.parametrize("action", ["signin_site", "login_site"])
 @pytest.mark.parametrize("resource_key,protocol", [("schema", "TNode"), ("parser", "TNodeSpider")])
-def test_tnode_session_api_uses_cookie_csrf_and_user_identity(plugin, monkeypatch, action, resource_key, protocol):
+def test_tnode_session_api_uses_cookie_csrf_and_user_identity(plugin, monkeypatch, resource_key, protocol):
     """TNode 会话型 API 复用 Cookie、当前 CSRF 和用户资料，不要求额外 API Key。"""
     import app.modules.indexer.spider.tnode as tnode
 
@@ -359,8 +414,8 @@ def test_tnode_session_api_uses_cookie_csrf_and_user_identity(plugin, monkeypatc
     plugin.chain.run_module.side_effect = _dispatch
     site = _site(schema=None, url="https://compat.test/", apikey="", cookie="synthetic-cookie")
     site[resource_key] = protocol
-    result = getattr(plugin, action)(site)
-    assert result.logged_in is True and result.success is (action == "login_site")
+    result = plugin.login_site(site)
+    assert result.logged_in is True and result.success is True
     assert [call.kwargs["url"] for call in client.response_manager.call_args_list] == [
         "https://compat.test/", "https://compat.test/api/user/getInfo",
     ]
@@ -385,6 +440,21 @@ def test_api_key_only_bypasses_session_only_handler(plugin, monkeypatch, action,
     plugin.chain.run_module.assert_called_once()
     session_signin.assert_not_called()
     session_login.assert_not_called()
+
+
+@pytest.mark.parametrize("handler,url,session", [
+    (MTorrent, "https://kp.m-team.cc/", {"token": "browser-token"}),
+    (YemaPT, "https://yemapt.org/", {"cookie": "browser-cookie"}),
+])
+def test_session_signin_keeps_priority_when_api_key_is_configured(plugin, monkeypatch, handler, url, session):
+    """馒头和野马同时具备会话及 API Key 时仍执行专用动作，不被登录检测替代。"""
+    plugin._site_schema = [handler]
+    signin = Mock(return_value=(True, "签到成功"))
+    monkeypatch.setattr(handler, "signin", signin)
+    result = plugin.signin_site(_site(url=url, schema=None, **session))
+    assert result.success is True
+    signin.assert_called_once()
+    plugin.chain.run_module.assert_not_called()
 
 
 @pytest.mark.parametrize("handler,url,session", [

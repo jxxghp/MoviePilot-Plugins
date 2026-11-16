@@ -58,6 +58,12 @@ def response(text="", status=200, payload=None):
     '<html><head><title>签到成功</title></head><body>' + _LOGIN + '</body></html>',
     _LOGIN + '<textarea>签到成功</textarea>',
     _LOGIN + '<input type="text" value="签到成功">',
+    _LOGIN + '<div class="att-legend"><span class="att-signed">已签到</span><span>漏签</span></div>',
+    _LOGIN + '<div><span>已签到</span><span>补签</span><span>漏签</span></div>',
+    _LOGIN + '<table><tr><td class="att-signed">已签到</td><td class="att-today">17</td></tr></table>',
+    _LOGIN + '<p>昨天已签到</p><span>已签到</span>',
+    _LOGIN + '<b>今日已签到 ✓</b><button>立即签到</button>',
+    _LOGIN + '<span hidden>今日已签到 ✓</span>',
     _LOGIN + '<p>未签到</p><span>今日已签到</span>',
     _LOGIN + '<p>签到成功后可获得奖励</p>',
     _LOGIN + '<p>未签到成功</p>',
@@ -89,6 +95,12 @@ def test_generic_requires_signin_evidence(monkeypatch, render, page):
     _LOGIN + '<p>本次签到获得 <b>20</b> 个魔力值。</p>',
     _LOGIN + '<p>今天签到您获得 <b>90</b> 点魔力值</p>',
     _LOGIN + '<span>今日已簽到</span>',
+    _LOGIN + '<b>今日已签到 ✓</b>（连续 3 天，今日获得 10 魔力值）',
+    _LOGIN + '<p>今日已签到 <span>✓</span>（连续 3 天，今日获得 10 魔力值）</p>',
+    _LOGIN + '<b>今天已簽到 ✔</b><div class="att-legend"><span>已签到</span><span>漏签</span></div>',
+    _LOGIN + '<input type="button" value="已签到" disabled>',
+    _LOGIN + '<button disabled>已签到</button>',
+    _LOGIN + '<a href="attendance.php">已签到</a>',
     _LOGIN + '<span>签到已得20魔力</span>',
     _LOGIN + '<p>You have already attend, no refresh please.</p>',
     _LOGIN + '<p>You have already attended <b>20</b> days, Continuous <b>2</b> days, this time you will get <b>10</b> bonus.</p>',
@@ -100,6 +112,17 @@ def test_generic_preserves_confirmed_results(monkeypatch, render, page):
     monkeypatch.setattr("app.plugins.autosignin.PlaywrightHelper", Mock(return_value=SimpleNamespace(
         get_page_source=Mock(return_value=page))))
     assert AutoSignIn._AutoSignIn__signin_base(site_info(render=render)) == SiteResult("测试站", "签到成功", True, True)
+
+
+@pytest.mark.parametrize("message", ["已签到", "已簽到", "已经签到", "已經簽到"])
+def test_standalone_api_status_remains_confirmed(message):
+    """独立业务回执保留裸已签到状态，不能与网页里的日历图例混为一谈。"""
+    assert has_signin_evidence(message)
+
+
+def test_isolated_calendar_legend_is_not_api_status():
+    """只含裸状态的日历图例 HTML 也不能被当成独立接口回执。"""
+    assert not has_signin_evidence('<div class="att-legend"><span>已签到</span></div>')
 
 
 @pytest.mark.parametrize("status", [302, 403, 404, 500])
