@@ -54,9 +54,9 @@ def test_path_mapper_uses_longest_prefix_and_keeps_unmapped_paths():
 def test_parse_mp_and_emby_episode_nfo():
     """MP NFO 提供单集 TMDB ID；Emby NFO 提供 streamdetails 技术参数。"""
     mp = parse_nfo_text(MP_EPISODE_NFO, "episodedetails")[0]
-    assert (mp.tmdb_id, mp.season, mp.episode) == (63056, 1, 1)
+    assert (mp.tmdb_id, mp.season, mp.episode, mp.aired) == (63056, 1, 1, "2011-04-17")
     emby = parse_nfo_text(EMBY_EPISODE_NFO, "episodedetails")[0]
-    assert emby.tmdb_id is None
+    assert emby.tmdb_id is None and emby.aired == ""
     assert (emby.resolution, emby.video_codec, emby.hdr) == ("2160p", "HEVC", "DV")
 
 
@@ -153,8 +153,10 @@ def test_parse_episode_and_virtual_detection():
     episode = parse_episode({
         "Id": "e1", "ParentIndexNumber": 1, "IndexNumber": 1, "IndexNumberEnd": 2,
         "ProviderIds": {"tmdb": "63056"}, "Path": "/tv/a.mkv", "MediaSources": [{"Path": "/tv/a.mkv"}],
+        "PremiereDate": "2011-04-17T00:00:00.0000000Z",
     })
     assert (episode.season, episode.episode_numbers, episode.tmdb_id, episode.tmdb_id_source) == (1, [1, 2], 63056, "emby")
+    assert episode.air_date == "2011-04-17"
     assert episode.label == "S01E01-E02"
     assert is_virtual({"LocationType": "Virtual"})
     assert not is_virtual({"LocationType": "FileSystem"})

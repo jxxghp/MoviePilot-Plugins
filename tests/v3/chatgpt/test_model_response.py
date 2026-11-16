@@ -1,7 +1,7 @@
 """模型响应边界回归：真实 LangChain 空候选、明确拒答、输入清洗和通知节流。"""
 
 from concurrent.futures import ThreadPoolExecutor
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.messages import AIMessage
@@ -36,12 +36,13 @@ def test_filename_cleanup_preserves_recognition_fields(filename, expected):
     """仅删除可确认的噪音标签，片名、别名、集数、年份、技术信息与音乐要素仍可识别。"""
     client = OpenAi(api_key="key", model="model")
     llm = MagicMock()
-    llm.generate.return_value = LLMResult(
+    llm.agenerate = AsyncMock()
+    llm.agenerate.return_value = LLMResult(
         generations=[[ChatGeneration(message=AIMessage(content='{"name":"Title"}'))]],
     )
     with patch.object(client, "_get_llm", return_value=llm):
         assert client.get_media_name(filename) == {"name": "Title"}
-    assert llm.generate.call_args.args[0][0][1].content == expected
+    assert llm.agenerate.call_args.args[0][0][1].content == expected
 
 
 @pytest.mark.parametrize("choices,error_code", [
@@ -61,7 +62,7 @@ def test_real_langchain_empty_and_refused_responses(choices, error_code):
     chat_result = llm._create_chat_result(completion)
     client = OpenAi(api_key="key", model="model")
     with patch.object(client, "_get_llm", return_value=llm), \
-            patch.object(ChatOpenAI, "_generate", return_value=chat_result) as generate:
+            patch.object(ChatOpenAI, "_agenerate", return_value=chat_result) as generate:
         result = client.get_media_name("Title")
     assert result["errorCode"] == error_code
     assert "list index out of range" not in result["errorMsg"]
@@ -79,7 +80,8 @@ def test_real_langchain_empty_and_refused_responses(choices, error_code):
 def test_provider_refusal_metadata_and_non_text_output(message, error_code):
     """原生供应商安全元数据和 Responses 拒答块可识别，仅推理输出视为空文本。"""
     llm = MagicMock()
-    llm.generate.return_value = LLMResult(generations=[[ChatGeneration(message=message)]])
+    llm.agenerate = AsyncMock()
+    llm.agenerate.return_value = LLMResult(generations=[[ChatGeneration(message=message)]])
     client = OpenAi(api_key="key", model="model")
     with patch.object(client, "_get_llm", return_value=llm):
         assert client.get_media_name("Title")["errorCode"] == error_code
@@ -90,7 +92,8 @@ def test_unrelated_errors_are_not_labeled_as_safety_blocks(error):
     """模型内部或初始化异常没有空候选证据时保留原错误，避免误判为安全审查。"""
     client = OpenAi(api_key="key", model="model")
     llm = MagicMock()
-    llm.generate.side_effect = error
+    llm.agenerate = AsyncMock()
+    llm.agenerate.side_effect = error
     with patch.object(client, "_get_llm", return_value=llm):
         result = client.get_media_name("Title")
     assert result["errorMsg"] == str(error)
@@ -128,12 +131,13 @@ def test_normal_response_then_empty_candidates_resets_usage():
     """正常 fenced JSON 仍可解析，下一次空候选不沿用前次 token 统计。"""
     client = OpenAi(api_key="key", model="model")
     llm = MagicMock()
+    llm.agenerate = AsyncMock()
     message = AIMessage(
         content='```json\n{"name":"Title","year":"2026","episode":3}\n```',
         usage_metadata={"input_tokens": 12, "output_tokens": 8, "total_tokens": 20},
         response_metadata={"prompt_feedback": {"block_reason": "BLOCK_REASON_UNSPECIFIED"}},
     )
-    llm.generate.side_effect = [
+    llm.agenerate.side_effect = [
         LLMResult(generations=[[ChatGeneration(message=message)]]),
         LLMResult(generations=[]),
     ]

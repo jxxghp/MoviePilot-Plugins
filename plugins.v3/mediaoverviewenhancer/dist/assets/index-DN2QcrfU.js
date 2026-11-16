@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import _sfc_main from './__federation_expose_AppPage-A9vcD4xr.js';
+import AppPage from './__federation_expose_AppPage-WhAA0SKT.js';
 
 true&&(function polyfill() {
   const relList = document.createElement("link").relList;
@@ -41,4 +41,5 @@ true&&(function polyfill() {
 
 const {createApp} = await importShared('vue');
 
-createApp(_sfc_main).mount('#app');
+const app = createApp(AppPage);
+app.mount('#app');

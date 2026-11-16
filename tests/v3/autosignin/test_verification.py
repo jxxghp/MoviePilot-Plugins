@@ -561,3 +561,16 @@ def test_quiz_reward_text_requires_completed_state(monkeypatch, module_name, cla
     if module_name == "52pt":
         kwargs["timeout"] = 15
     assert getattr(handler(), f"_{class_name}__signin")(**kwargs)[0] is success
+
+
+def test_hdchina_signs_in_on_hdwing_domain(monkeypatch):
+    """瓷器重开后改用 hdwing.org，站点匹配、首页读取和签到提交都必须指向新域名。"""
+    assert HDChina.match("https://hdwing.org/")
+    request = SimpleNamespace(
+        get_res=Mock(return_value=response(_LOGIN + '<meta name="x-csrf" content="test">')),
+        post_res=Mock(return_value=response(payload={"state": "success"})),
+    )
+    monkeypatch.setattr("app.plugins.autosignin.sites.hdchina.RequestUtils", Mock(return_value=request))
+    assert HDChina().signin(site_info(url="https://hdwing.org/", cookie="hdchina=test"))[0] is True
+    request.get_res.assert_called_once_with(url="https://hdwing.org/index.php")
+    assert request.post_res.call_args.kwargs["url"] == "https://hdwing.org/plugin_sign-in.php?cmd=signin"

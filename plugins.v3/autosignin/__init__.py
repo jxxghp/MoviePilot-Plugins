@@ -29,7 +29,9 @@ from ruamel.yaml import CommentedMap
 
 
 class AutoSignIn(_PluginBase):
-    """按配置执行站点签到和模拟登录，并记录结果与发送通知。"""
+    """
+    按配置执行站点签到和模拟登录，并记录结果与发送通知。
+    """
 
     # 插件名称
     plugin_name = "站点自动签到"
@@ -38,7 +40,7 @@ class AutoSignIn(_PluginBase):
     # 插件图标
     plugin_icon = "signin.png"
     # 插件版本
-    plugin_version = "3.0.5"
+    plugin_version = "3.0.10"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -1875,12 +1877,14 @@ class AutoSignIn(_PluginBase):
 
     def signin_site(self, site_info: CommentedMap) -> SiteResult:
         """
-        签到一个站点
+        执行专用或网页签到，宿主接管的 API 访问只记录登录证据。
         """
         site_module = self.__build_class(site_info.get("url"))
         # 开始记时
         start_time = datetime.now()
-        if site_module and hasattr(site_module, "signin"):
+        api_result = None
+        if (site_module and hasattr(site_module, "signin")
+                and not self._api_login_preferred(site_info, site_module, "signin")):
             try:
                 state, message = site_module().signin(site_info)
             except Exception as e:
@@ -1888,8 +1892,19 @@ class AutoSignIn(_PluginBase):
                 state, message = False, f"签到失败：{str(e)}"
             result = self._site_result(site_info.get("name"), state, message, "签到")
         else:
-            result = self.__signin_base(site_info)
-        if not result.completed and not getattr(site_module, "signin_is_login", False):
+            api_result = self._api_login_result(site_info)
+            if api_result is None:
+                result = self.__signin_base(site_info)
+            else:
+                result = SiteResult(
+                    api_result.site_name,
+                    "登录成功，签到未确认" if api_result.logged_in else
+                    api_result.message.replace("模拟登录失败", "签到失败", 1),
+                    False, api_result.logged_in,
+                )
+        if not result.completed and api_result is None and (
+                not getattr(site_module, "signin_is_login", False)
+                or self._api_login_preferred(site_info, site_module, "login")):
             # 签到入口可能不存在或未包含用户导航，另行访问首页/登录接口确认保号访问。
             login_result = self._login_result(site_info, site_module)
             if login_result.success:
@@ -2001,16 +2016,62 @@ class AutoSignIn(_PluginBase):
         return result
 
     def _login_result(self, site_info: CommentedMap, site_module: Any) -> SiteResult:
-        """复用专用登录接口或首页验证，不重复累计站点访问统计。"""
-        if site_module and hasattr(site_module, "login"):
+        """依次使用专用登录、宿主 API 检测和首页验证，访问统计由调用方记录。"""
+        if (site_module and hasattr(site_module, "login")
+                and not self._api_login_preferred(site_info, site_module, "login")):
             try:
                 state, message = site_module().login(site_info)
             except Exception as e:
                 traceback.print_exc()
                 state, message = False, f"模拟登录失败：{str(e)}"
         else:
+            api_result = self._api_login_result(site_info)
+            if api_result is not None:
+                return api_result
             state, message = self.__login_base(site_info)
         return self._site_result(site_info.get("name"), state, message, "模拟登录")
+
+    @staticmethod
+    def _api_login_preferred(site_info: CommentedMap, site_module: Any, action: str) -> bool:
+        """
+        有 API Key 时，登录检测使用宿主，旧签到仅在具备所需会话凭据时执行。
+
+        :param site_info: 当前站点认证配置
+        :param site_module: 声明旧签到会话字段的专用处理器
+        :param action: signin 表示签到，login 表示登录验证
+        :return: 是否应交由宿主 API 连接检测
+        """
+        session_field = getattr(site_module, "signin_session_field", None)
+        return bool(session_field and str(site_info.get("apikey") or "").strip()
+                    and (action == "login" or not str(site_info.get(session_field) or "").strip()))
+
+    def _api_login_result(self, site_info: CommentedMap) -> Optional[SiteResult]:
+        """
+        由宿主自动选择 API 连接适配器，明确不支持的站点交给原有网页处理。
+
+        :param site_info: 已合并用户凭据和网络配置的站点资源
+        :return: API 登录结果，宿主明确不支持该站点时返回 None
+        """
+        try:
+            connection = self.chain.run_module(
+                "test_site", site={**site_info, "domain": site_info.get("url") or site_info.get("domain")},
+                raise_exception=True,
+            )
+            if connection is None:
+                return SiteResult(site_info.get("name"), "模拟登录失败，站点模块未返回连接检测结果", False)
+            if not connection.supported:
+                return None
+            return self._site_result(
+                site_info.get("name"), connection.success,
+                "模拟登录成功" if connection.success is True else connection.message, "模拟登录",
+            )
+        except Exception as error:
+            message = str(error)
+            for key in ("apikey", "token", "cookie"):
+                credential = str(site_info.get(key) or "").strip()
+                if credential:
+                    message = message.replace(credential, "[已隐藏]")
+            return SiteResult(site_info.get("name"), f"模拟登录失败，{message or '站点 API 检测异常'}", False)
 
     @staticmethod
     def __login_base(site_info: CommentedMap) -> Tuple[bool, str]:
