@@ -320,16 +320,19 @@
   },
   "FFmpegThumb": {
     "name": "FFmpeg缩略图",
-    "description": "TheMovieDb没有背景图片时使用FFmpeg截取视频文件缩略图",
+    "description": "为缺少分集剧照的视频截取画面作为分集缩略图，已有分集图片时不重复生成",
     "labels": "刮削",
-    "version": "2.1",
+    "version": "2.3",
     "icon": "ffmpeg.png",
     "author": "jxxghp",
     "level": 1,
     "history": {
+      "v2.3": "跳过已有剧照与蓝光原盘，优化截帧定位；修复空排除目录、亚秒短片及空图片判定，补充失败日志和回归测试。",
+      "v2.2": "跳过已有分集图片与蓝光原盘（iso/BDMV），短剧自动前移截取点，截取时间参数前置提速，失败写入日志",
       "v2.1": "优化执行周期输入，需要MoviePilot v2.2.1+",
       "v2.0": "兼容MoviePilot V2 版本"
-    }
+    },
+    "release": true
   },
   "LibraryScraper": {
     "v3": false,
@@ -1032,6 +1035,7 @@
     "description": "根据 Trakt 播放记录，自动清理下载器中已观看的种子。",
     "labels": "Trakt,清理",
     "version": "1.4",
+    "v3": false,
     "icon": "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/trakt.png",
     "author": "Guoyin-Wen",
     "level": 1,
@@ -1154,6 +1158,7 @@
     "description": "自动为下载任务打上 PT 站点促销标签（免费/2X免费/50%/2X 等），限时促销到期后自动移除；支持兜底扫描补全手动添加的种子。",
     "labels": "下载,标签",
     "version": "1.0",
+    "v3": false,
     "icon": "seed.png",
     "author": "devin",
     "level": 1,

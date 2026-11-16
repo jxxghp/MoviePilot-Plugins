@@ -4,6 +4,7 @@ from dataclasses import replace
 from datetime import date, timedelta
 
 from app.plugins.libraryintegrity.checks import (
+    annotate_subscriptions,
     apply_ignore_rules,
     conflict_issues,
     duplicate_issues,
@@ -21,6 +22,7 @@ from app.plugins.libraryintegrity.checks import (
     version_issues,
 )
 from app.plugins.libraryintegrity.models import (
+    Issue,
     IssueType,
     LibraryEpisode,
     LibraryMovie,
@@ -607,3 +609,29 @@ def test_absent_season_hint_for_multi_season_show():
     assert issue.details[0] == "TMDB 没有第 6 季（TMDB 正片为第 1-3 季），库内 E01-E02 无法对应"
     hint = next(line for line in issue.details if line.startswith("处理："))
     assert "tmdb:100 S6E1-E2 => S<TMDB 季>E<起始集>" in hint and "身份指定" in hint
+
+
+class _Sub:
+    """订阅快照替身。"""
+
+    def __init__(self, media_id, season, state="R", lack=None, source="themoviedb"):
+        """记录订阅身份、季号、状态与缺集数。"""
+        self.media_source, self.media_id, self.season = source, media_id, season
+        self.state, self.lack_episode = state, lack
+
+
+def test_annotate_subscriptions_marks_missing_issues_by_tmdb_season():
+    """缺集问题按 TMDB ID 与季号标注订阅状态；未记录季号的订阅覆盖全部季；其他类型不标注。"""
+    def missing(media_id, season):
+        """构造指定季缺集问题供订阅标注使用。"""
+        return Issue(type=IssueType.MISSING, media_source="themoviedb", media_id=media_id, season=season)
+
+    issues = [
+        missing("297253", 1), missing("297253", 2), missing("1668", 3), missing("9", 1),
+        Issue(type=IssueType.VERSION, media_source="themoviedb", media_id="297253", season=1),
+    ]
+    subscriptions = [
+        _Sub("297253", 1, lack=11), _Sub("1668", None, state="S"), _Sub("9", 1, source="douban"),
+    ]
+    assert annotate_subscriptions(issues, subscriptions) == 2
+    assert [issue.subscription for issue in issues] == ["订阅中，缺 11 集", "", "已暂停", "", ""]

@@ -1,4 +1,5 @@
 import datetime
+import json
 import threading
 from dataclasses import dataclass
 from typing import List, Tuple, Dict, Any, Optional
@@ -9,7 +10,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.sdk.config import settings
-from app.sdk.media import Context, normalize_media_source
+from app.sdk.media import Context, MetaInfo, normalize_media_source
 from app.sdk.events import eventmanager, Event
 from app.db.oper.downloadhistory import DownloadHistoryOper
 from app.sdk.services import DownloaderHelper
@@ -49,13 +50,14 @@ class _DownloadHistoryView:
 
 class DownloadSiteTag(_PluginBase):
     # 插件名称
+    """按下载历史和可选媒体识别维护任务分类与标签。"""
     plugin_name = "下载任务分类与标签"
     # 插件描述
     plugin_desc = "自动给下载任务分类与打站点标签、剧集名称标签"
     # 插件图标
     plugin_icon = "Youtube-dl_B.png"
     # 插件版本
-    plugin_version = "3.2.0"
+    plugin_version = "3.3.1"
     # 插件作者
     plugin_author = "叮叮当"
     # 作者主页
@@ -80,6 +82,8 @@ class DownloadSiteTag(_PluginBase):
     _interval_time = 6
     _interval_unit = "小时"
     _enabled_media_tag = False
+    # 无历史种子识别剧名
+    _enabled_media_recognize = False
     _enabled_tag = True
     _enabled_category = False
     _enabled_del_tags = False
@@ -106,6 +110,7 @@ class DownloadSiteTag(_PluginBase):
 
     def init_plugin(self, config: dict = None):
         # 初始化删除标签任务rid映射
+        """停止旧任务并读取配置，按启用状态安排本实例任务。"""
         self._del_tags_task_rid = {}
         # 初始化默认的tracker映射
         self._tracker_mappings = self._parse_tracker_mappings(self._tracker_mappings_default)
@@ -118,6 +123,7 @@ class DownloadSiteTag(_PluginBase):
             self._interval_time = self.str_to_number(config.get("interval_time"), 6)
             self._interval_unit = config.get("interval_unit") or "小时"
             self._enabled_media_tag = config.get("enabled_media_tag")
+            self._enabled_media_recognize = config.get("enabled_media_recognize")
             self._enabled_tag = config.get("enabled_tag")
             self._enabled_category = config.get("enabled_category")
             self._enabled_del_tags = config.get("enabled_del_tags")
@@ -193,13 +199,16 @@ class DownloadSiteTag(_PluginBase):
         return active_services
 
     def get_state(self) -> bool:
+        """返回插件启用状态，供宿主决定是否注册服务。"""
         return self._enabled
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
+        """声明插件远程命令；无命令时沿用宿主空入口。"""
         pass
 
     def get_api(self) -> List[Dict[str, Any]]:
+        """声明插件接口及认证方式；无接口时沿用宿主空入口。"""
         pass
 
     def get_service(self) -> List[Dict[str, Any]]:
@@ -264,6 +273,7 @@ class DownloadSiteTag(_PluginBase):
 
     @staticmethod
     def str_to_number(s: Optional[str], i: int) -> int:
+        """将配置转换为整数，非法或缺失值回退到默认值。"""
         try:
             return int(s)
         except (TypeError, ValueError):
@@ -364,8 +374,17 @@ class DownloadSiteTag(_PluginBase):
                         if (not history.torrent_site
                                 and not history.media_id
                                 and not history.type
-                                and not history.title):
+                                and not history.title
+                                and not (self._enabled_media_tag and self._enabled_media_recognize)):
                             continue
+                    # 无下载历史标题时, 通过种子资源名识别媒体标题(结果持久缓存, 同名资源只识别一次)
+                    if (not history.title
+                            and self._enabled_media_tag
+                            and self._enabled_media_recognize):
+                        torrent_name = torrent.get("name") if service.type == "qbittorrent" else torrent.name
+                        if torrent_name:
+                            history.title = self._recognize_media_title(torrent_name, torrent_tags)
+
                     # 按设置生成需要写入的标签与分类
                     _tags = []
                     _cat = None
@@ -466,6 +485,48 @@ class DownloadSiteTag(_PluginBase):
             return f"{self._media_prefix}{media_title}"
         else:
             return media_title
+
+    def _recognize_media_title(self, torrent_name: str, torrent_tags: Optional[List[str]] = None) -> Optional[str]:
+        """
+        从种子资源名识别媒体标题, 先本地解析再走媒体识别链。
+        识别结果按解析出的标题名持久缓存(失败也缓存, 避免每轮定时任务重复调用识别接口)。
+        种子已有该媒体其它语言/别名标签时沿用既有标签, 避免同一媒体打上多语言重复标签。
+        """
+        if not torrent_name:
+            return None
+        try:
+            meta = MetaInfo(title=torrent_name)
+        except Exception as e:
+            logger.error(f"{self.LOG_TAG}解析种子名称失败: {torrent_name} {str(e)}")
+            return None
+        name = (meta.name or "").strip()
+        if not name:
+            return None
+        # 年份和类型参与缓存身份，防止同名翻拍作品互相污染；不复用旧版仅按名称的缓存。
+        cache_key = json.dumps([name, str(getattr(meta, "year", None) or ""),
+                                str(getattr(meta, "type", None) or "")], ensure_ascii=False)
+        cache = self.get_data("MediaTitleCacheV2") or {}
+        if not isinstance(cache, dict):
+            cache = {}
+        if cache_key not in cache:
+            try:
+                mediainfo = self.chain.recognize_media(meta=meta, mtype=meta.type, cache=True)
+            except Exception as err:
+                # 暂时性服务异常不永久记为未识别，后续扫描仍可重试。
+                logger.error(f"{self.LOG_TAG}识别媒体标题失败: {torrent_name} {err}")
+                return None
+            title = getattr(mediainfo, "title", None)
+            cache[cache_key] = {"title": title, "names": list(getattr(mediainfo, "names", None) or [])} if title else {}
+            self.save_data("MediaTitleCacheV2", cache)
+        entry = cache[cache_key]
+        if not isinstance(entry, dict) or not entry.get("title"):
+            return None
+        title = entry["title"]
+        # 缓存保留标准标题和别名；每颗种子各自沿用已有标签，不传播另一颗种子的标签选择。
+        for alias in [title, *entry.get("names", [])]:
+            if alias in (torrent_tags or []) or self._generate_media_tag(alias) in (torrent_tags or []):
+                return alias
+        return title
 
     def _genre_ids_get_cat(self, mtype, genre_ids=None):
         """
@@ -936,6 +997,43 @@ class DownloadSiteTag(_PluginBase):
                                     }
                                 ]
                             },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 3
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VCheckboxBtn',
+                                        'props': {
+                                            'model': 'enabled_media_recognize',
+                                            'label': '无历史种子识别剧名',
+                                        }
+                                    }
+                                ]
+                            },
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '无历史种子识别剧名：对下载历史中查不到的种子(辅种/外部添加)，从种子资源名识别媒体标题并打剧名标签。首次会对未识别的资源名调用TMDB识别并持久缓存结果，之后不再重复识别。'
+                                        }
+                                    }
+                                ]
+                            }
                         ]
                     },
                     {
@@ -1220,6 +1318,7 @@ class DownloadSiteTag(_PluginBase):
             "onlyonce": False,
             "enabled_tag": True,
             "enabled_media_tag": False,
+            "enabled_media_recognize": False,
             "enabled_category": False,
             "enabled_del_tags": False,
             "category_movie": "电影",
@@ -1235,6 +1334,7 @@ class DownloadSiteTag(_PluginBase):
         }
 
     def get_page(self) -> List[dict]:
+        """返回插件详情页面；没有独立页面时保留空入口。"""
         pass
 
     def stop_service(self):

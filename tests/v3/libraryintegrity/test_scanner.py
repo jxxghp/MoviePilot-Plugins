@@ -1,12 +1,20 @@
 """影视库完整性检查：扫描编排端到端测试（Emby、TMDB、AI 使用替身，NFO 使用临时文件）。"""
 
+import json
 import threading
-from datetime import date
+from datetime import date, timedelta
 
-from app.plugins.libraryintegrity.ai import AiAdvisor, IdentityAnswer, MappingItem, NumberingAnswer
+from app.plugins.libraryintegrity.ai import (
+    FAILED_RETRY_DAYS,
+    AiAdvisor,
+    AiAnswerCache,
+    IdentityAnswer,
+    MappingItem,
+    NumberingAnswer,
+)
 from app.plugins.libraryintegrity.checks import parse_identity_overrides, parse_ignore_rules, parse_number_mappings
 from app.plugins.libraryintegrity.emby import EmbyError, EmbySource
-from app.plugins.libraryintegrity.models import IssueType
+from app.plugins.libraryintegrity.models import ORIGIN_EMBY, ORIGIN_LOCAL, IssueType, LibraryEpisode
 from app.plugins.libraryintegrity.nfo import NfoReader, PathMapper
 from app.plugins.libraryintegrity.scanner import LibraryScanner, ScanOptions
 from app.plugins.libraryintegrity.tmdb import TmdbSource
@@ -142,16 +150,17 @@ def _write_nfo(tmp_path):
     return local
 
 
-def _scanner(tmp_path, stop_event=None, advisor=None, **overrides):
+def _scanner(tmp_path, stop_event=None, advisor=None, today=TODAY, ai_cache=None, **overrides):
     """组装扫描器。"""
     options = ScanOptions(dimensions=["resolution"], **overrides)
     return LibraryScanner(
         options,
         TmdbSource(tmp_path / "cache.json", api_factory=_Api),
         stop_event or threading.Event(),
-        today=TODAY,
+        today=today,
         name_parser=_parser,
         advisor=advisor,
+        ai_cache=ai_cache,
     )
 
 
@@ -381,3 +390,162 @@ def test_ai_failure_is_reported_without_breaking_scan(tmp_path):
     report = _scanner(tmp_path, advisor=advisor).scan([_emby_source(tmp_path, series, episodes)])
     assert any("AI" in error for error in report.errors)
     assert any(issue.type == IssueType.CONFLICT for issue in report.issues)
+
+
+def _passing_llm():
+    """映射与身份都能通过验证的模型替身。"""
+    return _FakeLlm({
+        "NumberingAnswer": NumberingAnswer(
+            mappings=[MappingItem(library_season=1, library_start=3, library_end=4, tmdb_season=2, tmdb_start=1)],
+            confidence=0.9, reason="绝对集数",
+        ),
+        "IdentityAnswer": IdentityAnswer(candidate=1, confidence=0.8, reason="标题一致"),
+    })
+
+
+def _ai_scan(tmp_path, llm, cache_path, today=TODAY, episodes=None):
+    """用新的缓存实例执行一次带 AI 的扫描并保存缓存，模拟一次独立的定时扫描。"""
+    series, default_episodes = _ai_series()
+    cache = AiAnswerCache(cache_path)
+    report = _scanner(tmp_path, advisor=_advisor(llm, max_calls=None), today=today, ai_cache=cache).scan(
+        [_emby_source(tmp_path, series, episodes or default_episodes)]
+    )
+    cache.save()
+    return report
+
+
+def test_passed_ai_answers_are_reused_without_new_requests(tmp_path):
+    """通过验证的回答被缓存：输入不变的下一次扫描不再请求 AI，建议照常出现。"""
+    cache_path = tmp_path / "ai_cache.json"
+    first = _ai_scan(tmp_path, _passing_llm(), cache_path)
+    assert first.stats.ai_calls == 2 and first.stats.ai_cached == 0
+
+    llm = _passing_llm()
+    second = _ai_scan(tmp_path, llm, cache_path)
+    assert llm.prompts == [] and second.stats.ai_calls == 0 and second.stats.ai_cached == 2
+    rules = {issue.adopt_kind: issue.adopt_rule for issue in second.issues if issue.type == IssueType.SUGGESTION}
+    assert rules == {"mapping": "tmdb:5 S1E3-E4 => S2E1", "identity": "emby:Emby/C => tmdb:7"}
+
+
+def test_failed_ai_answers_wait_until_retry_date(tmp_path):
+    """未通过验证的回答记下原因；到期前不再请求，到期后重新请求一次。"""
+    cache_path = tmp_path / "ai_cache.json"
+    failing = {
+        "NumberingAnswer": NumberingAnswer(
+            mappings=[MappingItem(library_season=1, library_start=3, library_end=4, tmdb_season=9, tmdb_start=1)],
+            confidence=0.9,
+        ),
+        "IdentityAnswer": IdentityAnswer(candidate=-1, confidence=0.9),
+    }
+    _ai_scan(tmp_path, _FakeLlm(failing), cache_path)
+    saved = json.loads(cache_path.read_text(encoding="utf-8"))
+    reasons = sorted(entry["reason"] for entry in saved.values())
+    assert not any(entry["passed"] for entry in saved.values())
+    assert reasons[0] == "AI 认为候选中没有同一部剧"
+    assert "无法对应的集 2 → 2" in reasons[1] and "没有改善" in reasons[1]
+
+    llm = _FakeLlm(failing)
+    report = _ai_scan(tmp_path, llm, cache_path, today=TODAY + timedelta(days=FAILED_RETRY_DAYS - 1))
+    assert llm.prompts == [] and report.stats.ai_cached == 2
+
+    llm = _FakeLlm(failing)
+    _ai_scan(tmp_path, llm, cache_path, today=TODAY + timedelta(days=FAILED_RETRY_DAYS))
+    assert len(llm.prompts) == 2
+
+
+def test_ai_is_asked_again_when_library_numbering_changes(tmp_path):
+    """库内无法对应的集号变化后，缓存的回答不再适用，重新请求。"""
+    cache_path = tmp_path / "ai_cache.json"
+    _ai_scan(tmp_path, _passing_llm(), cache_path)
+    _, episodes = _ai_series()
+    episodes["E"].append({"Id": "e5", "ParentIndexNumber": 1, "IndexNumber": 5, "Path": "/x/E5.mkv"})
+    llm = _passing_llm()
+    _ai_scan(tmp_path, llm, cache_path, episodes=episodes)
+    assert len(llm.prompts) == 1 and "S01E05" in llm.prompts[0]
+
+
+def test_unverifiable_and_failed_requests_are_not_cached(tmp_path):
+    """请求失败或候选详情暂时查不到时不写缓存，下次扫描重新请求；没用到的旧条目在保存时淘汰。"""
+    cache_path = tmp_path / "ai_cache.json"
+    cache_path.write_text(json.dumps({"stale": {"answer": {}, "passed": True}}), encoding="utf-8")
+
+    async def broken_factory():
+        """模拟模型不可用。"""
+        raise RuntimeError("未配置模型")
+
+    series, episodes = _ai_series()
+    cache = AiAnswerCache(cache_path)
+    _scanner(tmp_path, advisor=AiAdvisor(llm_factory=broken_factory), ai_cache=cache).scan(
+        [_emby_source(tmp_path, series, episodes)]
+    )
+    cache.save()
+    assert json.loads(cache_path.read_text(encoding="utf-8")) == {}
+
+    # 候选 0（tmdb:8）在 TMDB 中查不到详情，本轮无法验证，不缓存
+    _ai_scan(tmp_path, _FakeLlm({
+        "NumberingAnswer": NumberingAnswer(confidence=0.2),
+        "IdentityAnswer": IdentityAnswer(candidate=0, confidence=0.9),
+    }), cache_path)
+    saved = json.loads(cache_path.read_text(encoding="utf-8"))
+    assert [entry["reason"] for entry in saved.values()] == ["把握 20%，低于 50%"]
+
+
+def test_corrupt_ai_cache_starts_empty(tmp_path):
+    """缓存文件损坏时从空缓存开始，不影响扫描。"""
+    cache_path = tmp_path / "ai_cache.json"
+    cache_path.write_text("{bad", encoding="utf-8")
+    llm = _passing_llm()
+    _ai_scan(tmp_path, llm, cache_path)
+    assert len(llm.prompts) == 2
+
+
+def test_nfo_conflict_note_names_the_library_side_by_origin(tmp_path):
+    """NFO 与库内季集号不一致时，本地目录说「库内文件为」，Emby 说「媒体服务器为」。"""
+    video = tmp_path / "谷雨 - S01E05.strm"
+    video.write_text("http://x", encoding="utf-8")
+    (tmp_path / "谷雨 - S01E05.nfo").write_text(
+        "<episodedetails><season>1</season><episode>1</episode></episodedetails>", encoding="utf-8"
+    )
+    nfo = NfoReader(PathMapper(""))
+    notes = {}
+    for origin in (ORIGIN_LOCAL, ORIGIN_EMBY):
+        episode = LibraryEpisode(item_id="e5", season=1, episode=5, path=str(video))
+        LibraryScanner._supplement_episode(nfo, episode, None, origin)
+        notes[origin] = episode.conflicts
+    assert notes[ORIGIN_LOCAL] == ["NFO 记录为 S01E01，库内文件为 S01E05"]
+    assert notes[ORIGIN_EMBY] == ["NFO 记录为 S01E01，媒体服务器为 S01E05"]
+
+
+def test_ai_mappings_touching_only_matched_episodes_are_dropped(tmp_path):
+    """AI 顺带改动本来就对得上的集时略去那几条，只按涉及无法对应单集的映射验证与展示。"""
+    llm = _FakeLlm({
+        "NumberingAnswer": NumberingAnswer(
+            mappings=[
+                MappingItem(library_season=1, library_start=1, library_end=2, tmdb_season=2, tmdb_start=1),
+                MappingItem(library_season=1, library_start=3, library_end=4, tmdb_season=2, tmdb_start=1),
+            ],
+            confidence=0.9,
+        ),
+        "IdentityAnswer": IdentityAnswer(candidate=-1, confidence=0.9),
+    })
+    series, episodes = _ai_series()
+    report = _scanner(tmp_path, advisor=_advisor(llm)).scan([_emby_source(tmp_path, series, episodes)])
+    mapping = next(issue for issue in report.issues if issue.adopt_kind == "mapping")
+    assert mapping.adopt_rule == "tmdb:5 S1E3-E4 => S2E1"
+    assert "已略去 AI 另给的 1 条映射：只涉及本来就能对应的集" in mapping.details
+
+
+def test_cached_failed_answer_is_rechecked_and_restored_when_it_now_passes(tmp_path):
+    """缓存中未通过的回答也按当前规则重新核对；现在能通过时恢复展示并改记为通过，不重新请求。"""
+    cache_path = tmp_path / "ai_cache.json"
+    _ai_scan(tmp_path, _passing_llm(), cache_path)
+    saved = json.loads(cache_path.read_text(encoding="utf-8"))
+    for entry in saved.values():
+        entry.update(passed=False, reason="旧规则下未通过")
+    cache_path.write_text(json.dumps(saved), encoding="utf-8")
+
+    llm = _passing_llm()
+    report = _ai_scan(tmp_path, llm, cache_path)
+    assert llm.prompts == []
+    assert {issue.adopt_kind for issue in report.issues if issue.type == IssueType.SUGGESTION} == {"mapping", "identity"}
+    assert all(entry["passed"] for entry in json.loads(cache_path.read_text(encoding="utf-8")).values())

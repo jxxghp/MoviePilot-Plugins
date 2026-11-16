@@ -7,10 +7,13 @@ AI 只提出假设，不直接判定缺集或完整；每条假设都必须通�
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
 import threading
 from dataclasses import dataclass, field
+from datetime import date, timedelta
+from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -198,6 +201,101 @@ class IdentityTask:
 
     series: LibrarySeries
     candidates: list[dict] = field(default_factory=list)
+
+
+# 未通过验证的回答沿用的天数：期间库内情况不变就不再请求，到期后重新请求一次（TMDB 数据可能已更新）
+FAILED_RETRY_DAYS = 30
+
+
+def task_fingerprint(task: NumberingTask | IdentityTask) -> str:
+    """AI 任务的输入指纹：库内需要 AI 判断的部分不变时，上次的回答可以沿用。
+
+    编号任务看无法对应的库内集号，身份任务看剧集位置、标题年份与候选；
+    TMDB 侧数据（如连载剧每周新增的单集）不计入，沿用的回答每次仍按当前数据重新验证。
+    """
+    series = task.series
+    if isinstance(task, NumberingTask):
+        payload: list[Any] = ["numbering", series.server, task.base, sorted(task.unmatched)]
+    else:
+        ids = [str(candidate.get("id")) for candidate in task.candidates]
+        payload = ["identity", series.server, series.item_id, series.title, series.year, ids]
+    return hashlib.sha256(json.dumps(payload, ensure_ascii=False).encode("utf-8")).hexdigest()[:32]
+
+
+@dataclass
+class CachedAnswer:
+    """一条缓存的 AI 回答及其上次的验证结论。"""
+
+    answer: dict
+    passed: bool
+    reason: str = ""
+    asked: str = ""
+
+    def retry_on(self) -> Optional[date]:
+        """未通过验证的回答到期后重新请求的日期；通过验证的回答没有到期日。"""
+        if self.passed:
+            return None
+        try:
+            return date.fromisoformat(self.asked) + timedelta(days=FAILED_RETRY_DAYS)
+        except ValueError:
+            return date.min
+
+
+class AiAnswerCache:
+    """按任务指纹缓存 AI 回答，避免每次扫描都为同样的输入重新请求，也让建议在多次扫描间保持稳定。
+
+    保存时只保留本轮用到的条目，已采纳或已不存在的任务自然淘汰。
+    """
+
+    def __init__(self, path: Path) -> None:
+        """读取缓存文件；不存在或损坏时从空缓存开始。"""
+        self.path = path
+        self._entries: dict[str, CachedAnswer] = {}
+        self._used: set[str] = set()
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            for key, value in (data if isinstance(data, dict) else {}).items():
+                if isinstance(value, dict) and isinstance(value.get("answer"), dict):
+                    self._entries[key] = CachedAnswer(
+                        answer=value["answer"],
+                        passed=bool(value.get("passed")),
+                        reason=str(value.get("reason") or ""),
+                        asked=str(value.get("asked") or ""),
+                    )
+        except FileNotFoundError:
+            pass
+        except (OSError, ValueError) as err:
+            logger.warning(f"影视库完整性检查：AI 结果缓存无法读取，已重建：{err}")
+
+    def get(self, key: str) -> Optional[CachedAnswer]:
+        """取出缓存的回答，并标记为本轮用到。"""
+        entry = self._entries.get(key)
+        if entry is not None:
+            self._used.add(key)
+        return entry
+
+    def put(self, key: str, answer: BaseModel, passed: bool, reason: str, asked: date) -> None:
+        """记录一条新的回答与验证结论。"""
+        self._entries[key] = CachedAnswer(answer.model_dump(), passed, reason, asked.isoformat())
+        self._used.add(key)
+
+    def drop(self, key: str) -> None:
+        """丢弃一条回答，下次扫描重新请求。"""
+        self._entries.pop(key, None)
+        self._used.discard(key)
+
+    def save(self) -> None:
+        """只保存本轮用到的条目；先写临时文件再替换。"""
+        data = {
+            key: {"answer": e.answer, "passed": e.passed, "reason": e.reason, "asked": e.asked}
+            for key, e in self._entries.items() if key in self._used
+        }
+        try:
+            tmp = self.path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            tmp.replace(self.path)
+        except OSError as err:
+            logger.warning(f"影视库完整性检查：AI 结果缓存保存失败：{err}")
 
 
 def _data(text: str) -> str:

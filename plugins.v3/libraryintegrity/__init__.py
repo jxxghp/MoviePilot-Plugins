@@ -6,7 +6,6 @@ import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from apscheduler.triggers.cron import CronTrigger
 from pydantic import BaseModel, Field
 
 from app.schemas import Response
@@ -15,15 +14,16 @@ from app.sdk import scheduler as scheduler_sdk
 from app.sdk.logging import logger
 from app.sdk.plugin import _PluginBase
 
-from .ai import AiAdvisor, ai_available
+from .ai import AiAdvisor, AiAnswerCache, ai_available
 from .checks import (
+    annotate_subscriptions,
     apply_ignore_rules,
     parse_identity_overrides,
     parse_ignore_rules,
     parse_number_mappings,
     parse_scope,
 )
-from .config import DEFAULT_CONFIG, local_dirs, normalize_config, to_scan_options
+from .config import DEFAULT_CONFIG, build_cron_trigger, local_dirs, normalize_config, to_scan_options
 from .emby import EmbyReader, EmbySource
 from .local import LocalSource
 from .models import ISSUE_TYPE_LABELS, Issue, IssueType, Report
@@ -38,6 +38,11 @@ SCAN_JOB_ID = "scan"
 # 报告保存在插件数据目录中的文件名；旧版本保存在插件数据（数据库）中的键名
 REPORT_FILE = "report.json"
 LEGACY_REPORT_KEY = "report"
+# AI 回答缓存文件名
+AI_CACHE_FILE = "ai_cache.json"
+# 读取订阅时的分页大小与页数上限
+SUBSCRIPTION_PAGE_SIZE = 200
+MAX_SUBSCRIPTION_PAGES = 50
 
 
 class ScanTriggerData(BaseModel):
@@ -90,7 +95,7 @@ class LibraryIntegrity(_PluginBase):
     plugin_name = "影视库完整性检查"
     plugin_desc = "检查剧集缺集、同季版本不一致与多文件，支持 Emby 与本地目录（含 strm、NFO、媒体信息），可选 AI 建议，只生成报告不改动文件。"
     plugin_icon = "Emby_A.png"
-    plugin_version = "1.0.10"
+    plugin_version = "1.0.12"
     plugin_label = "媒体库,Emby,检查,AI"
     plugin_author = "Derrors"
     author_url = "https://github.com/Derrors"
@@ -177,7 +182,7 @@ class LibraryIntegrity(_PluginBase):
         if not self._enabled or not self._config.get("cron"):
             return []
         try:
-            trigger = CronTrigger.from_crontab(self._config["cron"])
+            trigger = build_cron_trigger(self._config["cron"])
         except ValueError as err:
             logger.error(f"影视库完整性检查：cron 表达式无效：{err}")
             return []
@@ -318,9 +323,11 @@ class LibraryIntegrity(_PluginBase):
             probe = self._build_probe()
             sources, errors = self._build_sources(stop_event, probe)
             tmdb = TmdbSource(self.get_data_path() / "tmdb_cache.json") if config["check_missing"] else None
+            advisor = self._build_advisor(errors)
+            ai_cache = AiAnswerCache(self.get_data_path() / AI_CACHE_FILE) if advisor is not None else None
             scanner = LibraryScanner(
                 to_scan_options(config), tmdb, stop_event,
-                progress=self._set_progress, advisor=self._build_advisor(errors),
+                progress=self._set_progress, advisor=advisor, ai_cache=ai_cache,
             )
             logger.info("影视库完整性检查：开始扫描")
             report = scanner.scan(sources)
@@ -332,6 +339,13 @@ class LibraryIntegrity(_PluginBase):
             if report.cancelled:
                 logger.info("影视库完整性检查：扫描被停止，保留上一次报告")
                 return
+            # 报告每次扫描都会被覆盖，错误同时写入日志以便事后排查
+            for error in report.errors:
+                logger.warning(f"影视库完整性检查：{error}")
+            if ai_cache is not None:
+                ai_cache.save()
+            if any(issue.type == IssueType.MISSING for issue in report.issues):
+                annotate_subscriptions(report.issues, self._load_subscriptions())
             self._save_report(report)
             visible, ignored = self._visible_issues(report)
             logger.info(
@@ -422,6 +436,23 @@ class LibraryIntegrity(_PluginBase):
             return None
         return AiAdvisor()
 
+    @staticmethod
+    def _load_subscriptions() -> List[Any]:
+        """读取 MoviePilot 的全部订阅快照（只读），用于在缺集问题上标注订阅状态；读取失败时不标注。"""
+        try:
+            from app.sdk import queries
+
+            items: List[Any] = []
+            for page in range(1, MAX_SUBSCRIPTION_PAGES + 1):
+                result = queries.list_subscriptions(page={"page": page, "count": SUBSCRIPTION_PAGE_SIZE})
+                items.extend(result.items)
+                if not result.has_next:
+                    break
+            return items
+        except Exception as err:  # noqa: BLE001 - 宿主不提供订阅查询或查询失败时只是不标注
+            logger.warning(f"影视库完整性检查：读取订阅失败，缺集不标注订阅状态：{err}")
+            return []
+
     def _emby_server_names(self) -> List[str]:
         """返回已配置的 Emby 服务器名称，供配置页选择。"""
         try:
@@ -499,7 +530,10 @@ class LibraryIntegrity(_PluginBase):
             + (f"，以下列出前 {limit} 条" if len(visible) > limit else "")
         ]
         for issue in visible[:limit]:
-            lines.append(f"- [{ISSUE_TYPE_LABELS[issue.type]}] {issue.title}（{issue.server}/{issue.library}）：{issue.summary}")
+            subscription = f"（MP {issue.subscription}）" if issue.subscription else ""
+            lines.append(
+                f"- [{ISSUE_TYPE_LABELS[issue.type]}] {issue.title}（{issue.server}/{issue.library}）：{issue.summary}{subscription}"
+            )
             lines.extend(f"    {detail}" for detail in issue.details[:5])
         if report.ai_summary and not issue_type and not keyword:
             lines.append(f"AI 摘要：{report.ai_summary}")

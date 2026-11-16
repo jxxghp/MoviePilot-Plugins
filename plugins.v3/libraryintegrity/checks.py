@@ -169,6 +169,7 @@ def format_episode_ranges(numbers: Iterable[int], prefix: str = "E", width: int 
         return ""
 
     def label(value: int) -> str:
+        """按指定前缀和位数格式化季集序号。"""
         return f"{prefix}{value:0{width}d}"
 
     parts: list[str] = []
@@ -306,6 +307,41 @@ def apply_ignore_rules(issues: list[Issue], rules: list[IgnoreRule]) -> tuple[li
                 })
         visible.append(issue)
     return visible, ignored
+
+
+# MoviePilot 订阅状态的展示名称
+SUBSCRIPTION_STATES = {"R": "订阅中", "P": "待定", "S": "已暂停", "N": "未开始"}
+
+
+def _plain(value: object) -> str:
+    """取枚举的值或对象的字符串形式。"""
+    return str(getattr(value, "value", value) or "").strip()
+
+
+def annotate_subscriptions(issues: list[Issue], subscriptions: Iterable[object]) -> int:
+    """为缺集问题标注所在季在 MoviePilot 中的订阅状态，返回标注的问题数。
+
+    只读取订阅快照的 media_source、media_id、season、state、lack_episode；
+    订阅未记录季号时视为订阅了该剧的全部季。
+    """
+    index: dict[tuple[str, str, Optional[int]], object] = {}
+    for subscription in subscriptions:
+        source, media_id = _plain(getattr(subscription, "media_source", None)), _plain(getattr(subscription, "media_id", None))
+        if source and media_id:
+            index.setdefault((source, media_id, getattr(subscription, "season", None)), subscription)
+    annotated = 0
+    for issue in issues:
+        if issue.type != IssueType.MISSING or not issue.media_source or not issue.media_id:
+            continue
+        key = (issue.media_source, str(issue.media_id))
+        subscription = index.get((*key, issue.season)) or index.get((*key, None))
+        if subscription is None:
+            continue
+        state = SUBSCRIPTION_STATES.get(_plain(getattr(subscription, "state", None)), "已订阅")
+        lack = getattr(subscription, "lack_episode", None)
+        issue.subscription = f"{state}，缺 {lack} 集" if lack else state
+        annotated += 1
+    return annotated
 
 
 # ---------------------------------------------------------------------------
