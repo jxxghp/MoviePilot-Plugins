@@ -1,6 +1,7 @@
 import datetime
 import random
 import re
+import time
 from typing import Tuple
 from urllib.parse import urljoin, urlparse
 
@@ -25,14 +26,14 @@ class U2(_ISiteSigninHandler):
     # 顶部导航可能沿用昨日状态，只接受站点明确的当天完成提示。
     _sign_regex = [r'(?:感谢|感謝)[，,]\s*(?:今天|今日)已[签簽]到[。.!]']
 
-    # 签到成功时，U2 可能返回相对路径或绝对 URL 的跳转脚本。
+    # 相对或绝对 URL 的跳转脚本仅用于诊断，不能作为回读条件或成功凭据。
     _success_redirect_regex = re.compile(
         r"window\s*\.\s*location\s*\.\s*href\s*=\s*['\"]([^'\"]+)['\"]"
     )
 
     @classmethod
     def _is_success_response(cls, response_text: str) -> bool:
-        """识别需要回读的签到页跳转；跳转本身不作为签到成功凭据。"""
+        """识别提交后的签到页跳转供日志诊断，不影响后续回读确认。"""
         match = cls._success_redirect_regex.search(response_text)
         if not match:
             return False
@@ -153,8 +154,13 @@ class U2(_ISiteSigninHandler):
             logger.error(f"{site} 签到失败，签到接口请求失败")
             return False, '签到失败，签到接口请求失败'
 
-        # 相对或绝对跳转只表示提交结束，回读站点确认签到状态已经改变。
-        if self._is_success_response(sign_res.text):
+        # 答错提示页等响应可能没有跳转脚本；提交后始终回读，最多额外重试两次 GET。
+        if not self._is_success_response(sign_res.text):
+            logger.info(f"{site} 签到提交未匹配到签到页跳转脚本，仍将回读确认")
+        for attempt in range(3):
+            if attempt:
+                logger.info(f"{site} 签到结果暂未确认，1秒后回读重试（{attempt}/2）")
+                time.sleep(1)
             checked_page = self.get_page_source(url="https://u2.dmhy.org/showup.php",
                                                 cookie=site_cookie, ua=ua, proxy=proxy,
                                                 render=render, timeout=timeout)
