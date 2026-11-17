@@ -40,7 +40,7 @@ class AutoSignIn(_PluginBase):
     # 插件图标
     plugin_icon = "signin.png"
     # 插件版本
-    plugin_version = "3.0.13"
+    plugin_version = "3.0.14"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
