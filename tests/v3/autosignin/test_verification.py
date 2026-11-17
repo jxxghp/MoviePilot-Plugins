@@ -464,11 +464,12 @@ def test_state_string_must_equal_success(monkeypatch, handler, module, state, su
     )
     monkeypatch.setattr(f"app.plugins.autosignin.sites.{module}.RequestUtils", Mock(return_value=request))
     if handler is Opencd:
-        form = '<form id="frmSignin"><img src="code.png"><input name="imagehash" value="test"></form>'
+        form = ('<form id="frmSignin"><img src="code.png"><input name="imagehash" value="test">'
+                '<input name="csrf_token" value="test-csrf"></form>')
+        request.get_res.return_value = response(form)
         # 签到日志链接可能始终存在，不能仅凭该链接跳过真正签到请求。
-        monkeypatch.setattr(handler, "get_page_source", Mock(side_effect=[
-            _LOGIN + '<a href="/plugin_sign-in.php?cmd=show-log">签到日志</a>', form,
-        ]))
+        monkeypatch.setattr(handler, "get_page_source", Mock(return_value=
+            _LOGIN + '<a href="/plugin_sign-in.php?cmd=show-log">签到日志</a>'))
         monkeypatch.setattr("app.plugins.autosignin.sites.opencd.OcrHelper", Mock(return_value=SimpleNamespace(
             get_captcha_text=Mock(return_value="ABCDEF"))))
     assert handler().signin(site_info(cookie="hdchina=test"))[0] is success
