@@ -432,11 +432,12 @@
     "name": "IYUU自动辅种",
     "description": "基于IYUU官方Api实现自动辅种。",
     "labels": "做种,IYUU",
-    "version": "2.22",
+    "version": "2.23",
     "icon": "IYUU.png",
     "author": "jxxghp,CKun",
     "level": 2,
     "history": {
+      "v2.23": "支持猪猪实验室API辅种，改为用存取令牌换取签名下载链接",
       "v2.22": "优化过滤iyuu 种子是否已在下载器种",
       "v2.21": "辅种前查询原种体积是否完整，避免拆包类种子辅种后自动开始",
       "v2.20": "兼容 qBittorrent 5.3+：WebAPI 已移除 skip_checking 参数，跳过校验添加的种子不再被标记完成；校验轮询发现停止且未校验的辅种时自动补发一次校验，保障校验完成后自动开始做种",
