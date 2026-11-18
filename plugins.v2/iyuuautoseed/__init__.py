@@ -34,7 +34,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "2.22"
+    plugin_version = "2.23"
     # 插件作者
     plugin_author = "jxxghp,CKun"
     # 作者主页
@@ -1331,6 +1331,37 @@ class IYUUAutoSeed(_PluginBase):
             """
             return True if "greatposterwall." in url else False
         
+        def __is_piggo(url: str):
+            """
+            判断是否为猪猪站点
+            """
+            return True if "piggo." in url else False
+
+        def __get_piggo_enclosure(tid: str, apikey: str, token: str):
+            """
+            通过猪猪实验室接口换取种子签名下载链接
+            """
+            access_token = (apikey or "").strip() or (token or "").strip()
+            if not access_token:
+                logger.error("猪猪站点的存取令牌未配置")
+                return None
+            res = RequestUtils(
+                headers={
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'User-Agent': f'{site.get("ua") or settings.USER_AGENT}',
+                    'Authorization': f'Bearer {access_token}'
+                }
+            ).post_res(f"https://api.piggo.me/v1/api/torrents/{tid}/download-link", json={})
+            if not res:
+                logger.warn(f"猪猪获取种子下载链接失败：{tid}")
+                return None
+            try:
+                return (res.json().get("data") or {}).get("url")
+            except ValueError:
+                logger.warn(f"猪猪获取种子下载链接失败，响应解析失败：{tid}")
+                return None
+
         def __get_mteam_enclosure(tid: str, apikey: str):
             """
             获取mteam种子下载链接
@@ -1452,6 +1483,11 @@ class IYUUAutoSeed(_PluginBase):
             return False
 
         try:
+            if __is_piggo(site.get('url')):
+                # 调用猪猪实验室接口换取签名下载链接
+                return __get_piggo_enclosure(tid=seed.get("torrent_id"),
+                                             apikey=site.get("apikey"),
+                                             token=site.get("token"))
             if __is_mteam(site.get('url')):
                 # 调用mteam接口获取下载链接
                 return __get_mteam_enclosure(tid=seed.get("torrent_id"), apikey=site.get("apikey"))
