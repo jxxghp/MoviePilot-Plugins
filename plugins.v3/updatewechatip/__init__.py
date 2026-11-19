@@ -670,7 +670,7 @@ class UpdateWeChatIp(_PluginBase):
                             if all_ok or not any_ok
                             else f"{sum(1 for row in group if row.status)} 个成功，{sum(1 for row in group if not row.status)} 个失败"
                         )}]},
-                    {"component": "td", "props": {"class": "text-no-wrap text-caption px-2", "style": {"width": "170px"}},
+                    {"component": "td", "props": {"class": "text-no-wrap text-caption px-2"},
                      "text": group[-1].UpdateTime.strftime('%Y-%m-%d %H:%M:%S')},
                 ],
             }
@@ -733,7 +733,7 @@ class UpdateWeChatIp(_PluginBase):
                                  "content": [
                                      {"component": "VTable",
                                       "props": {"hover": True, "density": "compact",
-                                                "style": {"tableLayout": "auto", "width": "auto"}},
+                                                "style": {"tableLayout": "fixed", "width": "100%"}},
                                       "content": [
                                           {"component": "thead", "props": {"class": "text-no-wrap"},
                                            "content": [
@@ -744,8 +744,8 @@ class UpdateWeChatIp(_PluginBase):
                                                    ("状态", "80px"),
                                                    ("应用ID", "160px"),
                                                    ("更新IP", "150px"),
-                                                   ("结果", "auto"),
-                                                   ("更新时间", "170px"),
+                                                   ("结果", "140px"),
+                                                   ("更新时间", "auto"),
                                                )
                                            ]},
                                           {"component": "tbody", "content": update_log_trs}]}]},
