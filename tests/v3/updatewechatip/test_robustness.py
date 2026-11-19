@@ -291,6 +291,16 @@ def test_log_result_text_handles_empty_response():
     assert UpdateWeChatIp._log_result_text(False, "") == "无返回内容"
 
 
+def test_log_result_text_truncates_long_error_message():
+    """过长的接口错误信息要截断，避免撑开记录表格。"""
+    result = '{"errcode":1,"errmsg":"%s"}' % ("x" * 120)
+
+    text = UpdateWeChatIp._log_result_text(False, result)
+
+    assert text.endswith("…")
+    assert len(text) <= 81
+
+
 def test_save_ip_records_http_status_for_empty_error_response():
     """空响应的 HTTP 错误应记录状态码，而不是留下空结果。"""
     plugin = make_plugin(SimpleNamespace(

@@ -616,7 +616,7 @@ class UpdateWeChatIp(_PluginBase):
             re.search(r'"errmsg"\s*:\s*"([^"]*)"', text, re.I) or \
             re.search(r'"message"\s*:\s*"([^"]*)"', text, re.I)
         if matched:
-            return matched.group(1)
+            return UpdateWeChatIp._result_brief(matched.group(1), 80) or "无返回内容"
         return UpdateWeChatIp._result_brief(text, 60) or "无返回内容"
 
     def get_page(self) -> List[dict]:
