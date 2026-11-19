@@ -598,10 +598,10 @@ class UpdateWeChatIp(_PluginBase):
 
     @staticmethod
     def _log_result_text(status: bool, result: str) -> str:
-        """记录表的返回值列：成功显示响应原文，失败只显示 humanMessage/errMsg。"""
-        text = str(result or "")
+        """记录表的结果列：成功显示动作结果，失败优先显示接口错误信息。"""
         if status:
-            return text
+            return "已更新"
+        text = str(result or "")
         matched = re.search(r'"humanMessage"\s*:\s*"([^"]*)"', text, re.I) or \
             re.search(r'"errmsg"\s*:\s*"([^"]*)"', text, re.I)
         return matched.group(1) if matched else UpdateWeChatIp._result_brief(text, 60)
@@ -624,7 +624,10 @@ class UpdateWeChatIp(_PluginBase):
                 {"component": "td", "props": {"class": "text-no-wrap font-monospace"}, "text": data.ip},
                 {"component": "td", "content": [{
                     "component": "span",
-                    "props": {"style": {"whiteSpace": "nowrap", "fontFamily": "monospace"}},
+                    "props": {
+                        "style": {"whiteSpace": "nowrap"},
+                        "title": self._result_brief(data.result, 500),
+                    },
                     "text": self._log_result_text(data.status, data.result)}]},
                 {"component": "td", "props": {"class": "text-no-wrap text-caption"},
                  "text": data.UpdateTime.strftime('%Y-%m-%d %H:%M:%S')},
@@ -685,7 +688,7 @@ class UpdateWeChatIp(_PluginBase):
                                                         "props": {"class": "text-start ps-4"},
                                                         "text": name}
                                                        for name in ("状态", "appId", "更新IP",
-                                                                    "返回值", "更新时间")]},
+                                                                    "结果", "更新时间")]},
                                           {"component": "tbody", "content": update_log_trs}]}]},
                             ]},
                         ],

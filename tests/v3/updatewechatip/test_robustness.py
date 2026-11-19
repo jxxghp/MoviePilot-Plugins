@@ -245,3 +245,17 @@ def test_form_exposes_optional_ip_urls_field():
 
     assert defaults["_ip_urls"] == ""
     assert "_ip_urls" in json.dumps(form, ensure_ascii=False)
+
+
+def test_log_result_text_hides_success_payload():
+    """成功记录不再把原始 JSON 当作结果展示。"""
+    assert UpdateWeChatIp._log_result_text(
+        True, '{"data":{"reject_subadmin_ids":[]}}'
+    ) == "已更新"
+
+
+def test_log_result_text_shows_failure_message():
+    """失败记录优先展示接口返回的错误信息。"""
+    assert UpdateWeChatIp._log_result_text(
+        False, '{"errCode":-4,"errmsg":"invalid ip"}'
+    ) == "invalid ip"
