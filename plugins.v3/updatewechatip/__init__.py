@@ -653,32 +653,32 @@ class UpdateWeChatIp(_PluginBase):
                         "props": {"class": "d-flex flex-column"},
                         "content": [
                             {"component": "span",
-                             "text": app_id + ("," if index < len(row_app_ids) - 1 else "")}
-                            for index, app_id in enumerate(row_app_ids)
+                             "text": row.app_id + ("," if index < len(group) - 1 else "")}
+                            for index, row in enumerate(group)
                         ],
                     }]},
                     {"component": "td", "props": {"class": "text-no-wrap font-monospace px-2", "style": {"width": "150px"}},
                      "text": group[-1].ip},
                     {"component": "td", "props": {"class": "px-2"}, "content": [{
-                        "component": "span",
-                        "props": {
-                            "style": {"whiteSpace": "nowrap"},
-                            "title": self._result_brief(group[-1].result, 500),
-                        },
-                        "text": (
-                            self._log_result_text(all_ok, group[-1].result)
-                            if all_ok or not any_ok
-                            else f"{sum(1 for row in group if row.status)} 个成功，{sum(1 for row in group if not row.status)} 个失败"
-                        )}]},
+                        "component": "div",
+                        "props": {"class": "d-flex flex-column"},
+                        "content": [{
+                            "component": "span",
+                            "props": {
+                                "style": {"whiteSpace": "nowrap"},
+                                "title": self._result_brief(row.result, 500),
+                            },
+                            "text": self._log_result_text(row.status, row.result),
+                        } for row in group],
+                    }]},
                     {"component": "td", "props": {"class": "text-no-wrap text-caption px-2"},
                      "text": group[-1].UpdateTime.strftime('%Y-%m-%d %H:%M:%S')},
                 ],
             }
             for _, group in groups
-            for all_ok, any_ok, row_app_ids in [(
+            for all_ok, any_ok in [(
                 all(row.status for row in group),
                 any(row.status for row in group),
-                list(dict.fromkeys(row.app_id for row in group)),
             )]
         ] or [{"component": "tr", "content": [
             {"component": "td", "props": {"colspan": 5, "class": "text-center text-medium-emphasis py-6"},
@@ -702,7 +702,10 @@ class UpdateWeChatIp(_PluginBase):
                         "component": "VCol",
                         "props": {"cols": 12, "class": "pa-0"},
                         "content": [
-                            {"component": "VCard", "props": {"variant": "tonal", "class": "mb-4"}, "content": [
+                            {"component": "VCard",
+                             "props": {"variant": "tonal", "class": "mb-4",
+                                       "style": {"width": "fit-content", "maxWidth": "100%"}},
+                             "content": [
                                 {"component": "VCardText",
                                  "props": {"class": "d-flex flex-wrap align-center ga-2 px-3 py-2"},
                                  "content": [
@@ -718,7 +721,10 @@ class UpdateWeChatIp(_PluginBase):
                                      {"component": "span", "props": {"class": "text-caption text-medium-emphasis"},
                                       "text": f"最近更新：{last_update}"},
                                  ]}]},
-                            {"component": "VCard", "props": {"variant": "outlined"}, "content": [
+                            {"component": "VCard",
+                             "props": {"variant": "outlined",
+                                       "style": {"width": "fit-content", "maxWidth": "100%"}},
+                             "content": [
                                 {"component": "VCardTitle",
                                  "props": {"class": "d-flex align-center justify-space-between flex-wrap ga-2 text-body-1"},
                                  "content": [
@@ -733,7 +739,7 @@ class UpdateWeChatIp(_PluginBase):
                                  "content": [
                                      {"component": "VTable",
                                       "props": {"hover": True, "density": "compact",
-                                                "style": {"tableLayout": "fixed", "width": "100%"}},
+                                                "style": {"tableLayout": "auto", "width": "100%"}},
                                       "content": [
                                           {"component": "thead", "props": {"class": "text-no-wrap"},
                                            "content": [
@@ -744,7 +750,7 @@ class UpdateWeChatIp(_PluginBase):
                                                    ("状态", "80px"),
                                                    ("应用ID", "160px"),
                                                    ("更新IP", "150px"),
-                                                   ("结果", "140px"),
+                                                   ("结果", "220px"),
                                                    ("更新时间", "auto"),
                                                )
                                            ]},
