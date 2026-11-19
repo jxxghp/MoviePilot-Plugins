@@ -290,8 +290,8 @@ def test_form_shows_persistent_hints_for_cron_and_app_id():
     assert app_id["persistent-hint"] is True
 
 
-def test_page_shows_app_id_in_status_bar():
-    """详情页状态栏应按行显示多个应用ID，表头使用中文。"""
+def test_page_only_shows_app_id_in_records_table():
+    """状态栏不再展示应用ID，仅记录表头使用中文应用ID。"""
     plugin = UpdateWeChatIp.__new__(UpdateWeChatIp)
     plugin._app_id = "app1, app2"
     plugin._is_login = True
@@ -314,9 +314,8 @@ def test_page_shows_app_id_in_status_bar():
                 collect(item)
 
     collect(page)
-    assert "应用ID：app1" in texts
-    assert "应用ID：app2" in texts
-    assert "应用ID：app1,app2" not in texts
+    assert all("应用ID：" not in text for text in texts)
+    assert "应用ID" in texts
     assert "appId" not in texts
 
 

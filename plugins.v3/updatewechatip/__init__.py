@@ -680,15 +680,7 @@ class UpdateWeChatIp(_PluginBase):
                                       "text": "已登录" if self._is_login else "登录失效"},
                                      {"component": "span", "props": {"class": "text-body-2"},
                                       "text": f"应用：{party_name}"},
-                                     {"component": "div",
-                                      "props": {"class": "d-flex flex-column text-caption text-medium-emphasis"},
-                                      "content": [
-                                          {"component": "span", "text": f"应用ID：{app_id}"}
-                                          for app_id in (
-                                              [i.strip() for i in (self._app_id or "").split(",") if i.strip()]
-                                              or ["未配置"]
-                                          )
-                                      ]},
+
                                      {"component": "span", "props": {"class": "text-caption text-medium-emphasis"},
                                       "text": f"当前 IP：{self._ip or '未获取'}"},
                                      {"component": "span", "props": {"class": "text-caption text-medium-emphasis"},
