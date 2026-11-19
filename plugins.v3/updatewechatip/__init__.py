@@ -25,7 +25,9 @@ from app.sdk.plugin import _PluginBase
 
 
 class UpdateWeChatIp(_PluginBase):
-    """动态维护企业微信应用可信IP，并在需要时扫码刷新登录 Cookie。"""
+    """
+    动态维护企业微信应用可信IP，并在需要时扫码刷新登录 Cookie。
+    """
 
     # 插件在界面中的展示名称
     plugin_name = "动态企微可信IP"
@@ -34,7 +36,7 @@ class UpdateWeChatIp(_PluginBase):
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本，必须和 package.v3.json 中保持一致
-    plugin_version = "2.0.0"
+    plugin_version = "2.0.1"
     # 作者信息
     plugin_author = "书小白,iamchq"
     author_url = "https://github.com/thshu/MoviePilot-Plugins"
@@ -265,12 +267,11 @@ class UpdateWeChatIp(_PluginBase):
             self.post_message(**self._qrcode_message(channel, user, image_url))
 
     def _qrcode_message(self, channel, user, image_url: str) -> Dict[str, Any]:
-        """构造登录二维码通知参数；企微自建应用改用原生图片，避免封面裁切。"""
-        wechat_app = self._as_channel(channel) == NotificationChannel.Wechat
-        lines = ["请选择要执行的操作："]
-        if wechat_app:
-            lines.append("二维码以原图发送，可长按识别或保存后用企业微信扫码。")
-        lines.append("如果按钮不可用，可回复：\n```\n/update_wechat_ip 扫码完成\n```")
+        """
+        通过统一原图参数发送二维码，渠道上传与降级交给宿主处理。
+        """
+        lines = ["请选择要执行的操作：", "请识别或扫描二维码完成登录。",
+                 "如果按钮不可用，可回复：\n```\n/update_wechat_ip 扫码完成\n```"]
         return {
             "channel": channel,
             "title": "登录二维码",
@@ -281,7 +282,7 @@ class UpdateWeChatIp(_PluginBase):
                 "callback_data": f"[PLUGIN]{self.__class__.__name__}|扫码完成|{self._qrcode_key}",
             }]],
             "image": image_url,
-            "native_image": wechat_app,
+            "native_image": True,
         }
 
     @eventmanager.register(EventType.MessageAction)
