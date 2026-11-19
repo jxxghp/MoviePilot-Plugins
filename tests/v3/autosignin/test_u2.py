@@ -304,3 +304,33 @@ def test_today_signed_page_does_not_submit_again():
 
     assert result == (True, "今日已签到")
     request_utils.assert_not_called()
+
+
+def test_notice_failure_wording_does_not_override_today_credential():
+    """发言区引用含“签到失败”的站点公告时，当天完成提示仍确认已签到。"""
+    assert U2._has_signed_state(_signed_page().replace(
+        '</body>',
+        '<div class="text">請在驗證問題有效期內回答，如問題已經過期或出現其他錯誤，'
+        '則視為簽到失敗而非回答錯誤。</div></body>',
+    ))
+
+
+def test_signin_confirms_when_notice_text_accompanies_today_credential(confirmation_sleep):
+    """提交后回读到完成提示与公告引用同时出现时确认成功，不再判未确认。"""
+    polluted_page = _signed_page().replace(
+        '</body>',
+        '<div class="text">如問題已經過期或出現其他錯誤，則視為簽到失敗而非回答錯誤。</div></body>',
+    )
+    with (
+        patch.object(U2, "get_page_source", side_effect=[_logged_in_page(), polluted_page]) as get_page,
+        patch("app.plugins.autosignin.sites.u2.RequestUtils") as request_utils,
+        patch("app.plugins.autosignin.sites.u2.random.randint", return_value=0),
+        patch("app.plugins.autosignin.sites.u2.datetime.datetime") as datetime,
+    ):
+        datetime.now.return_value.hour = 12
+        request_utils.return_value.post_res.return_value = SimpleNamespace(status_code=200, text="")
+        result = U2().signin(_site_info())
+
+    assert result == (True, "签到成功")
+    assert get_page.call_count == 2
+    confirmation_sleep.assert_not_called()

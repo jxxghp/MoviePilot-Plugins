@@ -221,3 +221,15 @@ def test_error_summary_is_bounded_and_excludes_form_fields(signin_context):
     assert message == '签到失败，签到接口返回 HTTP 403：' + ('Forbidden ' + 'x' * 300)[:200]
     assert 'secret' not in message
     assert '<' not in message
+
+
+@pytest.mark.parametrize("payload", [{"state": False}, {"state": "false"}])
+def test_state_false_without_message_is_today_already_signed(signin_context, payload):
+    """当日已签到时接口只回不带 msg 的 state=false，应按今日已签到确认，并标注为依据推断。"""
+    context = signin_context
+    context.request.post_res.return_value = _response(payload=payload)
+
+    assert opencd.Opencd().signin(context.site) == (True, "今日已签到（接口未返回原因）")
+
+    context.request.post_res.assert_called_once()
+    context.logger.error.assert_not_called()

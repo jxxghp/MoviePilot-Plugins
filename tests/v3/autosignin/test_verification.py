@@ -455,24 +455,40 @@ def test_business_errors_are_not_duplicate_signins(monkeypatch, handler, module,
 
 
 @pytest.mark.parametrize("state, success", [("success", True), ("error", False), ("false", False), (False, False), (True, False)])
-@pytest.mark.parametrize("handler, module", [(HDChina, "hdchina"), (Opencd, "opencd")])
-def test_state_string_must_equal_success(monkeypatch, handler, module, state, success):
+def test_state_string_must_equal_success(monkeypatch, state, success):
     """非空 error/false 字符串和非约定布尔值都不能作为 state=success 使用。"""
     request = SimpleNamespace(
         get_res=Mock(return_value=response(_LOGIN + '<meta name="x-csrf" content="test">')),
         post_res=Mock(return_value=response(payload={"state": state})),
     )
-    monkeypatch.setattr(f"app.plugins.autosignin.sites.{module}.RequestUtils", Mock(return_value=request))
-    if handler is Opencd:
-        form = ('<form id="frmSignin"><img src="code.png"><input name="imagehash" value="test">'
-                '<input name="csrf_token" value="test-csrf"></form>')
-        request.get_res.return_value = response(form)
-        # 签到日志链接可能始终存在，不能仅凭该链接跳过真正签到请求。
-        monkeypatch.setattr(handler, "get_page_source", Mock(return_value=
-            _LOGIN + '<a href="/plugin_sign-in.php?cmd=show-log">签到日志</a>'))
-        monkeypatch.setattr("app.plugins.autosignin.sites.opencd.OcrHelper", Mock(return_value=SimpleNamespace(
-            get_captcha_text=Mock(return_value="ABCDEF"))))
-    assert handler().signin(site_info(cookie="hdchina=test"))[0] is success
+    monkeypatch.setattr("app.plugins.autosignin.sites.hdchina.RequestUtils", Mock(return_value=request))
+    assert HDChina().signin(site_info(cookie="hdchina=test"))[0] is success
+    request.post_res.assert_called_once()
+
+
+@pytest.mark.parametrize("payload, expected", [
+    ({"state": "success"}, (True, "签到成功")),
+    ({"state": False}, (True, "今日已签到（接口未返回原因）")),
+    ({"state": "false"}, (True, "今日已签到（接口未返回原因）")),
+    ({"state": "false", "msg": "验证码错误"}, (False, "签到失败，签到接口返回 HTTP 200：验证码错误")),
+    ({"state": "error"}, (False, "签到失败，签到接口返回 HTTP 200：未返回成功状态")),
+    ({"state": True}, (False, "签到失败，签到接口返回 HTTP 200：未返回成功状态")),
+])
+def test_opencd_state_false_without_reason_is_duplicate_signin(monkeypatch, payload, expected):
+    """实测：验证码错误带 msg，当日已签到只回不带原因的 state=false；其余状态仍不算成功。"""
+    form = ('<form id="frmSignin"><img src="code.png"><input name="imagehash" value="test">'
+            '<input name="csrf_token" value="test-csrf"></form>')
+    request = SimpleNamespace(
+        get_res=Mock(return_value=response(form)),
+        post_res=Mock(return_value=response(payload=payload)),
+    )
+    monkeypatch.setattr("app.plugins.autosignin.sites.opencd.RequestUtils", Mock(return_value=request))
+    # 签到日志链接可能始终存在，不能仅凭该链接跳过真正签到请求。
+    monkeypatch.setattr(Opencd, "get_page_source", Mock(return_value=
+        _LOGIN + '<a href="/plugin_sign-in.php?cmd=show-log">签到日志</a>'))
+    monkeypatch.setattr("app.plugins.autosignin.sites.opencd.OcrHelper", Mock(return_value=SimpleNamespace(
+        get_captcha_text=Mock(return_value="ABCDEF"))))
+    assert Opencd().signin(site_info(cookie="opencd=test")) == expected
     request.post_res.assert_called_once()
 
 
