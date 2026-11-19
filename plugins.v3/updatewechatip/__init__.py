@@ -680,8 +680,15 @@ class UpdateWeChatIp(_PluginBase):
                                       "text": "已登录" if self._is_login else "登录失效"},
                                      {"component": "span", "props": {"class": "text-body-2"},
                                       "text": f"应用：{party_name}"},
-                                     {"component": "span", "props": {"class": "text-caption text-medium-emphasis"},
-                                      "text": f"应用ID：{self._app_id or '未配置'}"},
+                                     {"component": "div",
+                                      "props": {"class": "d-flex flex-column text-caption text-medium-emphasis"},
+                                      "content": [
+                                          {"component": "span", "text": f"应用ID：{app_id}"}
+                                          for app_id in (
+                                              [i.strip() for i in (self._app_id or "").split(",") if i.strip()]
+                                              or ["未配置"]
+                                          )
+                                      ]},
                                      {"component": "span", "props": {"class": "text-caption text-medium-emphasis"},
                                       "text": f"当前 IP：{self._ip or '未获取'}"},
                                      {"component": "span", "props": {"class": "text-caption text-medium-emphasis"},
@@ -705,7 +712,7 @@ class UpdateWeChatIp(_PluginBase):
                                            "content": [{"component": "th",
                                                         "props": {"class": "text-start ps-4"},
                                                         "text": name}
-                                                       for name in ("状态", "appId", "更新IP",
+                                                       for name in ("状态", "应用ID", "更新IP",
                                                                     "结果", "更新时间")]},
                                           {"component": "tbody", "content": update_log_trs}]}]},
                             ]},

@@ -291,9 +291,9 @@ def test_form_shows_persistent_hints_for_cron_and_app_id():
 
 
 def test_page_shows_app_id_in_status_bar():
-    """详情页状态栏应显示当前配置的应用ID。"""
+    """详情页状态栏应按行显示多个应用ID，表头使用中文。"""
     plugin = UpdateWeChatIp.__new__(UpdateWeChatIp)
-    plugin._app_id = "app1,app2"
+    plugin._app_id = "app1, app2"
     plugin._is_login = True
     plugin._ip = "1.2.3.4"
     plugin._party_cache_data = {"party_list": {"list": [{"name": "小螺号"}]}}
@@ -314,7 +314,10 @@ def test_page_shows_app_id_in_status_bar():
                 collect(item)
 
     collect(page)
-    assert "应用ID：app1,app2" in texts
+    assert "应用ID：app1" in texts
+    assert "应用ID：app2" in texts
+    assert "应用ID：app1,app2" not in texts
+    assert "appId" not in texts
 
 
 def test_log_result_text_hides_success_payload():
