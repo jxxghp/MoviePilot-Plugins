@@ -158,10 +158,6 @@ class UpdateWeChatIp(_PluginBase):
             finally:
                 self._se = None
 
-    def _save_current_config(self):
-        """保存当前登录态到插件配置。"""
-        self._login_success()
-
     def get_state(self) -> bool:
         """返回插件当前是否启用。"""
         return self._enabled
@@ -213,8 +209,24 @@ class UpdateWeChatIp(_PluginBase):
         if arg_str is not None and str(arg_str).strip():
             arg_text = str(arg_str).strip()
             if arg_text == '扫码完成':
+                if not self._qrcode_key:
+                    self.post_message(
+                        channel=channel,
+                        title="未获取二维码",
+                        userid=user,
+                        text="请先执行 /update_wechat_ip 获取登录二维码。",
+                    )
+                    return
                 self._login(channel, user, source=source)
             elif len(self._digits_of(arg_text)) == self._captcha_length:
+                if not self._qrcode_key:
+                    self.post_message(
+                        channel=channel,
+                        title="未获取二维码",
+                        userid=user,
+                        text="请先执行 /update_wechat_ip 获取登录二维码。",
+                    )
+                    return
                 # 命令一次性提交完整验证码：先归一化再校验长度
                 self._captcha[self._qrcode_key] = self._digits_of(arg_text)
                 self._submit_captcha(channel, user, self._qrcode_key, source=source)
@@ -232,7 +244,23 @@ class UpdateWeChatIp(_PluginBase):
             self._captcha = {}
 
             self._qrcode_key = self._get_key()
+            if not self._qrcode_key:
+                self.post_message(
+                    channel=channel,
+                    title="获取二维码失败",
+                    userid=user,
+                    text="企业微信登录二维码获取失败，请稍后重试。",
+                )
+                return
             image_url = self._qrcode(self._qrcode_key, channel=channel)
+            if not image_url:
+                self.post_message(
+                    channel=channel,
+                    title="获取二维码失败",
+                    userid=user,
+                    text="企业微信登录二维码图片获取失败，请稍后重试。",
+                )
+                return
             self.post_message(**self._qrcode_message(channel, user, image_url))
 
     def _qrcode_message(self, channel, user, image_url: str) -> Dict[str, Any]:
@@ -659,22 +687,40 @@ class UpdateWeChatIp(_PluginBase):
             'redirect_uri': "https://work.weixin.qq.com/wework_admin/loginpage_wx?_r=234&redirect_uri=https%3A%2F%2Fwork.weixin.qq.com%2Fwework_admin%2Fframe&url_hash=%23%2Fapps#/apps",
             'crossorigin': "1"
         }
-        response = self._se.get(url, params=params, headers=self._headers)
-        logger.info(f"获取登录二维码key成功，返回值:{response.text}")
+        try:
+            response = self._se.get(url, params=params, headers=self._headers, timeout=15)
+            data = response.json()
+        except Exception as e:
+            logger.error(f"获取登录二维码key失败: {e}")
+            return None
+        key = (data.get('data') or {}).get('qrcode_key')
+        if not key:
+            logger.error(f"获取登录二维码key失败，返回值:{self._result_brief(response.text, 120)}")
+        return key
 
-        return response.json().get('data', {}).get('qrcode_key')
-
-    def _qrcode(self, key, channel=None) -> str:
+    def _qrcode(self, key, channel=None) -> Optional[str]:
         """拉取登录二维码并按渠道返回可访问的图片地址。"""
+        if not key:
+            return None
         logger.info("开始获取登录二维码图片")
         url = "https://work.weixin.qq.com/wework_admin/wwqrlogin/mng/qrcode"
         params = {
             'qrcode_key': key,
             'login_type': "login_admin"
         }
-        response = self._se.get(url, params=params, headers=self._headers)
-        logger.info("登录二维码图片获取成功")
+        try:
+            response = self._se.get(url, params=params, headers=self._headers, timeout=15)
+        except Exception as e:
+            logger.error(f"获取登录二维码图片失败: {e}")
+            return None
         content = response.content
+        if response.status_code != 200 or not content:
+            logger.error(f"获取登录二维码图片失败，HTTP状态码：{response.status_code}")
+            return None
+        if not (content.startswith(b"\x89PNG\r\n\x1a\n") or content.startswith(b"\xff\xd8\xff")):
+            logger.error(f"登录二维码返回内容不是 PNG/JPEG：{self._result_brief(response.text, 80)}")
+            return None
+        logger.info("登录二维码图片获取成功")
         with self._qr_image_lock:
             self._qr_image = (content, self._image_media_type(content))
         # 图片地址会进通知和日志，只放本次登录的短期令牌
@@ -767,7 +813,7 @@ class UpdateWeChatIp(_PluginBase):
             res = self._se.post(url, params=params, headers=self._headers, timeout=10)
             if res.status_code == 200:
                 data = res.json()
-                if 'errCode' not in res.text:
+                if self._response_ok(res):
                     self._party_cache_data = data.get('data')
                     self._is_login = True
                     return True
@@ -895,12 +941,31 @@ class UpdateWeChatIp(_PluginBase):
         if self._fail_state():
             self.save_data(self._fail_state_key, {})
 
+    @staticmethod
+    def _response_ok(res) -> bool:
+        """判断管理后台接口是否成功；非 200、非 JSON 或错误码非 0 都算失败。"""
+        if res.status_code >= 400:
+            return False
+        try:
+            payload = res.json()
+        except Exception:
+            return False
+        if not isinstance(payload, dict):
+            return False
+        for key in ("errCode", "errcode"):
+            if key in payload:
+                try:
+                    return int(payload[key]) == 0
+                except (TypeError, ValueError):
+                    return False
+        return True
+
     def _save_ip_config(self):
         """把当前公网 IP 写入每个应用的可信IP列表。"""
         logger.info(f"更新IP为:{self._ip}")
         _update_log = []
         url = 'https://work.weixin.qq.com/wework_admin/apps/saveIpConfig?lang=zh_CN&f=json&ajax=1'
-        for appId in self._app_id.split(','):
+        for appId in (self._app_id or "").split(','):
             appId = appId.strip()
             if not appId:
                 continue
@@ -919,13 +984,14 @@ class UpdateWeChatIp(_PluginBase):
                     result=f"请求异常: {e}"
                 ))
                 continue
-            if 'err' in res.text:
+            success = self._response_ok(res)
+            if not success:
                 logger.error(f"{appId}更新IP白名单失败（{self._fail_hint(res)}），返回值：{self._result_brief(res.text)}")
             else:
                 logger.info(f'{appId}更新白名单成功，更新IP为：{self._ip}，接口返回值：{self._result_brief(res.text)}')
 
             _update_log.append(UpdateLogDto(
-                status='err' not in res.text,
+                status=success,
                 ip=self._ip,
                 app_id=appId,
                 result=res.text
@@ -939,13 +1005,15 @@ class UpdateWeChatIp(_PluginBase):
         """清理失败状态并把登录凭据写入插件配置。"""
         logger.info("保存配置文件")
         self._clear_fail()
-        self.update_config({
+        config = self.get_config() or {}
+        config.update({
             '_enabled': self._enabled,
             '_wwrtx_sid': self._wwrtx_sid,
             '_app_id': self._app_id,
             '_party_cache_data': self._party_cache_data,
             '_cron': self._cron,
         })
+        self.update_config(config)
 
     def _get_buttons(self):
         """生成短信验证码输入按钮：数字键盘、退格/清空/直接输入、提交。"""
@@ -1257,7 +1325,7 @@ class UpdateWeChatIp(_PluginBase):
         app_id = self._app_id.split(",")[0].strip()
         url = f'https://work.weixin.qq.com/wework_admin/apps/getCorpAppV2?lang=zh_CN&f=json&ajax=1&app_id={app_id}'
         try:
-            res = self._se.get(url, timeout=10)
+            res = self._se.get(url, headers=self._headers, timeout=10)
             if res.status_code == 200:
                 return res.json().get('data', {})
             else:
@@ -1312,7 +1380,7 @@ class UpdateLogDto:
     ip: str
     app_id: str
     result: str
-    UpdateTime: datetime = None
+    UpdateTime: Optional[datetime] = None
 
     def __post_init__(self):
         """补默认更新时间。"""
@@ -1334,6 +1402,10 @@ class UpdateLogDto:
         """从持久化字典还原记录。"""
         # 深拷贝一份，避免修改原字典
         kwargs = dict(data)
-        # 将 'UpdateTime' 字符串转为 datetime，注意参数名对应 __init__ 的 update_time
-        kwargs['UpdateTime'] = datetime.fromisoformat(kwargs.pop('UpdateTime'))
+        # 旧记录可能没有时间字段，交给 __post_init__ 补当前时间
+        raw_time = kwargs.pop('UpdateTime', None)
+        try:
+            kwargs['UpdateTime'] = datetime.fromisoformat(raw_time) if raw_time else None
+        except (TypeError, ValueError):
+            kwargs['UpdateTime'] = None
         return cls(**kwargs)
