@@ -725,7 +725,7 @@ class UpdateWeChatIp(_PluginBase):
             self._qr_image = (content, self._image_media_type(content))
         # 图片地址会进通知和日志，只放本次登录的短期令牌
         uri = (f"/api/v1/plugin/{self.__class__.__name__}/img/"
-               f"{uuid.uuid4().__str__().replace('-', '')}?t={self._new_img_token()}")
+               f"{uuid.uuid4().hex}?t={self._new_img_token()}")
         if self._is_same_origin_channel(channel):
             # 页面内渲染的渠道用相对地址，跟随用户实际访问入口
             img_url = uri
@@ -778,7 +778,7 @@ class UpdateWeChatIp(_PluginBase):
             'auth_source': "SOURCE_FROM_WEWORK",
             'confirm_type': "0"
         }
-        response = self._se.get(url, params=params, headers=self._headers)
+        response = self._se.get(url, params=params, headers=self._headers, timeout=15)
         logger.info(f"登录完成，状态码:{response.status_code}，响应长度:{len(response.text)}，"
                     f"需短信验证:{'tl_key' in response.url}")
         return response
@@ -791,9 +791,13 @@ class UpdateWeChatIp(_PluginBase):
             "captcha": captcha,
             "tl_key": tl_key
         }
-        res = self._se.post(_url, json=_data, headers=self._headers)
+        res = self._se.post(_url, json=_data, headers=self._headers, timeout=15)
         logger.info(f"提交验证码返回值:{self._result_brief(res.text)}")
-        res = self._se.get(f"https://work.weixin.qq.com/wework_admin/login/choose_corp?tl_key={tl_key}")
+        res = self._se.get(
+            f"https://work.weixin.qq.com/wework_admin/login/choose_corp?tl_key={tl_key}",
+            headers=self._headers,
+            timeout=15,
+        )
         logger.info(f"choose_corp接口返回值:{self._result_brief(res.text)}")
 
     def _party_cache(self):
@@ -832,7 +836,17 @@ class UpdateWeChatIp(_PluginBase):
         check_data = self._check(self._qrcode_key)
         if check_data:
             code = check_data.get('auth_code')
-            res = self._loginpage_wx(self._qrcode_key, code)
+            try:
+                res = self._loginpage_wx(self._qrcode_key, code)
+            except Exception as e:
+                logger.error(f"登录请求异常: {e}")
+                self.post_message(
+                    channel=channel,
+                    title="登录失败",
+                    userid=userid,
+                    text="登录请求异常，请稍后重试；如仍失败请重新发送 /update_wechat_ip 扫码。",
+                )
+                return
             if 'tl_key' in res.url:
                 logger.info("返回值中获取到tl_key,触发短信验证码")
                 parsed = urlparse(res.url)
@@ -1015,13 +1029,14 @@ class UpdateWeChatIp(_PluginBase):
         })
         self.update_config(config)
 
-    def _get_buttons(self):
+    def _get_buttons(self, qrcode_key: Optional[str] = None):
         """生成短信验证码输入按钮：数字键盘、退格/清空/直接输入、提交。"""
+        key = qrcode_key or self._qrcode_key
         buttons = [
             [
                 {
                     "text": str(j),
-                    "callback_data": f"[PLUGIN]{self.__class__.__name__}|{j}|{self._qrcode_key}"
+                    "callback_data": f"[PLUGIN]{self.__class__.__name__}|{j}|{key}"
                 }
                 for j in range(i * 5, (i + 1) * 5)
             ]
@@ -1030,16 +1045,16 @@ class UpdateWeChatIp(_PluginBase):
         buttons.append(
             [
                 {"text": "退格",
-                 "callback_data": f"[PLUGIN]{self.__class__.__name__}|退格|{self._qrcode_key}"},
+                 "callback_data": f"[PLUGIN]{self.__class__.__name__}|退格|{key}"},
                 {"text": "清空",
-                 "callback_data": f"[PLUGIN]{self.__class__.__name__}|清空|{self._qrcode_key}"},
+                 "callback_data": f"[PLUGIN]{self.__class__.__name__}|清空|{key}"},
                 {"text": "直接输入",
-                 "callback_data": f"[PLUGIN]{self.__class__.__name__}|文本输入|{self._qrcode_key}"}
+                 "callback_data": f"[PLUGIN]{self.__class__.__name__}|文本输入|{key}"}
             ]
         )
         buttons.append(
             [{"text": f'输入完毕',
-              "callback_data": f"[PLUGIN]{self.__class__.__name__}|输入完毕|{self._qrcode_key}"}]
+              "callback_data": f"[PLUGIN]{self.__class__.__name__}|输入完毕|{key}"}]
         )
         return buttons
 
@@ -1150,7 +1165,7 @@ class UpdateWeChatIp(_PluginBase):
                              original_message_id=None, original_chat_id=None,
                              note: str = None) -> None:
         """下发验证码输入提示，渠道支持编辑时优先就地更新原消息。"""
-        buttons = self._get_buttons()
+        buttons = self._get_buttons(qrcode_key)
         text = self._captcha_prompt_text(qrcode_key, note=note)
         resolved_channel = self._as_channel(channel)
         if (original_message_id and original_chat_id and resolved_channel
@@ -1216,6 +1231,14 @@ class UpdateWeChatIp(_PluginBase):
 
     def _submit_captcha(self, channel, userid, qrcode_key, source=None) -> None:
         """提交短信验证码并回报登录结果。"""
+        if not self._tl_key:
+            self.post_message(
+                channel=channel,
+                title="验证码不可用",
+                userid=userid,
+                text="未获取到短信验证状态，请重新发送 /update_wechat_ip 扫码登录。",
+            )
+            return
         captcha = self._captcha.get(qrcode_key) or ""
         if len(captcha) != self._captcha_length:
             self._send_captcha_prompt(
@@ -1229,7 +1252,17 @@ class UpdateWeChatIp(_PluginBase):
                 ),
             )
             return
-        self._confirm_captcha(self._tl_key, captcha)
+        try:
+            self._confirm_captcha(self._tl_key, captcha)
+        except Exception as e:
+            logger.error(f"提交验证码异常: {e}")
+            self.post_message(
+                channel=channel,
+                title="验证码提交失败",
+                userid=userid,
+                text="验证码提交请求异常，请稍后重试；如仍失败请重新扫码。",
+            )
+            return
         self._wwrtx_sid = self._se.cookies.get_dict().get('wwrtx.sid')
         self._captcha.pop(qrcode_key, None)
         if self._party_cache():
@@ -1306,7 +1339,11 @@ class UpdateWeChatIp(_PluginBase):
         urls = self._ip_urls
         for url in urls:
             try:
-                response = requests.get(url, timeout=3)
+                response = requests.get(
+                    url,
+                    headers={'User-Agent': self._headers['User-Agent']},
+                    timeout=3,
+                )
                 if response.status_code == 200:
                     ip_address = re.search(self._ip_pattern, response.text)
                     if ip_address:

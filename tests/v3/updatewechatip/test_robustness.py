@@ -134,3 +134,49 @@ def test_fail_hint_recognizes_lowercase_errcode():
     res = FakeResponse(text='{"errcode":-4,"errmsg":"outsession"}')
 
     assert "登录已失效" in UpdateWeChatIp._fail_hint(res)
+
+
+def test_submit_captcha_without_tl_key_prompts_rescan():
+    """没有 tl_key 时提交验证码应提示重新扫码，而不是调用接口。"""
+    plugin = make_plugin(SimpleNamespace())
+    plugin._tl_key = None
+    plugin._captcha = {"key1": "123456"}
+    sent = []
+    called = []
+    plugin.post_message = lambda **kwargs: sent.append(kwargs)
+    plugin._confirm_captcha = lambda *args: called.append(args)
+
+    plugin._submit_captcha("Wechat", "member", "key1")
+
+    assert not called
+    assert sent[0]["title"] == "验证码不可用"
+
+
+def test_login_reports_loginpage_exception():
+    """登录页请求异常时应回执失败，而不是抛到事件处理层。"""
+    plugin = make_plugin(SimpleNamespace())
+    plugin._qrcode_key = "key1"
+    plugin._check = lambda *args: {"auth_code": "code1"}
+    sent = []
+    plugin.post_message = lambda **kwargs: sent.append(kwargs)
+
+    def boom(*args, **kwargs):
+        raise requests.ConnectionError("offline")
+
+    plugin._loginpage_wx = boom
+
+    plugin._login("Wechat", "member")
+
+    assert sent[0]["title"] == "登录失败"
+    assert "异常" in sent[0]["text"]
+
+
+def test_get_buttons_use_passed_qrcode_key():
+    """验证码按钮应携带本次登录的 qrcode_key，而不是实例上的旧值。"""
+    plugin = make_plugin(SimpleNamespace())
+    plugin._qrcode_key = "old-key"
+
+    buttons = plugin._get_buttons("new-key")
+    callbacks = [button["callback_data"] for row in buttons for button in row]
+
+    assert callbacks and all(callback.endswith("|new-key") for callback in callbacks)
