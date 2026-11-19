@@ -276,3 +276,26 @@ def test_log_result_text_shows_failure_message():
     assert UpdateWeChatIp._log_result_text(
         False, '{"errCode":-4,"errmsg":"invalid ip"}'
     ) == "invalid ip"
+
+
+def test_log_result_text_uses_message_field():
+    """企业微信常见的 message 字段也应作为失败原因展示。"""
+    assert UpdateWeChatIp._log_result_text(
+        False, '{"errCode":-3,"message":"outsession","etype":"otherLogin"}'
+    ) == "outsession"
+
+
+def test_log_result_text_handles_empty_response():
+    """失败响应为空时给出明确占位文本。"""
+    assert UpdateWeChatIp._log_result_text(False, "") == "无返回内容"
+
+
+def test_save_ip_records_http_status_for_empty_error_response():
+    """空响应的 HTTP 错误应记录状态码，而不是留下空结果。"""
+    plugin = make_plugin(SimpleNamespace(
+        post=lambda *args, **kwargs: FakeResponse(status_code=403, text="")
+    ))
+
+    plugin._save_ip_config()
+
+    assert plugin._saved[1][0]["result"] == "HTTP 403"

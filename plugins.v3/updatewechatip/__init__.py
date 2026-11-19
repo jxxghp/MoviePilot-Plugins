@@ -602,8 +602,11 @@ class UpdateWeChatIp(_PluginBase):
             return "已更新"
         text = str(result or "")
         matched = re.search(r'"humanMessage"\s*:\s*"([^"]*)"', text, re.I) or \
-            re.search(r'"errmsg"\s*:\s*"([^"]*)"', text, re.I)
-        return matched.group(1) if matched else UpdateWeChatIp._result_brief(text, 60)
+            re.search(r'"errmsg"\s*:\s*"([^"]*)"', text, re.I) or \
+            re.search(r'"message"\s*:\s*"([^"]*)"', text, re.I)
+        if matched:
+            return matched.group(1)
+        return UpdateWeChatIp._result_brief(text, 60) or "无返回内容"
 
     def get_page(self) -> List[dict]:
         """返回详情页 JSON。"""
@@ -1026,11 +1029,15 @@ class UpdateWeChatIp(_PluginBase):
             else:
                 logger.info(f'{appId}更新白名单成功，更新IP为：{self._ip}，接口返回值：{self._result_brief(res.text)}')
 
+            result_text = res.text
+            if not success and res.status_code >= 400:
+                # 记录表里保留状态码，避免空响应或 HTML 错误页只显示长度
+                result_text = f"HTTP {res.status_code} {self._result_brief(res.text, 200)}".strip()
             _update_log.append(UpdateLogDto(
                 status=success,
                 ip=self._ip,
                 app_id=appId,
-                result=res.text
+                result=result_text
             ))
 
         update_log: List[UpdateLogDto] = [UpdateLogDto.from_dict(i) for i in self.get_data(self._UpdateLogKey) or []]
