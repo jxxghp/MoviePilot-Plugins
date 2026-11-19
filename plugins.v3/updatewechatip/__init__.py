@@ -561,13 +561,12 @@ class UpdateWeChatIp(_PluginBase):
                                 },
                                 'content': [
                                     {
-                                        'component': 'VTextarea',
+                                        'component': 'VTextField',
                                         'props': {
                                             'model': '_ip_urls',
                                             'label': 'IPv4 查询接口（选填）',
-                                            'rows': 3,
-                                            'placeholder': '留空使用内置接口，例如：https://myip.ipip.net',
-                                            'hint': '多行每行一个地址，按顺序尝试；留空使用内置列表。',
+                                            'placeholder': 'https://myip.ipip.net,https://ddns.oray.com/checkip',
+                                            'hint': '多个地址用英文逗号(,)隔开，按顺序尝试；留空使用内置列表。',
                                             'persistent-hint': True
                                         }
                                     }
@@ -1359,11 +1358,11 @@ class UpdateWeChatIp(_PluginBase):
 
     @staticmethod
     def _parse_ip_urls(value) -> List[str]:
-        """把配置里的多行接口列表拆成 URL 列表，忽略空行和非 HTTP(S) 项。"""
+        """把英文逗号分隔的接口配置拆成 URL 列表，忽略空项和非 HTTP(S) 地址。"""
         if isinstance(value, (list, tuple)):
             candidates = [str(item) for item in value]
         else:
-            candidates = str(value or "").splitlines()
+            candidates = str(value or "").split(",")
         return [item.strip() for item in candidates
                 if item.strip().startswith(("http://", "https://"))]
 

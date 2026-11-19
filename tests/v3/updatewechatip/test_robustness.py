@@ -39,6 +39,23 @@ def make_plugin(session):
     return plugin
 
 
+def find_model(node, model):
+    """在表单 JSON 中按 model 查找组件节点。"""
+    if isinstance(node, dict):
+        if node.get("props", {}).get("model") == model:
+            return node
+        for value in node.values():
+            found = find_model(value, model)
+            if found:
+                return found
+    elif isinstance(node, list):
+        for item in node:
+            found = find_model(item, model)
+            if found:
+                return found
+    return None
+
+
 def test_save_ip_success_payload_is_recorded_as_success():
     """真实成功响应 {"data": ...} 不含 err，应记录为成功。"""
     plugin = make_plugin(SimpleNamespace(
@@ -199,9 +216,9 @@ def test_confirm_captcha_passes_tl_key_as_params():
     assert calls["kwargs"]["params"] == {"tl_key": "a+b&c"}
 
 
-def test_parse_ip_urls_ignores_blank_and_invalid_lines():
-    """多行接口配置只保留 HTTP(S) 地址。"""
-    value = "https://one.example/ip\n\nftp://bad\nhttp://two.example/ip\n"
+def test_parse_ip_urls_ignores_blank_and_invalid_items():
+    """英文逗号分隔的接口配置只保留 HTTP(S) 地址。"""
+    value = "https://one.example/ip, ftp://bad, ,http://two.example/ip,"
 
     assert UpdateWeChatIp._parse_ip_urls(value) == [
         "https://one.example/ip",
@@ -244,7 +261,7 @@ def test_form_exposes_optional_ip_urls_field():
     form, defaults = plugin.get_form()
 
     assert defaults["_ip_urls"] == ""
-    assert "_ip_urls" in json.dumps(form, ensure_ascii=False)
+    assert find_model(form, "_ip_urls")["component"] == "VTextField"
 
 
 def test_log_result_text_hides_success_payload():
