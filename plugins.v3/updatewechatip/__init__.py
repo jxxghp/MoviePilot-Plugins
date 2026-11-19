@@ -1,4 +1,5 @@
 import ipaddress
+import json
 import random
 import re
 import secrets
@@ -33,7 +34,7 @@ class UpdateWeChatIp(_PluginBase):
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本，必须和 package.v3.json 中保持一致
-    plugin_version = "2.0.0"
+    plugin_version = "2.0.1"
     # 作者信息
     plugin_author = "书小白,iamchq"
     author_url = "https://github.com/thshu/MoviePilot-Plugins"
@@ -610,17 +611,80 @@ class UpdateWeChatIp(_PluginBase):
         return text if len(text) <= limit else text[:limit] + "…"
 
     @staticmethod
+    def _wecom_error_reason(result: str) -> str:
+        """优先按企业微信 errcode 映射官方错误原因，未知码再回退到接口文本。"""
+        text = str(result or "")
+        payload = None
+        try:
+            payload = json.loads(text)
+        except Exception:
+            payload = None
+
+        candidates = []
+        if isinstance(payload, dict):
+            candidates.append(payload)
+            nested = payload.get("result")
+            if isinstance(nested, dict):
+                candidates.append(nested)
+
+        code = None
+        raw_reason = ""
+        for item in candidates:
+            if code is None:
+                for key in ("errCode", "errcode", "code"):
+                    if key in item:
+                        try:
+                            code = int(item[key])
+                        except (TypeError, ValueError):
+                            code = None
+                        break
+            if not raw_reason:
+                for key in ("humanMessage", "message", "errmsg", "errMsg"):
+                    value = str(item.get(key) or "").strip()
+                    if value:
+                        raw_reason = value
+                        break
+
+        if code is None:
+            matched_code = re.search(r'"(?:errCode|errcode|code)"\s*:\s*(-?\d+)', text, re.I)
+            if matched_code:
+                code = int(matched_code.group(1))
+        if not raw_reason:
+            matched_reason = re.search(
+                r'"(?:humanMessage|message|errmsg|errMsg)"\s*:\s*"([^"]*)"', text, re.I
+            )
+            raw_reason = matched_reason.group(1).strip() if matched_reason else ""
+
+        known_reasons = {
+            -1: "系统繁忙，请稍后重试",
+            -3: "登录已失效，请重新登录",
+            -30001: "参数错误",
+            -80013: "服务器异常，请稍候再试",
+            -80037: "应用不存在",
+            60020: "不安全的访问IP",
+        }
+        token_reasons = {
+            "outsession": "登录已失效，请重新登录",
+            "invalid ip": "不安全的访问IP",
+        }
+        code_fallbacks = {
+            -4: "登录已失效，请重新登录",
+        }
+
+        reason = (
+            token_reasons.get(raw_reason.lower())
+            or known_reasons.get(code)
+            or code_fallbacks.get(code)
+        )
+        return reason or raw_reason
+
+    @staticmethod
     def _log_result_text(status: bool, result: str) -> str:
         """记录表的结果列：成功显示动作结果，失败优先显示接口错误信息。"""
         if status:
             return "已更新"
-        text = str(result or "")
-        matched = re.search(r'"humanMessage"\s*:\s*"([^"]*)"', text, re.I) or \
-            re.search(r'"errmsg"\s*:\s*"([^"]*)"', text, re.I) or \
-            re.search(r'"message"\s*:\s*"([^"]*)"', text, re.I)
-        if matched:
-            return UpdateWeChatIp._result_brief(matched.group(1), 80) or "无返回内容"
-        return UpdateWeChatIp._result_brief(text, 60) or "无返回内容"
+        reason = UpdateWeChatIp._wecom_error_reason(result)
+        return UpdateWeChatIp._result_brief(reason, 80) or "无返回内容"
 
     def get_page(self) -> List[dict]:
         """返回详情页 JSON。"""
@@ -628,7 +692,7 @@ class UpdateWeChatIp(_PluginBase):
         raw_data = self.get_data(self._UpdateLogKey) or []
         update_log: List[UpdateLogDto] = [UpdateLogDto.from_dict(i) for i in raw_data]
         data_list = sorted(update_log, key=lambda x: x.UpdateTime, reverse=True)[:self._update_log_limit]
-        groups: List[tuple[tuple[str, str], List[UpdateLogDto]]] = []
+        groups: List[Tuple[Tuple[str, str], List[UpdateLogDto]]] = []
         for row in data_list:
             group_key = (row.ip, row.UpdateTime.strftime('%Y-%m-%d %H:%M:%S'))
             if groups and groups[-1][0] == group_key:
@@ -638,10 +702,13 @@ class UpdateWeChatIp(_PluginBase):
 
         update_log_trs = [
             {
-                "component": "tr",
+                "component": "div",
+                "props": {"class": "d-none d-sm-flex flex-wrap align-baseline px-4 py-2",
+                          "style": {"gap": "12px", "rowGap": "4px", "lineHeight": "1.4",
+                                    "borderTop": "1px solid rgba(0, 0, 0, 0.08)"}},
                 "content": [
-                    {"component": "td", "props": {"class": "px-4 py-2",
-                                                  "style": {"verticalAlign": "top"}}, "content": [{
+                    {"component": "div", "props": {"class": "flex-shrink-0",
+                                                   "style": {"width": "64px"}}, "content": [{
                         "component": "VChip",
                         "props": {
                             "size": "x-small",
@@ -650,10 +717,11 @@ class UpdateWeChatIp(_PluginBase):
                             "color": "success" if all_ok else ("warning" if any_ok else "error"),
                         },
                         "text": "成功" if all_ok else ("部分失败" if any_ok else "失败")}]},
-                    {"component": "td", "props": {"class": "px-4 py-2",
-                                                  "style": {"width": "190px", "verticalAlign": "top"}}, "content": [{
+                    {"component": "div", "props": {"class": "flex-shrink-0",
+                                                   "style": {"width": "176px"}}, "content": [{
                         "component": "div",
-                        "props": {"class": "d-flex flex-column font-monospace text-caption"},
+                        "props": {"class": "d-flex flex-column font-monospace",
+                                  "style": {"fontSize": "16px", "lineHeight": "1.4"}},
                         "content": [
                             {"component": "span",
                              "props": {"class": "text-no-wrap" if index == len(group) - 1 else "text-no-wrap mb-1"},
@@ -661,11 +729,11 @@ class UpdateWeChatIp(_PluginBase):
                             for index, row in enumerate(group)
                         ],
                     }]},
-                    {"component": "td", "props": {"class": "text-no-wrap font-monospace text-body-2 px-4 py-2",
-                                                  "style": {"width": "160px", "verticalAlign": "top"}},
+                    {"component": "div", "props": {"class": "flex-shrink-0 text-no-wrap font-monospace",
+                                                   "style": {"width": "148px", "fontSize": "16px",
+                                                             "lineHeight": "1.4"}},
                      "text": group[-1].ip},
-                    {"component": "td", "props": {"class": "px-4 py-2",
-                                                  "style": {"verticalAlign": "top"}}, "content": [{
+                    {"component": "div", "props": {"style": {"width": "320px", "minWidth": "160px"}}, "content": [{
                         "component": "div",
                         "props": {"class": "d-flex flex-column"},
                         "content": [{
@@ -673,14 +741,17 @@ class UpdateWeChatIp(_PluginBase):
                             "props": {
                                 "class": f"{'text-success' if row.status else 'text-error'} "
                                          f"{'text-no-wrap' if index == len(group) - 1 else 'text-no-wrap mb-1'}",
-                                "style": {"whiteSpace": "nowrap"},
+                                "style": {"fontSize": "14px", "lineHeight": "1.4",
+                                          "whiteSpace": "normal", "overflowWrap": "anywhere"},
                                 "title": self._result_brief(row.result, 500),
                             },
                             "text": self._log_result_text(row.status, row.result),
                         } for index, row in enumerate(group)],
                     }]},
-                    {"component": "td", "props": {"class": "text-no-wrap text-caption text-medium-emphasis px-4 py-2",
-                                                  "style": {"width": "170px", "verticalAlign": "top"}},
+                    {"component": "div", "props": {"class": "flex-shrink-0 text-no-wrap "
+                                                            "text-medium-emphasis",
+                                                   "style": {"width": "158px", "fontSize": "14px",
+                                                             "lineHeight": "1.4"}},
                      "text": group[-1].UpdateTime.strftime('%Y-%m-%d %H:%M:%S')},
                 ],
             }
@@ -689,9 +760,83 @@ class UpdateWeChatIp(_PluginBase):
                 all(row.status for row in group),
                 any(row.status for row in group),
             )]
-        ] or [{"component": "tr", "content": [
-            {"component": "td", "props": {"colspan": 5, "class": "text-center text-medium-emphasis py-8"},
-             "text": "暂无 IP 更新记录"}]}]
+        ]
+
+        update_log_mobile = [
+            {
+                "component": "div",
+                "props": {"class": "d-flex d-sm-none flex-column px-4 py-2",
+                          "style": {"gap": "2px", "borderTop": "1px solid rgba(0, 0, 0, 0.08)"}},
+                "content": [
+                    {"component": "div",
+                     "props": {"class": "d-flex flex-wrap align-center", "style": {"gap": "8px"}},
+                     "content": [
+                         {"component": "VChip",
+                          "props": {"size": "x-small", "variant": "flat", "rounded": "pill",
+                                    "color": "success" if all_ok else ("warning" if any_ok else "error")},
+                          "text": "成功" if all_ok else ("部分失败" if any_ok else "失败")},
+                         {"component": "span",
+                          "props": {"class": "text-medium-emphasis",
+                                    "style": {"marginLeft": "auto", "fontSize": "12px"}},
+                          "text": group[-1].UpdateTime.strftime('%Y-%m-%d %H:%M:%S')},
+                     ]},
+                    {"component": "div",
+                     "props": {"class": "d-flex flex-wrap align-center", "style": {"gap": "8px"}},
+                     "content": [
+                         {"component": "span",
+                          "props": {"class": "text-no-wrap font-monospace",
+                                    "style": {"fontSize": "13px"}},
+                          "text": group[-1].ip},
+                         {"component": "span",
+                          "props": {"class": "font-monospace",
+                                    "style": {"fontSize": "13px"}},
+                          "text": "、".join(row.app_id for row in group)},
+                     ]},
+                    {"component": "div",
+                     "props": {"class": "d-flex flex-column"},
+                     "content": [{
+                         "component": "span",
+                         "props": {
+                             "class": 'text-success' if row.status else 'text-error',
+                             "style": {"fontSize": "13px", "whiteSpace": "normal",
+                                       "overflowWrap": "anywhere"},
+                             "title": self._result_brief(row.result, 500),
+                         },
+                         "text": self._log_result_text(row.status, row.result),
+                     } for row in group]},
+                ],
+            }
+            for _, group in groups
+            for all_ok, any_ok in [(
+                all(row.status for row in group),
+                any(row.status for row in group),
+            )]
+        ]
+
+        empty_row = {"component": "div",
+                     "props": {"class": "text-center text-medium-emphasis py-8"},
+                     "text": "暂无 IP 更新记录"}
+        update_log_trs = update_log_trs or [empty_row]
+        update_log_mobile = update_log_mobile or [empty_row]
+
+        log_header = {
+            "component": "div",
+            "props": {"class": "d-none d-sm-flex flex-wrap px-4 py-2 bg-grey-lighten-5 "
+                               "text-medium-emphasis",
+                      "style": {"gap": "12px", "rowGap": "4px", "fontSize": "13px"}},
+            "content": [
+                {"component": "div", "props": {"class": "flex-shrink-0", "style": {"width": "64px"}},
+                 "text": "状态"},
+                {"component": "div", "props": {"class": "flex-shrink-0", "style": {"width": "176px"}},
+                 "text": "应用ID"},
+                {"component": "div", "props": {"class": "flex-shrink-0", "style": {"width": "148px"}},
+                 "text": "更新IP"},
+                {"component": "div", "props": {"style": {"width": "320px", "minWidth": "160px"}},
+                 "text": "结果"},
+                {"component": "div", "props": {"class": "flex-shrink-0", "style": {"width": "158px"}},
+                 "text": "更新时间"},
+            ],
+        }
 
         # ---------- 安全获取 party 名称 ----------
         party_cache = self._party_cache_data or {}
@@ -749,26 +894,7 @@ class UpdateWeChatIp(_PluginBase):
                                 {"component": "VCardText",
                                  "props": {"class": "px-0 py-0",
                                            "style": {"maxHeight": "420px", "overflow": "auto"}},
-                                 "content": [
-                                     {"component": "VTable",
-                                      "props": {"hover": True, "density": "compact", "class": "w-100",
-                                                "style": {"tableLayout": "fixed", "width": "100%"}},
-                                      "content": [
-                                          {"component": "thead", "props": {"class": "text-no-wrap bg-grey-lighten-5"},
-                                           "content": [
-                                               {"component": "th",
-                                                "props": {"class": "text-caption text-medium-emphasis text-start px-4 py-2",
-                                                          **({"style": {"width": width}} if width else {})},
-                                                "text": name}
-                                               for name, width in (
-                                                   ("状态", "90px"),
-                                                   ("应用ID", "190px"),
-                                                   ("更新IP", "160px"),
-                                                   ("结果", None),
-                                                   ("更新时间", "170px"),
-                                               )
-                                           ]},
-                                          {"component": "tbody", "content": update_log_trs}]}]},
+                                 "content": [log_header] + update_log_trs + update_log_mobile},
                             ]},
                         ],
                     }
@@ -994,9 +1120,11 @@ class UpdateWeChatIp(_PluginBase):
 
     @staticmethod
     def _fail_hint(res) -> str:
-        """把失败响应转成可读原因：403 或 errCode -4 实为登录失效。"""
-        code = re.search(r'"err[Cc]ode"\s*:\s*(-?\d+)', res.text or "")
-        if res.status_code >= 400 or (code and int(code.group(1)) == -4):
+        """把失败响应转成可读原因，优先使用接口返回的错误码说明。"""
+        reason = UpdateWeChatIp._wecom_error_reason(res.text or "")
+        if reason:
+            return reason
+        if res.status_code in (401, 403):
             return "登录已失效，请重新扫码"
         return "接口返回错误"
 
