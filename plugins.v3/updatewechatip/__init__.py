@@ -1,3 +1,4 @@
+import ipaddress
 import random
 import re
 import secrets
@@ -84,10 +85,10 @@ class UpdateWeChatIp(_PluginBase):
     # 不维护渠道名单，只排除站内：站内仅在首次提醒，其余渠道按间隔重复
     _notify_silent_channels = ('Web', 'WebAgent')
 
-    # IPv4 查询地址（均为实测可用接口，已移除失效域名）
-    _ip_urls = ["https://myip.ipip.net", "https://ddns.oray.com/checkip",
-                "https://ip.3322.net", "https://ipv4.ddnspod.com",
-                "https://ipv4.ip.mir6.com"]
+    # 内置 IPv4 查询地址（均为实测可用接口，已移除失效域名）
+    _default_ip_urls = ["https://myip.ipip.net", "https://ddns.oray.com/checkip",
+                        "https://ip.3322.net", "https://ipv4.ddnspod.com",
+                        "https://ipv4.ip.mir6.com"]
     _ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
 
     _headers = {
@@ -118,17 +119,10 @@ class UpdateWeChatIp(_PluginBase):
         self._app_id = config.get("_app_id")
         self._cron = config.get("_cron")
         self._party_cache_data = config.get("_party_cache_data")
+        self._ip_urls = self._parse_ip_urls(config.get("_ip_urls")) or list(self._default_ip_urls)
 
         self._se = requests.Session()
         self._se.cookies.set('wwrtx.sid', self._wwrtx_sid)
-
-        # 旧版本把二维码存成固定文件名，升级后清掉残留
-        legacy_qr = self.get_data_path() / "WeChatQr.jpg"
-        if legacy_qr.exists():
-            try:
-                legacy_qr.unlink()
-            except OSError as e:
-                logger.warning(f"清理旧二维码文件失败: {e}")
 
         if config.get("onlyonce"):
             # 立即检测一次：延迟 3 秒后单次执行，不影响 cron 周期服务
@@ -556,6 +550,30 @@ class UpdateWeChatIp(_PluginBase):
                                 ]
                             }
                         ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextarea',
+                                        'props': {
+                                            'model': '_ip_urls',
+                                            'label': 'IPv4 查询接口（选填）',
+                                            'rows': 3,
+                                            'placeholder': '留空使用内置接口，例如：https://myip.ipip.net',
+                                            'hint': '多行每行一个地址，按顺序尝试；留空使用内置列表。',
+                                            'persistent-hint': True
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
                     }
                 ]
             }
@@ -565,6 +583,7 @@ class UpdateWeChatIp(_PluginBase):
             "_app_id": "",
             "_party_cache_data": {},
             "_cron": '*/10 * * * *',
+            "_ip_urls": "",
             "onlyonce": False
         }
 
@@ -1335,24 +1354,42 @@ class UpdateWeChatIp(_PluginBase):
             ),
         )
 
-    def get_ip_from_url(self):
-        """按候选接口依次查询当前公网 IPv4。"""
-        urls = self._ip_urls
-        for url in urls:
+    @staticmethod
+    def _parse_ip_urls(value) -> List[str]:
+        """把配置里的多行接口列表拆成 URL 列表，忽略空行和非 HTTP(S) 项。"""
+        if isinstance(value, (list, tuple)):
+            candidates = [str(item) for item in value]
+        else:
+            candidates = str(value or "").splitlines()
+        return [item.strip() for item in candidates
+                if item.strip().startswith(("http://", "https://"))]
+
+    def get_ip_from_url(self) -> Optional[str]:
+        """按候选接口依次查询当前公网 IPv4，全部失败返回 None。"""
+        for url in self._ip_urls:
             try:
                 response = requests.get(
                     url,
                     headers={'User-Agent': self._headers['User-Agent']},
                     timeout=3,
                 )
-                if response.status_code == 200:
-                    ip_address = re.search(self._ip_pattern, response.text)
-                    if ip_address:
-                        return ip_address.group()
             except Exception as e:
-                if "104" not in str(e) and 'Read timed out' not in str(e):  # 忽略网络波动,都失败会返回None, "获取IP失败"
+                # 网络波动只记一条，避免每个候选接口都刷屏
+                if "104" not in str(e) and 'Read timed out' not in str(e):
                     logger.warning(f"{url} 获取IP失败, Error: {e}")
-        return "获取IP失败"
+                continue
+            if response.status_code != 200:
+                continue
+            matched = re.search(self._ip_pattern, response.text or "")
+            if not matched:
+                continue
+            candidate = matched.group()
+            try:
+                ipaddress.IPv4Address(candidate)
+            except ValueError:
+                continue
+            return candidate
+        return None
 
     def _get_corp_app_v2(self):
         """读取首个应用的配置，用于比对可信IP列表。"""
@@ -1398,7 +1435,7 @@ class UpdateWeChatIp(_PluginBase):
             return
         self._clear_fail()
         self._ip = self.get_ip_from_url()
-        if not self._ip or self._ip == "获取IP失败":
+        if not self._ip:
             logger.error("获取当前公网IP失败，跳过本次检测")
             return
         app_config = self._get_corp_app_v2()

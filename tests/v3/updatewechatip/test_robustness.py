@@ -197,3 +197,51 @@ def test_confirm_captcha_passes_tl_key_as_params():
 
     assert calls["url"].endswith("/login/choose_corp")
     assert calls["kwargs"]["params"] == {"tl_key": "a+b&c"}
+
+
+def test_parse_ip_urls_ignores_blank_and_invalid_lines():
+    """多行接口配置只保留 HTTP(S) 地址。"""
+    value = "https://one.example/ip\n\nftp://bad\nhttp://two.example/ip\n"
+
+    assert UpdateWeChatIp._parse_ip_urls(value) == [
+        "https://one.example/ip",
+        "http://two.example/ip",
+    ]
+
+
+def test_get_ip_from_url_returns_none_when_all_candidates_fail(monkeypatch):
+    """所有接口失败时返回 None，不再使用中文占位字符串。"""
+    plugin = make_plugin(SimpleNamespace())
+    plugin._ip_urls = ["https://one.example/ip"]
+
+    def boom(*args, **kwargs):
+        raise requests.ConnectionError("offline")
+
+    monkeypatch.setattr(requests, "get", boom)
+
+    assert plugin.get_ip_from_url() is None
+
+
+def test_get_ip_from_url_skips_invalid_ipv4(monkeypatch):
+    """正则命中但不是合法 IPv4 时继续尝试下一个接口。"""
+    plugin = make_plugin(SimpleNamespace())
+    plugin._ip_urls = ["https://bad.example/ip", "https://good.example/ip"]
+    plugin._headers = {"User-Agent": "test"}
+
+    def fake_get(url, **kwargs):
+        text = "999.999.999.999" if "bad" in url else "当前 IP：1.2.3.4"
+        return FakeResponse(text=text)
+
+    monkeypatch.setattr(requests, "get", fake_get)
+
+    assert plugin.get_ip_from_url() == "1.2.3.4"
+
+
+def test_form_exposes_optional_ip_urls_field():
+    """设置页底部应提供选填的 IPv4 查询接口，默认留空。"""
+    plugin = UpdateWeChatIp.__new__(UpdateWeChatIp)
+
+    form, defaults = plugin.get_form()
+
+    assert defaults["_ip_urls"] == ""
+    assert "_ip_urls" in json.dumps(form, ensure_ascii=False)
