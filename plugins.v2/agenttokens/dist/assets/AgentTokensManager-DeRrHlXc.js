@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, f as formatTokens, P as PROVIDER_TYPE_OPTIONS, d as createProvider, b as buildProviderRows, a as buildProviderSummary, g as getNextProviderPriority, e as duplicateProvider, n as normalizeProvider } from './provider-B09_BBg1.js';
+import { _ as _export_sfc, f as formatTokens, P as PROVIDER_TYPE_OPTIONS, A as API_PROTOCOL_OPTIONS, d as createProvider, b as buildProviderRows, a as buildProviderSummary, g as getNextProviderPriority, e as duplicateProvider, n as normalizeProvider } from './provider-aFH4tsh7.js';
 
 const {resolveComponent:_resolveComponent$5,mergeProps:_mergeProps$1,createVNode:_createVNode$5,withCtx:_withCtx$5,createTextVNode:_createTextVNode$5,openBlock:_openBlock$5,createBlock:_createBlock$5} = await importShared('vue');
 
@@ -303,7 +303,7 @@ return (_ctx, _cache) => {
 };
 const ProviderConfigTable = /*#__PURE__*/_export_sfc(_sfc_main$4, [['__scopeId',"data-v-41448444"]]);
 
-const {toDisplayString:_toDisplayString$3,createTextVNode:_createTextVNode$3,resolveComponent:_resolveComponent$3,withCtx:_withCtx$3,createVNode:_createVNode$3,unref:_unref$3,Fragment:_Fragment$1,openBlock:_openBlock$3,createElementBlock:_createElementBlock$2,createCommentVNode:_createCommentVNode$2,createBlock:_createBlock$3} = await importShared('vue');
+const {toDisplayString:_toDisplayString$3,createTextVNode:_createTextVNode$3,resolveComponent:_resolveComponent$3,withCtx:_withCtx$3,createVNode:_createVNode$3,unref:_unref$3,openBlock:_openBlock$3,createBlock:_createBlock$3,createCommentVNode:_createCommentVNode$2,Fragment:_Fragment$1,createElementBlock:_createElementBlock$2} = await importShared('vue');
 
 
 const {computed: computed$2} = await importShared('vue');
@@ -358,7 +358,7 @@ return (_ctx, _cache) => {
 
   return (_openBlock$3(), _createBlock$3(_component_VDialog, {
     modelValue: dialogVisible.value,
-    "onUpdate:modelValue": _cache[16] || (_cache[16] = $event => ((dialogVisible).value = $event)),
+    "onUpdate:modelValue": _cache[17] || (_cache[17] = $event => ((dialogVisible).value = $event)),
     "max-width": "760",
     "max-height": "85vh",
     scrollable: ""
@@ -444,11 +444,30 @@ return (_ctx, _cache) => {
                     ]),
                     _: 1
                   }),
+                  (['openai', 'chatgpt'].includes(__props.provider.provider?.toLowerCase()))
+                    ? (_openBlock$3(), _createBlock$3(_component_VCol, {
+                        key: 0,
+                        cols: "12"
+                      }, {
+                        default: _withCtx$3(() => [
+                          _createVNode$3(_component_VSelect, {
+                            "model-value": __props.provider.api_protocol ?? '',
+                            items: _unref$3(API_PROTOCOL_OPTIONS),
+                            label: "API 协议",
+                            hint: "选择「自动」可由 MoviePilot 根据模型和接口决定协议",
+                            "persistent-hint": "",
+                            variant: "outlined",
+                            "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => (__props.provider.api_protocol = $event))
+                          }, null, 8, ["model-value", "items"])
+                        ]),
+                        _: 1
+                      }))
+                    : _createCommentVNode$2("", true),
                   _createVNode$3(_component_VCol, { cols: "12" }, {
                     default: _withCtx$3(() => [
                       _createVNode$3(_component_VTextField, {
                         modelValue: __props.provider.base_url,
-                        "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((__props.provider.base_url) = $event)),
+                        "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((__props.provider.base_url) = $event)),
                         label: "API 地址",
                         hint: "填写供应商兼容接口的基础地址",
                         "persistent-hint": "",
@@ -461,7 +480,7 @@ return (_ctx, _cache) => {
                     default: _withCtx$3(() => [
                       _createVNode$3(_component_VTextField, {
                         modelValue: __props.provider.api_key,
-                        "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((__props.provider.api_key) = $event)),
+                        "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((__props.provider.api_key) = $event)),
                         label: "API Key",
                         hint: "填写访问供应商接口所需的密钥",
                         "persistent-hint": "",
@@ -475,7 +494,7 @@ return (_ctx, _cache) => {
                     default: _withCtx$3(() => [
                       _createVNode$3(_component_VTextField, {
                         modelValue: __props.provider.user_agent,
-                        "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((__props.provider.user_agent) = $event)),
+                        "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((__props.provider.user_agent) = $event)),
                         label: "User-Agent",
                         hint: "可选；自定义请求标识，留空时使用系统默认值",
                         "persistent-hint": "",
@@ -488,7 +507,7 @@ return (_ctx, _cache) => {
                     default: _withCtx$3(() => [
                       _createVNode$3(_component_VSwitch, {
                         modelValue: __props.provider.use_proxy,
-                        "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((__props.provider.use_proxy) = $event)),
+                        "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((__props.provider.use_proxy) = $event)),
                         color: "primary",
                         label: "使用代理服务器",
                         hint: "启用后，Agent 连接该供应商时会使用系统代理服务器",
@@ -504,7 +523,7 @@ return (_ctx, _cache) => {
                     default: _withCtx$3(() => [
                       _createVNode$3(_component_VTextField, {
                         modelValue: __props.provider.token_limit,
-                        "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((__props.provider.token_limit) = $event)),
+                        "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((__props.provider.token_limit) = $event)),
                         modelModifiers: { number: true },
                         label: "Token 额度",
                         hint: "填写 0 表示不限量，达到额度后自动切换供应商",
@@ -522,7 +541,7 @@ return (_ctx, _cache) => {
                     default: _withCtx$3(() => [
                       _createVNode$3(_component_VTextField, {
                         modelValue: __props.provider.used_tokens,
-                        "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((__props.provider.used_tokens) = $event)),
+                        "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((__props.provider.used_tokens) = $event)),
                         modelModifiers: { number: true },
                         label: "初始已用",
                         hint: "用于录入已有消耗量，新供应商通常填写 0",
@@ -537,7 +556,7 @@ return (_ctx, _cache) => {
                     default: _withCtx$3(() => [
                       _createVNode$3(_component_VSwitch, {
                         modelValue: __props.provider.failure_cooldown_enabled,
-                        "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((__props.provider.failure_cooldown_enabled) = $event)),
+                        "onUpdate:modelValue": _cache[11] || (_cache[11] = $event => ((__props.provider.failure_cooldown_enabled) = $event)),
                         color: "primary",
                         label: "连续失败自动冷却",
                         hint: "默认关闭；连续执行失败达到阈值后，后续 Agent 轮次按优先级使用其他可用供应商",
@@ -547,7 +566,7 @@ return (_ctx, _cache) => {
                     _: 1
                   }),
                   (__props.provider.failure_cooldown_enabled)
-                    ? (_openBlock$3(), _createElementBlock$2(_Fragment$1, { key: 0 }, [
+                    ? (_openBlock$3(), _createElementBlock$2(_Fragment$1, { key: 1 }, [
                         _createVNode$3(_component_VCol, {
                           cols: "12",
                           md: "6"
@@ -555,7 +574,7 @@ return (_ctx, _cache) => {
                           default: _withCtx$3(() => [
                             _createVNode$3(_component_VTextField, {
                               modelValue: __props.provider.failure_threshold,
-                              "onUpdate:modelValue": _cache[11] || (_cache[11] = $event => ((__props.provider.failure_threshold) = $event)),
+                              "onUpdate:modelValue": _cache[12] || (_cache[12] = $event => ((__props.provider.failure_threshold) = $event)),
                               modelModifiers: { number: true },
                               label: "连续失败次数",
                               hint: "成功后清零；用户取消不计入失败",
@@ -574,7 +593,7 @@ return (_ctx, _cache) => {
                           default: _withCtx$3(() => [
                             _createVNode$3(_component_VTextField, {
                               modelValue: __props.provider.cooldown_seconds,
-                              "onUpdate:modelValue": _cache[12] || (_cache[12] = $event => ((__props.provider.cooldown_seconds) = $event)),
+                              "onUpdate:modelValue": _cache[13] || (_cache[13] = $event => ((__props.provider.cooldown_seconds) = $event)),
                               modelModifiers: { number: true },
                               label: "初始冷却时长（秒）",
                               hint: "冷却到期后自动恢复参与选号",
@@ -590,7 +609,7 @@ return (_ctx, _cache) => {
                           default: _withCtx$3(() => [
                             _createVNode$3(_component_VSwitch, {
                               modelValue: __props.provider.cooldown_exponential,
-                              "onUpdate:modelValue": _cache[13] || (_cache[13] = $event => ((__props.provider.cooldown_exponential) = $event)),
+                              "onUpdate:modelValue": _cache[14] || (_cache[14] = $event => ((__props.provider.cooldown_exponential) = $event)),
                               color: "primary",
                               label: "指数退避",
                               hint: "恢复后再次达到失败阈值，冷却时长翻倍；调用成功后恢复初始时长",
@@ -603,7 +622,7 @@ return (_ctx, _cache) => {
                           default: _withCtx$3(() => [
                             _createVNode$3(_component_VTextField, {
                               modelValue: __props.provider.cooldown_max_seconds,
-                              "onUpdate:modelValue": _cache[14] || (_cache[14] = $event => ((__props.provider.cooldown_max_seconds) = $event)),
+                              "onUpdate:modelValue": _cache[15] || (_cache[15] = $event => ((__props.provider.cooldown_max_seconds) = $event)),
                               modelModifiers: { number: true },
                               label: "冷却时长上限（秒）",
                               hint: "固定冷却和指数退避均不超过此值",
@@ -628,9 +647,9 @@ return (_ctx, _cache) => {
               _createVNode$3(_component_VSpacer),
               _createVNode$3(_component_VBtn, {
                 variant: "text",
-                onClick: _cache[15] || (_cache[15] = $event => (dialogVisible.value = false))
+                onClick: _cache[16] || (_cache[16] = $event => (dialogVisible.value = false))
               }, {
-                default: _withCtx$3(() => [...(_cache[17] || (_cache[17] = [
+                default: _withCtx$3(() => [...(_cache[18] || (_cache[18] = [
                   _createTextVNode$3("取消", -1)
                 ]))]),
                 _: 1
@@ -639,7 +658,7 @@ return (_ctx, _cache) => {
                 color: "primary",
                 onClick: commitProvider
               }, {
-                default: _withCtx$3(() => [...(_cache[18] || (_cache[18] = [
+                default: _withCtx$3(() => [...(_cache[19] || (_cache[19] = [
                   _createTextVNode$3("确定", -1)
                 ]))]),
                 _: 1
