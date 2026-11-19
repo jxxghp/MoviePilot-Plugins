@@ -651,7 +651,11 @@ class UpdateWeChatIp(_PluginBase):
                     {"component": "td", "props": {"class": "px-2", "style": {"width": "160px"}}, "content": [{
                         "component": "div",
                         "props": {"class": "d-flex flex-column"},
-                        "content": [{"component": "span", "text": app_id} for app_id in row_app_ids],
+                        "content": [
+                            {"component": "span",
+                             "text": app_id + ("," if index < len(row_app_ids) - 1 else "")}
+                            for index, app_id in enumerate(row_app_ids)
+                        ],
                     }]},
                     {"component": "td", "props": {"class": "text-no-wrap font-monospace px-2", "style": {"width": "150px"}},
                      "text": group[-1].ip},
@@ -729,7 +733,7 @@ class UpdateWeChatIp(_PluginBase):
                                  "content": [
                                      {"component": "VTable",
                                       "props": {"hover": True, "density": "compact",
-                                                "style": {"tableLayout": "fixed", "width": "100%"}},
+                                                "style": {"tableLayout": "auto", "width": "auto"}},
                                       "content": [
                                           {"component": "thead", "props": {"class": "text-no-wrap"},
                                            "content": [

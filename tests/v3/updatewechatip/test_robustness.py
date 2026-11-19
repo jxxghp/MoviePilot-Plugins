@@ -349,8 +349,8 @@ def test_page_groups_same_check_app_ids_in_one_cell():
 
     collect(page)
     assert "最近 1 条" in texts
+    assert "app2," in texts
     assert "app1" in texts
-    assert "app2" in texts
 
 
 def test_log_result_text_hides_success_payload():
