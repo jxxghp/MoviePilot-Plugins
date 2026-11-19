@@ -813,11 +813,13 @@ class UpdateWeChatIp(_PluginBase):
             )]
         ]
 
-        empty_row = {"component": "div",
-                     "props": {"class": "text-center text-medium-emphasis py-8"},
-                     "text": "暂无 IP 更新记录"}
-        update_log_trs = update_log_trs or [empty_row]
-        update_log_mobile = update_log_mobile or [empty_row]
+        def _empty_row(display_class: str) -> dict:
+            return {"component": "div",
+                    "props": {"class": f"{display_class} text-center text-medium-emphasis py-8"},
+                    "text": "暂无 IP 更新记录"}
+
+        update_log_trs = update_log_trs or [_empty_row("d-none d-sm-block")]
+        update_log_mobile = update_log_mobile or [_empty_row("d-block d-sm-none")]
 
         log_header = {
             "component": "div",
