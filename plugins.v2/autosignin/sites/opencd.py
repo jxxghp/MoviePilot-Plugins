@@ -117,16 +117,29 @@ class Opencd(_ISiteSigninHandler):
                                     ua=ua,
                                     proxies=settings.PROXY if proxy else None
                                     ).post_res(url='https://www.open.cd/plugin_sign-in.php?cmd=signin', data=data)
-            if sign_res and sign_res.status_code == 200:
-                logger.debug(f"sign_res返回 {sign_res.text}")
-                # sign_res.text = '{"state":"success","signindays":"0","integral":"10"}'
+            if not sign_res or sign_res.status_code != 200:
+                logger.error(f"{site} 签到失败，签到接口请求失败")
+                return False, '签到失败，签到接口请求失败'
+
+            try:
                 sign_dict = json.loads(sign_res.text)
-                if sign_dict.get('state') == 'success':
-                    logger.info(f"{site} 签到成功")
-                    return True, '签到成功'
-                else:
-                    logger.error(f"{site} 签到失败，签到接口返回 {sign_dict}")
-                    return False, '签到失败'
+            except (ValueError, TypeError):
+                sign_dict = None
+            if not isinstance(sign_dict, dict):
+                logger.error(f"{site} 签到失败，签到接口响应格式异常")
+                return False, '签到失败，签到接口响应格式异常'
+
+            # sign_dict = {"state": "success", "signindays": "0", "integral": "10"}
+            if sign_dict.get('state') == 'success':
+                logger.info(f"{site} 签到成功")
+                return True, '签到成功'
+            elif str(sign_dict.get('state', '')).lower() == 'false' and not str(sign_dict.get('msg') or '').strip():
+                # 当日已签到后重复提交只回不带原因的 state=false；验证码错误等真实失败会带 msg。
+                logger.info(f"{site} 今日已签到")
+                return True, '今日已签到'
+            reason = ' '.join(str(sign_dict.get('msg') or '未返回成功状态').split())[:200]
+            logger.error(f"{site} 签到失败，签到接口返回：{reason}")
+            return False, f'签到失败，{reason}'
 
         logger.error(f'{site} 签到失败：未获取到验证码')
         return False, '签到失败：未获取到验证码'

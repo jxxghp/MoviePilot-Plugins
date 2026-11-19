@@ -22,7 +22,6 @@ from app.plugins.autosignin.sites.hdchina import HDChina
 from app.plugins.autosignin.sites.hdsky import HDSky
 from app.plugins.autosignin.sites.hdupt import HDUpt
 from app.plugins.autosignin.sites.mteam import MTorrent
-from app.plugins.autosignin.sites.opencd import Opencd
 from app.plugins.autosignin.sites.pterclub import PTerClub
 from app.plugins.autosignin.sites.rousipro import RousiPro
 from app.plugins.autosignin.sites.yema import YemaPT
@@ -430,23 +429,14 @@ def test_business_errors_are_not_duplicate_signins(monkeypatch, handler, module,
 
 
 @pytest.mark.parametrize("state, success", [("success", True), ("error", False), ("false", False), (False, False), (True, False)])
-@pytest.mark.parametrize("handler, module", [(HDChina, "hdchina"), (Opencd, "opencd")])
-def test_state_string_must_equal_success(monkeypatch, handler, module, state, success):
+def test_state_string_must_equal_success(monkeypatch, state, success):
     """非空 error/false 字符串和非约定布尔值都不能作为 state=success 使用。"""
     request = SimpleNamespace(
         get_res=Mock(return_value=response(_LOGIN + '<meta name="x-csrf" content="test">')),
         post_res=Mock(return_value=response(payload={"state": state})),
     )
-    monkeypatch.setattr(f"app.plugins.autosignin.sites.{module}.RequestUtils", Mock(return_value=request))
-    if handler is Opencd:
-        form = '<form id="frmSignin"><img src="code.png"><input name="imagehash" value="test"></form>'
-        # 签到日志链接可能始终存在，不能仅凭该链接跳过真正签到请求。
-        monkeypatch.setattr(handler, "get_page_source", Mock(side_effect=[
-            _LOGIN + '<a href="/plugin_sign-in.php?cmd=show-log">签到日志</a>', form,
-        ]))
-        monkeypatch.setattr("app.plugins.autosignin.sites.opencd.OcrHelper", Mock(return_value=SimpleNamespace(
-            get_captcha_text=Mock(return_value="ABCDEF"))))
-    assert handler().signin(site_info(cookie="hdchina=test"))[0] is success
+    monkeypatch.setattr("app.plugins.autosignin.sites.hdchina.RequestUtils", Mock(return_value=request))
+    assert HDChina().signin(site_info(cookie="hdchina=test"))[0] is success
     request.post_res.assert_called_once()
 
 

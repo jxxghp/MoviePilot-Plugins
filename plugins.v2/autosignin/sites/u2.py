@@ -26,6 +26,9 @@ class U2(_ISiteSigninHandler):
     # 顶部导航可能沿用昨日状态，只接受站点明确的当天完成提示。
     _sign_regex = [r'(?:感谢|感謝)[，,]\s*(?:今天|今日)已[签簽]到[。.!]']
 
+    # 发言区会引用站点公告原句（含「視為簽到失敗」），当天完成提示命中即确认，不被整页负向文案否掉。
+    positive_evidence_wins = True
+
     # 相对或绝对 URL 的跳转脚本仅用于诊断，不能作为回读条件或成功凭据。
     _success_redirect_regex = re.compile(
         r"window\s*\.\s*location\s*\.\s*href\s*=\s*['\"]([^'\"]+)['\"]"
