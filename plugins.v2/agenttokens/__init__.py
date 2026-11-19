@@ -26,7 +26,7 @@ class AgentTokens(_PluginBase):
     plugin_name = "Agent Tokens 管理"
     plugin_desc = "管理多平台 Token 配额，支持优先级选择、连续失败冷却和自动恢复。"
     plugin_icon = "agentresourceofficer.png"
-    plugin_version = "1.2.0"
+    plugin_version = "1.3.0"
     plugin_author = "jxxghp"
     author_url = "https://github.com/jxxghp"
     plugin_config_prefix = "agenttokens_"
@@ -235,10 +235,18 @@ class AgentTokens(_PluginBase):
     @classmethod
     def _normalize_provider(cls, provider: dict, index: int) -> dict:
         """
-        标准化单个供应商配置，并为旧配置补齐稳定 ID。
+        标准化供应商配置。旧记录未指定协议时继续沿用宿主设置。
         """
         provider = provider or {}
         provider_id = cls._clean_text(provider.get("id")) or uuid.uuid4().hex
+        provider_type = cls._clean_text(
+            provider.get("provider") or provider.get("llm_provider")
+        ) or "openai"
+        api_protocol = cls._clean_text(provider.get("api_protocol")).lower()
+        if provider_type.lower() not in {"openai", "chatgpt"} or api_protocol not in {
+            "auto", "chat_completions", "responses"
+        }:
+            api_protocol = ""
         token_limit = max(cls._to_int(provider.get("token_limit"), 0), 0)
         used_tokens = max(cls._to_int(provider.get("used_tokens"), 0), 0)
         priority = cls._to_int(provider.get("priority"), index + 1)
@@ -246,9 +254,8 @@ class AgentTokens(_PluginBase):
             "id": provider_id,
             "enabled": bool(provider.get("enabled", True)),
             "name": cls._clean_text(provider.get("name")) or f"Provider {index + 1}",
-            "provider": cls._clean_text(
-                provider.get("provider") or provider.get("llm_provider")
-            ) or "openai",
+            "provider": provider_type,
+            "api_protocol": api_protocol,
             "base_url": cls._clean_text(provider.get("base_url")),
             "api_key": cls._clean_text(provider.get("api_key")),
             "user_agent": cls._clean_text(provider.get("user_agent")),
@@ -532,7 +539,7 @@ class AgentTokens(_PluginBase):
     @eventmanager.register(ChainEventType.AgentLLMProvider, priority=50)
     def select_llm_provider(self, event: Event):
         """
-        响应 Agent LLM 供应商链式事件，按定向或自动模式写入可用供应商配置。
+        按定向或自动模式写入可用供应商配置，协议未指定时保留事件原值。
         """
         if not self.get_state() or not event or not event.event_data:
             return
@@ -586,6 +593,12 @@ class AgentTokens(_PluginBase):
         self._event_set(event.event_data, "use_proxy", bool(provider.get("use_proxy", True)))
         self._event_set(event.event_data, "model", provider.get("model"))
         self._event_set(event.event_data, "base_url_preset", None)
+        api_protocol = provider.get("api_protocol")
+        # MoviePilot 2.15.2 之前的类型化事件没有协议字段。
+        if api_protocol and (
+            isinstance(event.event_data, dict) or hasattr(event.event_data, "api_protocol")
+        ):
+            self._event_set(event.event_data, "api_protocol", api_protocol)
         self._event_set(event.event_data, "selected_provider_id", provider.get("id"))
         self._event_set(event.event_data, "selected_provider_name", provider.get("name"))
         self._event_set(event.event_data, "source", self.__class__.__name__)

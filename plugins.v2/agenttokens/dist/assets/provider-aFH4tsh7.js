@@ -14,6 +14,13 @@ const PROVIDER_TYPE_OPTIONS = [
   { title: 'ChatGPT', value: 'chatgpt' },
 ];
 
+const API_PROTOCOL_OPTIONS = [
+  { title: '跟随系统设置', value: '' },
+  { title: '自动', value: 'auto' },
+  { title: 'Chat Completions', value: 'chat_completions' },
+  { title: 'Responses', value: 'responses' },
+];
+
 // 构建一个新的供应商默认配置。
 function createProvider() {
   return {
@@ -21,6 +28,7 @@ function createProvider() {
     enabled: true,
     name: '',
     provider: 'openai',
+    api_protocol: '',
     base_url: '',
     api_key: '',
     user_agent: '',
@@ -145,4 +153,4 @@ function buildProviderSummary(rows) {
   }
 }
 
-export { PROVIDER_TYPE_OPTIONS as P, _export_sfc as _, buildProviderSummary as a, buildProviderRows as b, cloneConfig as c, createProvider as d, duplicateProvider as e, formatTokens as f, getNextProviderPriority as g, normalizeProvider as n, unwrapResponse as u };
+export { API_PROTOCOL_OPTIONS as A, PROVIDER_TYPE_OPTIONS as P, _export_sfc as _, buildProviderSummary as a, buildProviderRows as b, cloneConfig as c, createProvider as d, duplicateProvider as e, formatTokens as f, getNextProviderPriority as g, normalizeProvider as n, unwrapResponse as u };
