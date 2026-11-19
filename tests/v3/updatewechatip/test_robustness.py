@@ -127,3 +127,10 @@ def test_login_success_preserves_unknown_config_keys():
     plugin._login_success()
 
     assert plugin._config["custom"] == "keep"
+
+
+def test_fail_hint_recognizes_lowercase_errcode():
+    """小写 errcode 的登录失效响应也应给出重新扫码提示。"""
+    res = FakeResponse(text='{"errcode":-4,"errmsg":"outsession"}')
+
+    assert "登录已失效" in UpdateWeChatIp._fail_hint(res)

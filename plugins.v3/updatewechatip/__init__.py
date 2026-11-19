@@ -879,7 +879,7 @@ class UpdateWeChatIp(_PluginBase):
     @staticmethod
     def _fail_hint(res) -> str:
         """把失败响应转成可读原因：403 或 errCode -4 实为登录失效。"""
-        code = re.search(r'"errCode"\s*:\s*(-?\d+)', res.text or "")
+        code = re.search(r'"err[Cc]ode"\s*:\s*(-?\d+)', res.text or "")
         if res.status_code >= 400 or (code and int(code.group(1)) == -4):
             return "登录已失效，请重新扫码"
         return "接口返回错误"
