@@ -265,6 +265,17 @@ def test_form_exposes_optional_ip_urls_field():
     assert find_model(form, "_ip_urls")["component"] == "VTextField"
 
 
+def test_form_uses_single_line_field_for_app_id():
+    """应用ID使用单行输入框，避免长提示文字换行后被裁切。"""
+    plugin = UpdateWeChatIp.__new__(UpdateWeChatIp)
+
+    form, _ = plugin.get_form()
+
+    field = find_model(form, "_app_id")
+    assert field["component"] == "VTextField"
+    assert "rows" not in field["props"]
+
+
 def test_log_result_text_hides_success_payload():
     """成功记录不再把原始 JSON 当作结果展示。"""
     assert UpdateWeChatIp._log_result_text(

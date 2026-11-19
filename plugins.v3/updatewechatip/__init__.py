@@ -550,12 +550,13 @@ class UpdateWeChatIp(_PluginBase):
                                 },
                                 'content': [
                                     {
-                                        'component': 'VTextarea',
+                                        'component': 'VTextField',
                                         'props': {
                                             'model': '_app_id',
                                             'label': '[必填]应用ID',
-                                            'rows': 1,
-                                            'placeholder': '输入应用ID，多个使用英文逗号(,)隔开，在企业微信应用页面URL末尾获取'
+                                            'placeholder': '多个应用ID用英文逗号(,)隔开',
+                                            'hint': '在企业微信应用页面 URL 末尾获取',
+                                            'persistent-hint': True
                                         }
                                     }
                                 ]
