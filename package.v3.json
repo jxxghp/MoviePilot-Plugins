@@ -1332,5 +1332,19 @@
       "v1.0.1": "修复扫描死锁（锁改为可重入 RLock）；默认监控目录改为容器内路径 /media/Link；补齐 stop_service 资源释放；事件路径提取兼容字典条目；nfo 原子写入",
       "v1.0.0": "初始版本：整理完成事件触发 + 定时全量扫描双保险；文件名解析（多轨音频、DDP 全写法、DV 优先、码率、帧率）与独立脚本 strm_nfo_gen.py v3.1 一致"
     }
+  },
+  "SpecialEpisodeOrder": {
+    "name": "特典播放顺序",
+    "description": "精确映射 TMDb 与 TVDB 单集，补全 Season 0 特典播放位置，支持预览和修复已有 NFO。",
+    "labels": "刮削,Jellyfin,特典",
+    "version": "3.0.0",
+    "icon": "specialepisodeorder.png",
+    "author": "OpportunityLiu",
+    "level": 1,
+    "release": true,
+    "system_version": ">=3.2.6",
+    "history": {
+      "v3.0.0": "首版支持自动补全 Season 0 特典播放位置、存量 NFO 预览与修复、手动映射和持久化缓存。"
+    }
   }
 }
