@@ -19,6 +19,7 @@ from .repair import RepairRunner
 SCAN_RESULTS = {
     "preview": ("待补全", "info"),
     "updated": ("已补全", "success"),
+    "needs_correction": ("待修正", "warning"),
     "skipped": ("已跳过", "secondary"),
     "failed": ("失败", "error"),
 }
@@ -49,7 +50,7 @@ class SpecialEpisodeOrder(_PluginBase):
     plugin_name = "特典播放顺序"
     plugin_desc = "精确映射 TMDb 与 TVDB 单集，补全 Season 0 特典播放位置，支持预览和修复已有 NFO。"
     plugin_icon = "specialepisodeorder.png"
-    plugin_version = "3.0.1"
+    plugin_version = "3.1.0"
     plugin_author = "OpportunityLiu"
     author_url = "https://github.com/OpportunityLiu"
     plugin_config_prefix = "specialepisodeorder_"
@@ -151,7 +152,7 @@ class SpecialEpisodeOrder(_PluginBase):
                 or (mediainfo.scrape_source or settings.SCRAP_SOURCE) != "themoviedb"
                 or integer(mediainfo.tmdb_id, minimum=1) is None):
             return None
-        if not engine.client.configured:
+        if not engine.client.configured and not engine.has_local_overrides:
             logger.debug("特典播放顺序：缺少 TMDb 或 TVDB 密钥，沿用基础刮削")
             return None
         try:
@@ -209,7 +210,11 @@ class SpecialEpisodeOrder(_PluginBase):
                 {"component": "VCol", "props": {"cols": 12, "md": 4}, "content": [{"component": "VSwitch", "props": {"model": "onlyonce", "label": "立即运行一次"}}]},
             ]},
             {"component": "VTextarea", "props": {"class": "mb-4", "model": "paths", "label": "扫描目录（每行一个）", "rows": 3, "hint": "填写 MP 内可访问的本地目录；范围内须含 tvshow.nfo；留空不扫描。"}},
-            {"component": "VTextarea", "props": {"class": "mb-4", "model": "overrides", "label": "手动映射修正", "rows": 4, "placeholder": "938553=8636540", "hint": "每行 TMDb单集ID=TVDB单集ID；人工核实后填写；支持 # 注释。"}},
+            {"component": "VTextarea", "props": {
+                "class": "mb-4", "model": "overrides", "label": "手动映射修正", "rows": 4,
+                "placeholder": "938553,tvdb=8636540\n938554,airsafter_season=1\n938555,tvdb=8636542,airsbefore_episode=",
+                "hint": "每行以 TMDb 单集 ID 开头，用逗号分隔 tvdb 和播放位置字段。位置字段可留空以屏蔽 API 值。支持 # 注释。",
+            }},
             {"component": "VCheckbox", "props": {
                 "class": "mb-4", "model": "clear_cache", "label": "清空缓存",
                 "hint": "保存时执行一次。下次扫描会重新查询元数据。",
@@ -279,7 +284,7 @@ class SpecialEpisodeOrder(_PluginBase):
                             {"component": "div", "props": {"class": "text-body-2"}, "text": record["reason"]},
                         ],
                     },
-                    {"component": "td", "props": {"class": "text-no-wrap"}, "text": record.get("mapping_source") or "—"},
+                    {"component": "td", "props": {"class": "text-no-wrap"}, "content": SpecialEpisodeOrder._mapping_details(record)},
                     {"component": "td", "content": SpecialEpisodeOrder._position_diff(record)},
                 ],
             })
@@ -295,6 +300,18 @@ class SpecialEpisodeOrder(_PluginBase):
                 {"component": "tbody", "content": rows},
             ],
         }
+
+    @staticmethod
+    def _mapping_details(record: dict) -> list[dict]:
+        """展示映射来源与可独立选中的 TMDb 单集 ID。"""
+        content = [{"component": "strong", "text": record.get("mapping_source") or "—"}]
+        episode_id = record.get("tmdb_episode_id")
+        if episode_id is not None:
+            content.append({"component": "div", "props": {"class": "text-body-2"}, "content": [
+                {"component": "span", "text": "TMDb "},
+                {"component": "code", "props": {"style": "padding-block: 0; user-select: all"}, "text": str(episode_id)},
+            ]})
+        return content
 
     @staticmethod
     def _position_diff(record: dict) -> list[dict]:

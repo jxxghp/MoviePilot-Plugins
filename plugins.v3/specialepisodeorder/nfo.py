@@ -23,20 +23,49 @@ def integer(value: Any, *, minimum: int = 0) -> int | None:
     return number if number >= minimum else None
 
 
-def parse_overrides(text: str) -> dict[int, int]:
-    """解析每行 TMDb 单集 ID=TVDB 单集 ID；拒绝冲突或无效配置。"""
-    result: dict[int, int] = {}
+@dataclass
+class EpisodeOverride:
+    """保存指定的 TVDB 单集与位置字段，空值表示屏蔽对应位置。"""
+
+    tvdb_id: int | None
+    positions: dict[str, int | None]
+
+
+def parse_overrides(text: str) -> dict[int, EpisodeOverride]:
+    """按 TMDb 单集 ID 解析修正规则并拒绝歧义配置。"""
+    result: dict[int, EpisodeOverride] = {}
+    allowed = {"tvdb", *(tag for _, tag, _ in POSITION_TAGS)}
     for index, line in enumerate(text.splitlines(), 1):
-        line = line.strip()
-        if not line or line.startswith("#"):
+        line = line.partition("#")[0].strip()
+        if not line:
             continue
-        parts = line.split("=")
-        if len(parts) != 2:
-            raise ValueError(f"手动映射第 {index} 行格式应为 TMDb单集ID=TVDB单集ID")
-        source, target = (integer(part, minimum=1) for part in parts)
-        if source is None or target is None or (source in result and result[source] != target):
-            raise ValueError(f"手动映射第 {index} 行 ID 无效或与已有配置冲突")
-        result[source] = target
+        source_text, *assignments = line.split(",")
+        if not assignments:
+            source_text, equals, value = source_text.partition("=")
+            if equals:
+                assignments = [f"tvdb={value}"]
+        source = integer(source_text, minimum=1)
+        label = f"手动映射第 {index} 行"
+        if source is None or not assignments:
+            raise ValueError(f"{label}请使用 TMDb单集ID,tvdb=TVDB单集ID 或指定播放位置字段")
+        values: dict[str, int | None] = {}
+        for assignment in assignments:
+            name, equals, raw_value = assignment.partition("=")
+            name, raw_value = name.strip(), raw_value.strip()
+            if not equals or name not in allowed or name in values:
+                raise ValueError(f"{label}含未知、重复或格式无效的字段")
+            if name != "tvdb" and not raw_value:
+                values[name] = None
+                continue
+            value = integer(raw_value, minimum=1 if name == "tvdb" else 0)
+            if value is None:
+                valid_values = "正整数" if name == "tvdb" else "非负整数或留空"
+                raise ValueError(f"{label}的 {name} 必须为{valid_values}")
+            values[name] = value
+        override = EpisodeOverride(tvdb_id=values.pop("tvdb", None), positions=values)
+        if source in result and result[source] != override:
+            raise ValueError(f"{label}与同一 TMDb 单集的其他规则冲突")
+        result[source] = override
     return result
 
 
@@ -109,10 +138,15 @@ class Enrichment:
 class NfoEnricher:
     """为已确认的 TMDb 默认 Season 0 单集提供同一套补全规则。"""
 
-    def __init__(self, client: Any, overrides: dict[int, int] | None = None) -> None:
-        """注入外部查询客户端与人工核实的映射。"""
+    def __init__(self, client: Any, overrides: dict[int, EpisodeOverride] | None = None) -> None:
+        """注入外部查询客户端与手动修正规则。"""
         self.client = client
         self.overrides = dict(overrides or {})
+
+    @property
+    def has_local_overrides(self) -> bool:
+        """检查是否有可直接应用到基础刮削结果的位置规则。"""
+        return any(override.tvdb_id is None for override in self.overrides.values())
 
     def enrich(self, content: bytes | str, series_id: int, episode: int) -> Enrichment:
         """严格验证身份；所有失败均携带未改动的原始内容返回。"""
@@ -127,50 +161,23 @@ class NfoEnricher:
             if integer(node_text(nodes.get("season"))) != 0 or integer(node_text(nodes.get("episode")), minimum=1) != episode:
                 result.reason = "NFO 季集身份与请求不一致"
                 return result
+            result.tmdb_episode_id = tmdb_identity(root)
             if all(tag in nodes or alias in nodes for _, tag, alias in POSITION_TAGS):
                 result.reason = "播放位置字段已齐全"
                 return result
-            result.tmdb_episode_id = tmdb_identity(root)
             if result.tmdb_episode_id is None:
                 result.reason = "缺少有效且一致的 TMDb 单集身份"
                 return result
-            if not self.client.configured:
-                result.reason = "未配置 TMDb 或 TVDB 密钥"
-                return result
-            ids = self.client.episode_ids(series_id, episode)
-            if integer(ids.get("id"), minimum=1) != result.tmdb_episode_id:
-                result.reason = "单集 ID 与 TMDb 默认季集编号不一致；可能使用了剧集组"
-                return result
-            result.tvdb_episode_id = self.overrides.get(result.tmdb_episode_id)
-            if result.tvdb_episode_id is not None:
+            override = self.overrides.get(result.tmdb_episode_id)
+            if override is not None and override.tvdb_id is None:
                 result.mapping_source = "手动修正"
+                positions = override.positions
             else:
-                result.tvdb_episode_id = integer(ids.get("tvdb_id"), minimum=1)
-                if result.tvdb_episode_id is not None:
-                    result.mapping_source = "TMDb"
-            if result.tvdb_episode_id is None:
-                result.reason = "TMDb 未提供 TVDB 单集映射"
-                return result
-            try:
-                tvdb = self.client.episode(result.tvdb_episode_id)
-            except TvdbEpisodeNotFound as error:
-                if result.mapping_source == "TMDb":
-                    self.client.invalidate_episode_mapping(series_id, episode, ids)
-                result.reason = f"{error}，可配置手动映射修正"
-                return result
-            if not tvdb:
-                result.reason = "TVDB 未返回单集数据"
-                return result
-            if integer(tvdb.get("id"), minimum=1) != result.tvdb_episode_id:
-                result.reason = "TVDB 返回了不同的单集身份"
-                return result
-            show_ids = self.client.series_ids(series_id)
-            show_id = integer(show_ids.get("tvdb_id"), minimum=1)
-            if show_id is None or integer(tvdb.get("seriesId"), minimum=1) != show_id:
-                result.reason = "无法确认 TVDB 单集属于当前剧集，已拒绝补全"
-                return result
-            for source, tag, alias in POSITION_TAGS:
-                value = integer(tvdb.get(source))
+                positions = self._lookup_positions(result, series_id, episode, override)
+                if positions is None:
+                    return result
+            for _, tag, alias in POSITION_TAGS:
+                value = positions.get(tag)
                 if tag in nodes or alias in nodes or value is None:
                     continue
                 node = document.createElement(tag)
@@ -178,7 +185,7 @@ class NfoEnricher:
                 root.appendChild(node)
                 result.added[tag] = value
             if not result.added:
-                result.reason = "TVDB 无可补全位置或已有位置无需修改"
+                result.reason = "没有可补全的播放位置"
                 return result
             for element in document.getElementsByTagName("*"):
                 if any(child.nodeType == child.ELEMENT_NODE for child in element.childNodes):
@@ -192,3 +199,46 @@ class NfoEnricher:
         except Exception as error:
             result.status, result.reason = "failed", f"NFO 补全失败：{type(error).__name__}"
         return result
+
+    def _lookup_positions(
+        self, result: Enrichment, series_id: int, episode: int, override: EpisodeOverride | None,
+    ) -> dict[str, int | None] | None:
+        """核实 TMDb 默认季集与 TVDB 归属，再合并手动指定的位置。"""
+        if not self.client.configured:
+            result.reason = "未配置 TMDb 或 TVDB 密钥"
+            return None
+        ids = self.client.episode_ids(series_id, episode)
+        if integer(ids.get("id"), minimum=1) != result.tmdb_episode_id:
+            result.reason = "单集 ID 与 TMDb 默认季集编号不一致；可能使用了剧集组"
+            return None
+        if override is not None:
+            result.tvdb_episode_id = override.tvdb_id
+            result.mapping_source = "手动修正"
+        else:
+            result.tvdb_episode_id = integer(ids.get("tvdb_id"), minimum=1)
+            if result.tvdb_episode_id is not None:
+                result.mapping_source = "TMDb"
+        if result.tvdb_episode_id is None:
+            result.status, result.reason = "needs_correction", "TMDb 未提供 TVDB 单集映射"
+            return None
+        try:
+            tvdb = self.client.episode(result.tvdb_episode_id)
+        except TvdbEpisodeNotFound as error:
+            if override is None:
+                self.client.invalidate_episode_mapping(series_id, episode, ids)
+            result.status, result.reason = "needs_correction", f"{error}，可配置手动映射修正"
+            return None
+        if not tvdb:
+            result.status, result.reason = "needs_correction", "TVDB 未返回单集数据"
+            return None
+        if integer(tvdb.get("id"), minimum=1) != result.tvdb_episode_id:
+            result.status, result.reason = "needs_correction", "TVDB 返回了不同的单集身份"
+            return None
+        show_id = integer(self.client.series_ids(series_id).get("tvdb_id"), minimum=1)
+        if show_id is None or integer(tvdb.get("seriesId"), minimum=1) != show_id:
+            result.status, result.reason = "needs_correction", "无法确认 TVDB 单集属于当前剧集，已拒绝补全"
+            return None
+        positions = {tag: integer(tvdb.get(source)) for source, tag, _ in POSITION_TAGS}
+        if override is not None:
+            positions.update(override.positions)
+        return positions

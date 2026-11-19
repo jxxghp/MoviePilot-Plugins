@@ -67,9 +67,21 @@ def test_enrichment_preserves_content_type_and_format(client, as_bytes):
 def test_manual_override_and_cross_season_numbering(client):
     """人工修正优先于失效映射，TVDB 集号不同也可按身份精确匹配。"""
     client.episode.return_value.update(id=8636540, number=50, seasonNumber=0)
-    result = NfoEnricher(client, {938553: 8636540}).enrich(nfo(), 56353, 2)
+    result = NfoEnricher(client, parse_overrides("938553,tvdb=8636540")).enrich(nfo(), 56353, 2)
     assert result.status == "updated"
     assert result.mapping_source == "手动修正"
+    client.episode.assert_called_once_with(8636540)
+
+
+def test_manual_positions_merge_with_tvdb_and_suppress_explicit_empty_field(client):
+    """配置值优先，省略的位置沿用 API，显式留空的位置不写入。"""
+    client.episode.return_value.update(id=8636540, airsBeforeSeason=2, airsBeforeEpisode=7)
+    overrides = parse_overrides("938553,tvdb=8636540,airsafter_season=0,airsbefore_episode=")
+    result = NfoEnricher(client, overrides).enrich(nfo(), 56353, 2)
+
+    assert result.status == "updated"
+    assert result.added == {"airsafter_season": 0, "airsbefore_season": 2}
+    assert "airsbefore_episode" not in tags(result.content)
     client.episode.assert_called_once_with(8636540)
 
 
@@ -110,21 +122,21 @@ def test_repeated_enrichment_is_idempotent(client):
     assert second.content is first.content
 
 
-@pytest.mark.parametrize("mutate", [
-    lambda c: c.episode_ids.return_value.update(id=999),
-    lambda c: c.episode_ids.return_value.update(tvdb_id=None),
-    lambda c: setattr(c, "configured", False),
-    lambda c: c.episode.return_value.clear(),
-    lambda c: c.episode.return_value.update(id=999),
-    lambda c: c.episode.return_value.update(seriesId=999),
-    lambda c: c.series_ids.return_value.clear(),
+@pytest.mark.parametrize("mutate,status", [
+    (lambda c: c.episode_ids.return_value.update(id=999), "skipped"),
+    (lambda c: c.episode_ids.return_value.update(tvdb_id=None), "needs_correction"),
+    (lambda c: setattr(c, "configured", False), "skipped"),
+    (lambda c: c.episode.return_value.clear(), "needs_correction"),
+    (lambda c: c.episode.return_value.update(id=999), "needs_correction"),
+    (lambda c: c.episode.return_value.update(seriesId=999), "needs_correction"),
+    (lambda c: c.series_ids.return_value.clear(), "needs_correction"),
 ])
-def test_unverified_identity_does_not_modify_nfo(client, mutate):
-    """错集、缺映射、404、缺密钥与跨剧映射均保留原文件。"""
+def test_unverified_identity_does_not_modify_nfo(client, mutate, status):
+    """保留原文件，并区分需要修正的映射和普通跳过。"""
     mutate(client)
     original = nfo()
     result = NfoEnricher(client).enrich(original, 56353, 2)
-    assert result.status == "skipped"
+    assert result.status == status
     assert result.content is original
 
 
@@ -154,7 +166,11 @@ def test_unsuitable_nfo_does_not_query_network(client, original):
     client.episode_ids.assert_not_called()
 
 
-@pytest.mark.parametrize("text", ["bad", "1=2=3", "0=1", "1=-1", "1=2\n1=3", "True=4"])
+@pytest.mark.parametrize("text", [
+    "bad", "1=2=3", "0=1", "1=-1", "1=2\n1=3", "True=4",
+    "1,tvdb=", "1,tvdb=0", "1,airsbefore_episode=-1", "1,other=2", "1,airsafter_season",
+    "1,tvdb=2,tvdb=3", "1,airsafter_season=2\n1,airsafter_season=3",
+])
 def test_invalid_override_configuration(text):
     """错误配置整体失败，避免悄悄丢弃用户输入。"""
     with pytest.raises(ValueError):
@@ -163,7 +179,12 @@ def test_invalid_override_configuration(text):
 
 def test_valid_override_comments_and_duplicates():
     """允许空行、注释和相同映射的重复声明。"""
-    assert parse_overrides("# 已核实\n938553=8636540\n\n938553 = 8636540") == {938553: 8636540}
+    assert parse_overrides("# 已核实\n938553=8636540\n\n938553 , tvdb = 8636540 # 同一集") == parse_overrides(
+        "938553,tvdb=8636540"
+    )
+    rule = parse_overrides("938555,airsafter_season=0,airsbefore_season=2,airsbefore_episode=")[938555]
+    assert rule.tvdb_id is None
+    assert rule.positions == {"airsafter_season": 0, "airsbefore_season": 2, "airsbefore_episode": None}
     assert integer(True) is None
 
 
@@ -201,6 +222,27 @@ def test_preview_shows_before_and_proposed_after_without_writing(client, tmp_pat
     assert path.read_bytes() == original
     assert set(tmp_path.rglob("*")) == files
     debug.assert_not_called()
+
+
+def test_manual_positions_preview_and_repair_use_only_local_values(client, library):
+    """存量预览与修复仅应用指定的位置，无密钥也可处理。"""
+    root, path = library
+    original = path.read_bytes()
+    client.configured = False
+    overrides = parse_overrides("938553,airsbefore_season=2,airsbefore_episode=0")
+    runner = RepairRunner(NfoEnricher(client, overrides), Event(), RLock())
+
+    preview = runner.run([str(root)])["records"][0]
+    assert preview["status"] == "preview"
+    assert preview["after"] == {"airsafter_season": None, "airsbefore_season": "2", "airsbefore_episode": "0"}
+    assert preview["mapping_source"] == "手动修正"
+    assert preview["tmdb_episode_id"] == 938553
+    assert path.read_bytes() == original
+    updated = runner.run([str(root)], dry_run=False)["records"][0]
+    assert updated["status"] == "updated" and updated["after"] == preview["after"]
+    assert "airsafter_season" not in tags(path.read_bytes())
+    assert tags(path.read_bytes())["airsbefore_episode"] == "0"
+    assert client.mock_calls == []
 
 
 def test_apply_logs_changes_preserves_permissions_and_creates_no_extra_files(client, tmp_path, library, monkeypatch):
@@ -286,6 +328,7 @@ def test_symlinks_and_missing_show_are_not_written(client, tmp_path, library):
     report = runner_for(client).run([str(path.parent)], dry_run=False)
     assert report["counts"] == {"skipped": 1}
     assert "tvshow.nfo" in report["records"][0]["reason"]
+    assert report["records"][0]["tmdb_episode_id"] == 938553
     client.episode.assert_not_called()
 
 
@@ -366,6 +409,23 @@ def test_auto_nfo_uses_system_module_without_recursive_dispatch(plugin, client, 
     assert "airsafter_season：未设置 → 1" in debug.call_args.args[0]
 
 
+def test_auto_nfo_applies_direct_position_without_api_keys(plugin, monkeypatch):
+    """基础刮削 NFO 可直接应用手动位置，插件无需访问 API。"""
+    monkeypatch.setattr(MetadataClient, "configured", False)
+    plugin.init_plugin({"enabled": True, "overrides": "938553,airsafter_season=1"})
+    module = MagicMock()
+    module.metadata_nfo.return_value = nfo()
+    manager = MagicMock()
+    manager.get_running_modules.return_value = [module]
+    monkeypatch.setattr(plugin_module, "ModuleManager", lambda: manager)
+    network = MagicMock(side_effect=AssertionError("直接指定位置无需访问 API"))
+    monkeypatch.setattr(plugin._engine.client, "_http", network)
+
+    result = plugin.metadata_nfo(None, media(), 0, 2)
+    assert tags(result)["airsafter_season"] == "1"
+    network.assert_not_called()
+
+
 def test_client_cache_and_token_refresh(monkeypatch):
     """缓存命中不重复请求；TVDB 401 仅重新登录一次。"""
     def response(code=200, data=None):
@@ -427,7 +487,7 @@ def test_tvdb_404_evicts_old_tmdb_mapping_and_retries_on_next_run(monkeypatch):
     engine = NfoEnricher(client)
     for _ in range(2):
         result = engine.enrich(nfo(), 56353, 2)
-        assert result.status == "skipped" and "404" in result.reason
+        assert result.status == "needs_correction" and "404" in result.reason
         client.flush_cache()
         assert stored[cache_key] == {series_key: {"tvdb_id": 194961}}
 
@@ -443,8 +503,8 @@ def test_tvdb_404_evicts_old_tmdb_mapping_and_retries_on_next_run(monkeypatch):
 def test_tvdb_404_for_manual_override_preserves_tmdb_mapping(client):
     """手动指定的 TVDB ID 失效时保留独立的 TMDb 自动映射。"""
     client.episode.side_effect = TvdbEpisodeNotFound("TVDB 单集不存在（404）")
-    result = NfoEnricher(client, {938553: 8636540}).enrich(nfo(), 56353, 2)
-    assert result.status == "skipped" and "404" in result.reason
+    result = NfoEnricher(client, parse_overrides("938553,tvdb=8636540")).enrich(nfo(), 56353, 2)
+    assert result.status == "needs_correction" and "404" in result.reason
     client.episode.assert_called_once_with(8636540)
     client.invalidate_episode_mapping.assert_not_called()
 
@@ -565,16 +625,18 @@ def test_report_page_formats_summary_and_field_diff_as_renderable_text(plugin, m
             "status": "preview",
             "reason": "可补全缺失的播放位置",
             "mapping_source": "TMDb",
+            "tmdb_episode_id": 938553,
             "before": {"airsafter_season": None, "airsbefore_season": "0", "airsbefore_episode": ""},
             "after": {"airsafter_season": "2", "airsbefore_season": "0", "airsbefore_episode": ""},
         }
         for path in paths
     ]
+    records[-1].update(status="needs_correction", reason="TMDb 未提供 TVDB 单集映射", mapping_source="")
     monkeypatch.setattr(plugin_module.settings, "TZ", "Asia/Shanghai")
     plugin._last_report = {
         "dry_run": True,
         "status": "completed",
-        "counts": {"preview": 24},
+        "counts": {"preview": 23, "needs_correction": 1},
         "records": records,
         "finished_at": datetime(2026, 11, 19, 8, 30, 45, tzinfo=timezone.utc),
     }
@@ -585,13 +647,19 @@ def test_report_page_formats_summary_and_field_diff_as_renderable_text(plugin, m
     assert {"airsafter_season", "airsbefore_season", "airsbefore_episode", "0", "空值"}.issubset(texts)
     assert {node["text"] for node in nodes if node.get("props", {}).get("class") == "text-error"} == {"未设置"}
     assert {node["text"] for node in nodes if node.get("props", {}).get("class") == "text-success"} == {"2"}
-    assert "预览完成 · 待补全 24 项" in texts
+    assert "预览完成 · 待补全 23 项 · 待修正 1 项" in texts
+    assert any(node.get("text") == "待修正" and node["props"]["class"] == "text-warning" for node in nodes)
     assert "扫描结束于 2026-11-19 16:30:45+08:00" in texts
     first_row = next(node for node in nodes if node["component"] == "tr" and node["content"][0]["component"] == "td")
     dir_line, file_line = first_row["content"][0]["content"]
     assert dir_line["text"] == "/library/"
     assert file_line["text"] == "<img src=x onerror=alert(1)>.nfo"
     assert [node["text"] for node in first_row["content"][1]["content"]] == ["待补全", "可补全缺失的播放位置"]
+    source_line, id_line = first_row["content"][2]["content"]
+    assert source_line == {"component": "strong", "text": "TMDb"}
+    assert id_line["props"]["class"] == "text-body-2"
+    id_code = id_line["content"][1]
+    assert id_code["text"] == "938553" and "user-select: all" in id_code["props"]["style"]
     assert sum(node.get("component") == "tr" for node in nodes) == 25
     assert not any(node.get("html") for node in nodes)
 

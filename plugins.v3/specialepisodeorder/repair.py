@@ -117,10 +117,14 @@ class RepairRunner:
                         series_id = show_ids[path.parent]
                         if series_id is None:
                             record["reason"] = "扫描范围内缺少有效的 tvshow.nfo 剧集身份"
+                            record["tmdb_episode_id"] = tmdb_identity(root_node)
                             self._record(report, record)
                             continue
                         outcome = self.engine.enrich(original, series_id, episode)
-                        record.update(status=outcome.status, reason=outcome.reason, mapping_source=outcome.mapping_source)
+                        record.update(
+                            status=outcome.status, reason=outcome.reason,
+                            mapping_source=outcome.mapping_source, tmdb_episode_id=outcome.tmdb_episode_id,
+                        )
                         if outcome.status == "updated":
                             if dry_run:
                                 record.update(status="preview", reason="可补全缺失的播放位置")
