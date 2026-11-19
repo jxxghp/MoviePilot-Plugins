@@ -628,27 +628,54 @@ class UpdateWeChatIp(_PluginBase):
         raw_data = self.get_data(self._UpdateLogKey) or []
         update_log: List[UpdateLogDto] = [UpdateLogDto.from_dict(i) for i in raw_data]
         data_list = sorted(update_log, key=lambda x: x.UpdateTime, reverse=True)[:self._update_log_limit]
+        groups: List[tuple[tuple[str, str], List[UpdateLogDto]]] = []
+        for row in data_list:
+            group_key = (row.ip, row.UpdateTime.strftime('%Y-%m-%d %H:%M:%S'))
+            if groups and groups[-1][0] == group_key:
+                groups[-1][1].append(row)
+            else:
+                groups.append((group_key, [row]))
 
         update_log_trs = [
-            {"component": "tr", "content": [
-                {"component": "td", "content": [{
-                    "component": "VChip",
-                    "props": {"size": "x-small", "variant": "flat",
-                              "color": "success" if data.status else "error"},
-                    "text": "成功" if data.status else "失败"}]},
-                {"component": "td", "props": {"class": "text-no-wrap"}, "text": data.app_id},
-                {"component": "td", "props": {"class": "text-no-wrap font-monospace"}, "text": data.ip},
-                {"component": "td", "content": [{
-                    "component": "span",
-                    "props": {
-                        "style": {"whiteSpace": "nowrap"},
-                        "title": self._result_brief(data.result, 500),
-                    },
-                    "text": self._log_result_text(data.status, data.result)}]},
-                {"component": "td", "props": {"class": "text-no-wrap text-caption"},
-                 "text": data.UpdateTime.strftime('%Y-%m-%d %H:%M:%S')},
-            ]}
-            for data in data_list
+            {
+                "component": "tr",
+                "content": [
+                    {"component": "td", "props": {"class": "px-2", "style": {"width": "80px"}}, "content": [{
+                        "component": "VChip",
+                        "props": {
+                            "size": "x-small",
+                            "variant": "flat",
+                            "color": "success" if all_ok else ("warning" if any_ok else "error"),
+                        },
+                        "text": "成功" if all_ok else ("部分失败" if any_ok else "失败")}]},
+                    {"component": "td", "props": {"class": "px-2", "style": {"width": "160px"}}, "content": [{
+                        "component": "div",
+                        "props": {"class": "d-flex flex-column"},
+                        "content": [{"component": "span", "text": app_id} for app_id in row_app_ids],
+                    }]},
+                    {"component": "td", "props": {"class": "text-no-wrap font-monospace px-2", "style": {"width": "150px"}},
+                     "text": group[-1].ip},
+                    {"component": "td", "props": {"class": "px-2"}, "content": [{
+                        "component": "span",
+                        "props": {
+                            "style": {"whiteSpace": "nowrap"},
+                            "title": self._result_brief(group[-1].result, 500),
+                        },
+                        "text": (
+                            self._log_result_text(all_ok, group[-1].result)
+                            if all_ok or not any_ok
+                            else f"{sum(1 for row in group if row.status)} 个成功，{sum(1 for row in group if not row.status)} 个失败"
+                        )}]},
+                    {"component": "td", "props": {"class": "text-no-wrap text-caption px-2", "style": {"width": "170px"}},
+                     "text": group[-1].UpdateTime.strftime('%Y-%m-%d %H:%M:%S')},
+                ],
+            }
+            for _, group in groups
+            for all_ok, any_ok, row_app_ids in [(
+                all(row.status for row in group),
+                any(row.status for row in group),
+                list(dict.fromkeys(row.app_id for row in group)),
+            )]
         ] or [{"component": "tr", "content": [
             {"component": "td", "props": {"colspan": 5, "class": "text-center text-medium-emphasis py-6"},
              "text": "暂无 IP 更新记录"}]}]
@@ -665,14 +692,15 @@ class UpdateWeChatIp(_PluginBase):
         return [
             {
                 "component": "VRow",
+                "props": {"class": "ma-0"},
                 "content": [
                     {
                         "component": "VCol",
-                        "props": {"cols": 12},
+                        "props": {"cols": 12, "class": "pa-0"},
                         "content": [
                             {"component": "VCard", "props": {"variant": "tonal", "class": "mb-4"}, "content": [
                                 {"component": "VCardText",
-                                 "props": {"class": "d-flex flex-wrap align-center ga-2"},
+                                 "props": {"class": "d-flex flex-wrap align-center ga-2 px-3 py-2"},
                                  "content": [
                                      {"component": "VChip",
                                       "props": {"size": "small", "variant": "flat",
@@ -688,24 +716,34 @@ class UpdateWeChatIp(_PluginBase):
                                  ]}]},
                             {"component": "VCard", "props": {"variant": "outlined"}, "content": [
                                 {"component": "VCardTitle",
-                                 "props": {"class": "d-flex align-center justify-space-between text-body-1"},
+                                 "props": {"class": "d-flex align-center justify-space-between flex-wrap ga-2 text-body-1"},
                                  "content": [
-                                     {"component": "span", "text": "IP 更新记录"},
+                                     {"component": "div",
+                                      "props": {"class": "d-flex align-center flex-wrap ga-3"},
+                                      "content": [{"component": "span", "text": "IP 更新记录"}]},
                                      {"component": "VChip", "props": {"size": "x-small", "variant": "text"},
-                                      "text": f"最近 {len(data_list)} 条"}]},
+                                      "text": f"最近 {len(groups)} 条"}]},
                                 {"component": "VCardText",
                                  "props": {"class": "pa-0",
                                            "style": {"maxHeight": "360px", "overflow": "auto"}},
                                  "content": [
                                      {"component": "VTable",
-                                      "props": {"hover": True, "density": "compact"},
+                                      "props": {"hover": True, "density": "compact",
+                                                "style": {"tableLayout": "fixed", "width": "100%"}},
                                       "content": [
                                           {"component": "thead", "props": {"class": "text-no-wrap"},
-                                           "content": [{"component": "th",
-                                                        "props": {"class": "text-start ps-4"},
-                                                        "text": name}
-                                                       for name in ("状态", "应用ID", "更新IP",
-                                                                    "结果", "更新时间")]},
+                                           "content": [
+                                               {"component": "th",
+                                                "props": {"class": "text-start px-2", "style": {"width": width}},
+                                                "text": name}
+                                               for name, width in (
+                                                   ("状态", "80px"),
+                                                   ("应用ID", "160px"),
+                                                   ("更新IP", "150px"),
+                                                   ("结果", "auto"),
+                                                   ("更新时间", "170px"),
+                                               )
+                                           ]},
                                           {"component": "tbody", "content": update_log_trs}]}]},
                             ]},
                         ],

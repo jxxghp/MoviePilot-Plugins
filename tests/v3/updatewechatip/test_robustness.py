@@ -319,6 +319,40 @@ def test_page_only_shows_app_id_in_records_table():
     assert "appId" not in texts
 
 
+def test_page_groups_same_check_app_ids_in_one_cell():
+    """同一次检测的多个应用ID合并到一行，并在单元格内分行展示。"""
+    plugin = UpdateWeChatIp.__new__(UpdateWeChatIp)
+    plugin._app_id = "app1,app2"
+    plugin._is_login = True
+    plugin._ip = "1.2.3.4"
+    plugin._party_cache_data = {"party_list": {"list": [{"name": "小螺号"}]}}
+    plugin.get_data = lambda key: [
+        {"status": True, "ip": "1.2.3.4", "app_id": "app1",
+         "result": "{}", "UpdateTime": "2026-11-20T01:00:00.100000"},
+        {"status": True, "ip": "1.2.3.4", "app_id": "app2",
+         "result": "{}", "UpdateTime": "2026-11-20T01:00:00.900000"},
+    ]
+
+    page = plugin.get_page()
+
+    texts = []
+
+    def collect(node):
+        if isinstance(node, dict):
+            if "text" in node:
+                texts.append(node["text"])
+            for value in node.values():
+                collect(value)
+        elif isinstance(node, list):
+            for item in node:
+                collect(item)
+
+    collect(page)
+    assert "最近 1 条" in texts
+    assert "app1" in texts
+    assert "app2" in texts
+
+
 def test_log_result_text_hides_success_payload():
     """成功记录不再把原始 JSON 当作结果展示。"""
     assert UpdateWeChatIp._log_result_text(
