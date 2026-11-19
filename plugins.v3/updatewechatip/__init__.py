@@ -89,6 +89,8 @@ class UpdateWeChatIp(_PluginBase):
     _default_ip_urls = ["https://myip.ipip.net", "https://ddns.oray.com/checkip",
                         "https://ip.3322.net", "https://ipv4.ddnspod.com",
                         "https://ipv4.ip.mir6.com"]
+    # init_plugin 之前直接调用查询时也有内置列表可用
+    _ip_urls = list(_default_ip_urls)
     _ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
 
     _headers = {
@@ -119,7 +121,11 @@ class UpdateWeChatIp(_PluginBase):
         self._app_id = config.get("_app_id")
         self._cron = config.get("_cron")
         self._party_cache_data = config.get("_party_cache_data")
-        self._ip_urls = self._parse_ip_urls(config.get("_ip_urls")) or list(self._default_ip_urls)
+        configured_ip_urls = config.get("_ip_urls")
+        parsed_ip_urls = self._parse_ip_urls(configured_ip_urls)
+        if str(configured_ip_urls or "").strip() and not parsed_ip_urls:
+            logger.warning("IPv4 查询接口配置均无效，已使用内置列表")
+        self._ip_urls = parsed_ip_urls or list(self._default_ip_urls)
 
         self._se = requests.Session()
         self._se.cookies.set('wwrtx.sid', self._wwrtx_sid)
@@ -418,7 +424,12 @@ class UpdateWeChatIp(_PluginBase):
 
     def UpdateIp(self, ip):
         """更新指定 IP 的企业微信可信IP配置。"""
-        self._ip = ip
+        candidate = str(ip or "").strip()
+        try:
+            ipaddress.IPv4Address(candidate)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="非法 IPv4 地址")
+        self._ip = candidate
         self._save_ip_config()
 
     def get_img(self, uuid: str, t: Optional[str] = None):

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 import requests
+from fastapi import HTTPException
 
 from app.plugins.updatewechatip import UpdateLogDto, UpdateWeChatIp
 
@@ -299,3 +300,33 @@ def test_save_ip_records_http_status_for_empty_error_response():
     plugin._save_ip_config()
 
     assert plugin._saved[1][0]["result"] == "HTTP 403"
+
+
+def test_ip_urls_have_class_level_default():
+    """未执行 init_plugin 时也能直接使用内置接口列表。"""
+    assert UpdateWeChatIp._ip_urls == UpdateWeChatIp._default_ip_urls
+
+
+def test_update_ip_rejects_invalid_ipv4():
+    """接口传入非法地址时返回 400，不向企微发请求。"""
+    plugin = make_plugin(SimpleNamespace())
+    called = []
+    plugin._save_ip_config = lambda: called.append(True)
+
+    with pytest.raises(HTTPException) as exc_info:
+        plugin.UpdateIp("999.999.999.999")
+
+    assert exc_info.value.status_code == 400
+    assert not called
+
+
+def test_update_ip_accepts_valid_ipv4_and_trims():
+    """合法地址去掉首尾空格后写入。"""
+    plugin = make_plugin(SimpleNamespace())
+    called = []
+    plugin._save_ip_config = lambda: called.append(True)
+
+    plugin.UpdateIp(" 1.2.3.4 ")
+
+    assert plugin._ip == "1.2.3.4"
+    assert called
