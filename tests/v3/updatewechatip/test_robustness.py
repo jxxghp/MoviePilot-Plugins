@@ -180,3 +180,20 @@ def test_get_buttons_use_passed_qrcode_key():
     callbacks = [button["callback_data"] for row in buttons for button in row]
 
     assert callbacks and all(callback.endswith("|new-key") for callback in callbacks)
+
+
+def test_confirm_captcha_passes_tl_key_as_params():
+    """tl_key 应作为查询参数交给 requests 编码，避免特殊字符破坏 URL。"""
+    calls = {}
+
+    def get(url, **kwargs):
+        calls["url"] = url
+        calls["kwargs"] = kwargs
+        return FakeResponse()
+
+    plugin = make_plugin(SimpleNamespace(post=lambda *args, **kwargs: FakeResponse(), get=get))
+
+    plugin._confirm_captcha("a+b&c", "123456")
+
+    assert calls["url"].endswith("/login/choose_corp")
+    assert calls["kwargs"]["params"] == {"tl_key": "a+b&c"}

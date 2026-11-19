@@ -794,7 +794,8 @@ class UpdateWeChatIp(_PluginBase):
         res = self._se.post(_url, json=_data, headers=self._headers, timeout=15)
         logger.info(f"提交验证码返回值:{self._result_brief(res.text)}")
         res = self._se.get(
-            f"https://work.weixin.qq.com/wework_admin/login/choose_corp?tl_key={tl_key}",
+            "https://work.weixin.qq.com/wework_admin/login/choose_corp",
+            params={'tl_key': tl_key},
             headers=self._headers,
             timeout=15,
         )
