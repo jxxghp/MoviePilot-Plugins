@@ -276,6 +276,47 @@ def test_form_uses_single_line_field_for_app_id():
     assert "rows" not in field["props"]
 
 
+def test_form_shows_persistent_hints_for_cron_and_app_id():
+    """检测周期和应用ID都应显示常驻说明。"""
+    plugin = UpdateWeChatIp.__new__(UpdateWeChatIp)
+
+    form, _ = plugin.get_form()
+
+    cron = find_model(form, "_cron")["props"]
+    assert cron["hint"].startswith("5位 cron 表达式")
+    assert cron["persistent-hint"] is True
+    app_id = find_model(form, "_app_id")["props"]
+    assert app_id["hint"] == "在企业微信应用页面 URL 末尾获取"
+    assert app_id["persistent-hint"] is True
+
+
+def test_page_shows_app_id_in_status_bar():
+    """详情页状态栏应显示当前配置的应用ID。"""
+    plugin = UpdateWeChatIp.__new__(UpdateWeChatIp)
+    plugin._app_id = "app1,app2"
+    plugin._is_login = True
+    plugin._ip = "1.2.3.4"
+    plugin._party_cache_data = {"party_list": {"list": [{"name": "小螺号"}]}}
+    plugin.get_data = lambda key: []
+
+    page = plugin.get_page()
+
+    texts = []
+
+    def collect(node):
+        if isinstance(node, dict):
+            if "text" in node:
+                texts.append(node["text"])
+            for value in node.values():
+                collect(value)
+        elif isinstance(node, list):
+            for item in node:
+                collect(item)
+
+    collect(page)
+    assert "应用ID：app1,app2" in texts
+
+
 def test_log_result_text_hides_success_payload():
     """成功记录不再把原始 JSON 当作结果展示。"""
     assert UpdateWeChatIp._log_result_text(

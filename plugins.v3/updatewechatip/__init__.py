@@ -537,7 +537,9 @@ class UpdateWeChatIp(_PluginBase):
                                         'props': {
                                             'model': '_cron',
                                             'label': '[必填]检测周期',
-                                            'placeholder': '*/10 * * * *'
+                                            'placeholder': '*/10 * * * *',
+                                            'hint': '5位 cron 表达式，按此周期检测登录状态并更新可信 IP',
+                                            'persistent-hint': True
                                         }
                                     }
                                 ]
@@ -678,6 +680,8 @@ class UpdateWeChatIp(_PluginBase):
                                       "text": "已登录" if self._is_login else "登录失效"},
                                      {"component": "span", "props": {"class": "text-body-2"},
                                       "text": f"应用：{party_name}"},
+                                     {"component": "span", "props": {"class": "text-caption text-medium-emphasis"},
+                                      "text": f"应用ID：{self._app_id or '未配置'}"},
                                      {"component": "span", "props": {"class": "text-caption text-medium-emphasis"},
                                       "text": f"当前 IP：{self._ip or '未获取'}"},
                                      {"component": "span", "props": {"class": "text-caption text-medium-emphasis"},
