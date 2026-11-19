@@ -160,3 +160,17 @@
   - 只有支持按钮回调的通知渠道（如Telegram、Slack）才能使用此功能
   - 建议在交互中保存用户状态数据，以支持复杂的多步骤操作
   - 可以结合插件数据存储功能保存用户的交互历史和偏好设置
+
+## 图片与附件使用统一通知接口
+
+插件只表达内容与接收对象，不需要根据 Telegram、企微应用/机器人、飞书等渠道选择图片或文件协议：
+
+```python
+self.post_message(title="登录二维码", text="请扫码完成登录", image=image_source, native_image=True)
+self.post_message(title="字幕附件", file_path=subtitle_path, file_name="subtitle.srt")
+```
+
+原图支持 HTTP(S)、Base64 或本地 JPG/PNG，图片上传与平台素材标识由宿主负责。
+附件保留源文件；同时提供图片与文件时保留两者和说明文字。不支持上传的渠道由宿主使用现有图片链接
+或明确提示，插件不要把本地路径拼成下载地址，也不要自行维护渠道能力名单。
+省略 `native_image` 时保留既有海报通知样式；渠道和来源参数仍按原有通知规则路由。
