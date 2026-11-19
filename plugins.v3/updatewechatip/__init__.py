@@ -640,38 +640,47 @@ class UpdateWeChatIp(_PluginBase):
             {
                 "component": "tr",
                 "content": [
-                    {"component": "td", "props": {"class": "px-2"}, "content": [{
+                    {"component": "td", "props": {"class": "px-4 py-2",
+                                                  "style": {"verticalAlign": "top"}}, "content": [{
                         "component": "VChip",
                         "props": {
                             "size": "x-small",
                             "variant": "flat",
+                            "rounded": "pill",
                             "color": "success" if all_ok else ("warning" if any_ok else "error"),
                         },
                         "text": "成功" if all_ok else ("部分失败" if any_ok else "失败")}]},
-                    {"component": "td", "props": {"class": "px-2", "style": {"width": "160px"}}, "content": [{
+                    {"component": "td", "props": {"class": "px-4 py-2",
+                                                  "style": {"width": "190px", "verticalAlign": "top"}}, "content": [{
                         "component": "div",
-                        "props": {"class": "d-flex flex-column"},
+                        "props": {"class": "d-flex flex-column font-monospace text-caption"},
                         "content": [
                             {"component": "span",
+                             "props": {"class": "text-no-wrap" if index == len(group) - 1 else "text-no-wrap mb-1"},
                              "text": row.app_id + ("," if index < len(group) - 1 else "")}
                             for index, row in enumerate(group)
                         ],
                     }]},
-                    {"component": "td", "props": {"class": "text-no-wrap font-monospace px-2"},
+                    {"component": "td", "props": {"class": "text-no-wrap font-monospace text-body-2 px-4 py-2",
+                                                  "style": {"width": "160px", "verticalAlign": "top"}},
                      "text": group[-1].ip},
-                    {"component": "td", "props": {"class": "px-2"}, "content": [{
+                    {"component": "td", "props": {"class": "px-4 py-2",
+                                                  "style": {"verticalAlign": "top"}}, "content": [{
                         "component": "div",
                         "props": {"class": "d-flex flex-column"},
                         "content": [{
                             "component": "span",
                             "props": {
+                                "class": f"{'text-success' if row.status else 'text-error'} "
+                                         f"{'text-no-wrap' if index == len(group) - 1 else 'text-no-wrap mb-1'}",
                                 "style": {"whiteSpace": "nowrap"},
                                 "title": self._result_brief(row.result, 500),
                             },
                             "text": self._log_result_text(row.status, row.result),
-                        } for row in group],
+                        } for index, row in enumerate(group)],
                     }]},
-                    {"component": "td", "props": {"class": "text-no-wrap text-caption px-2"},
+                    {"component": "td", "props": {"class": "text-no-wrap text-caption text-medium-emphasis px-4 py-2",
+                                                  "style": {"width": "170px", "verticalAlign": "top"}},
                      "text": group[-1].UpdateTime.strftime('%Y-%m-%d %H:%M:%S')},
                 ],
             }
@@ -681,7 +690,7 @@ class UpdateWeChatIp(_PluginBase):
                 any(row.status for row in group),
             )]
         ] or [{"component": "tr", "content": [
-            {"component": "td", "props": {"colspan": 5, "class": "text-center text-medium-emphasis py-6"},
+            {"component": "td", "props": {"colspan": 5, "class": "text-center text-medium-emphasis py-8"},
              "text": "暂无 IP 更新记录"}]}]
 
         # ---------- 安全获取 party 名称 ----------
@@ -702,51 +711,61 @@ class UpdateWeChatIp(_PluginBase):
                         "component": "VCol",
                         "props": {"cols": 12, "class": "pa-0"},
                         "content": [
-                            {"component": "VCard", "props": {"variant": "tonal", "class": "mb-4"}, "content": [
+                            {"component": "VCard",
+                             "props": {"variant": "tonal", "rounded": "lg", "class": "mb-4"}, "content": [
                                 {"component": "VCardText",
-                                 "props": {"class": "d-flex flex-wrap align-center ga-2 px-3 py-2"},
+                                 "props": {"class": "d-flex flex-wrap align-center justify-space-between ga-4 px-4 py-3"},
                                  "content": [
-                                     {"component": "VChip",
-                                      "props": {"size": "small", "variant": "flat",
-                                                "color": "success" if self._is_login else "error"},
-                                      "text": "已登录" if self._is_login else "登录失效"},
-                                     {"component": "span", "props": {"class": "text-body-2"},
-                                      "text": f"应用：{party_name}"},
-
-                                     {"component": "span", "props": {"class": "text-caption text-medium-emphasis"},
-                                      "text": f"当前 IP：{self._ip or '未获取'}"},
+                                     {"component": "div",
+                                      "props": {"class": "d-flex flex-wrap align-center ga-3"},
+                                      "content": [
+                                          {"component": "VChip",
+                                           "props": {"size": "small", "variant": "flat", "rounded": "pill",
+                                                     "color": "success" if self._is_login else "error"},
+                                           "text": "已登录" if self._is_login else "登录失效"},
+                                          {"component": "span", "props": {"class": "text-body-2"},
+                                           "text": f"应用：{party_name}"},
+                                          {"component": "span", "props": {"class": "text-caption text-medium-emphasis"},
+                                           "text": f"当前 IP：{self._ip or '未获取'}"},
+                                      ]},
                                      {"component": "span", "props": {"class": "text-caption text-medium-emphasis"},
                                       "text": f"最近更新：{last_update}"},
                                  ]}]},
-                            {"component": "VCard", "props": {"variant": "outlined"}, "content": [
+                            {"component": "VCard", "props": {"variant": "outlined", "rounded": "lg"}, "content": [
                                 {"component": "VCardTitle",
-                                 "props": {"class": "d-flex align-center justify-space-between flex-wrap ga-2 text-body-1"},
+                                 "props": {"class": "d-flex align-center justify-space-between flex-wrap ga-3 px-4 py-3"},
                                  "content": [
                                      {"component": "div",
                                       "props": {"class": "d-flex align-center flex-wrap ga-3"},
-                                      "content": [{"component": "span", "text": "IP 更新记录"}]},
-                                     {"component": "VChip", "props": {"size": "x-small", "variant": "text"},
-                                      "text": f"最近 {len(groups)} 条"}]},
+                                      "content": [
+                                          {"component": "span", "props": {"class": "text-subtitle-2"},
+                                           "text": "IP 更新记录"},
+                                          {"component": "VChip",
+                                           "props": {"size": "x-small", "variant": "tonal", "color": "grey"},
+                                           "text": f"最近 {len(data_list)} 条"},
+                                      ]},
+                                     {"component": "span", "props": {"class": "text-caption text-medium-emphasis"},
+                                      "text": "同次检测已合并"}]},
                                 {"component": "VCardText",
-                                 "props": {"class": "pa-0",
-                                           "style": {"maxHeight": "360px", "overflow": "auto"}},
+                                 "props": {"class": "px-0 py-0",
+                                           "style": {"maxHeight": "420px", "overflow": "auto"}},
                                  "content": [
                                      {"component": "VTable",
-                                      "props": {"hover": True, "density": "compact",
-                                                "style": {"tableLayout": "auto", "width": "100%"}},
+                                      "props": {"hover": True, "density": "compact", "class": "w-100",
+                                                "style": {"tableLayout": "fixed", "width": "100%"}},
                                       "content": [
-                                          {"component": "thead", "props": {"class": "text-no-wrap"},
+                                          {"component": "thead", "props": {"class": "text-no-wrap bg-grey-lighten-5"},
                                            "content": [
                                                {"component": "th",
-                                                "props": {"class": "text-start px-2",
+                                                "props": {"class": "text-caption text-medium-emphasis text-start px-4 py-2",
                                                           **({"style": {"width": width}} if width else {})},
                                                 "text": name}
                                                for name, width in (
-                                                   ("状态", None),
-                                                   ("应用ID", "160px"),
-                                                   ("更新IP", None),
+                                                   ("状态", "90px"),
+                                                   ("应用ID", "190px"),
+                                                   ("更新IP", "160px"),
                                                    ("结果", None),
-                                                   ("更新时间", None),
+                                                   ("更新时间", "170px"),
                                                )
                                            ]},
                                           {"component": "tbody", "content": update_log_trs}]}]},
