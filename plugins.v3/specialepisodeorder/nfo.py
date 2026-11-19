@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from xml.dom import minidom
 
-from .client import LookupFailure
+from .client import LookupFailure, TvdbEpisodeNotFound
 
 
 POSITION_TAGS = (
@@ -151,9 +151,15 @@ class NfoEnricher:
             if result.tvdb_episode_id is None:
                 result.reason = "TMDb 未提供 TVDB 单集映射"
                 return result
-            tvdb = self.client.episode(result.tvdb_episode_id)
+            try:
+                tvdb = self.client.episode(result.tvdb_episode_id)
+            except TvdbEpisodeNotFound as error:
+                if result.mapping_source == "TMDb":
+                    self.client.invalidate_episode_mapping(series_id, episode, ids)
+                result.reason = f"{error}，可配置手动映射修正"
+                return result
             if not tvdb:
-                result.reason = "TVDB 单集不存在（404），可配置手动映射修正"
+                result.reason = "TVDB 未返回单集数据"
                 return result
             if integer(tvdb.get("id"), minimum=1) != result.tvdb_episode_id:
                 result.reason = "TVDB 返回了不同的单集身份"

@@ -1337,13 +1337,14 @@
     "name": "特典播放顺序",
     "description": "精确映射 TMDb 与 TVDB 单集，补全 Season 0 特典播放位置，支持预览和修复已有 NFO。",
     "labels": "刮削,Jellyfin,特典",
-    "version": "3.0.0",
+    "version": "3.0.1",
     "icon": "specialepisodeorder.png",
     "author": "OpportunityLiu",
     "level": 1,
     "release": true,
     "system_version": ">=3.2.6",
     "history": {
+      "v3.0.1": "TVDB 单集返回 404 时移除对应的 TMDb 自动映射缓存，下次运行自动重新查询。",
       "v3.0.0": "首版支持自动补全 Season 0 特典播放位置、存量 NFO 预览与修复、手动映射和持久化缓存。"
     }
   }

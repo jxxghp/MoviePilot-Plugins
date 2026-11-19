@@ -15,7 +15,7 @@ import pytest
 from app.plugins import specialepisodeorder as plugin_module
 from app.plugins.specialepisodeorder import SpecialEpisodeOrder
 from app.plugins.specialepisodeorder import client as client_module
-from app.plugins.specialepisodeorder.client import LookupFailure, MetadataClient
+from app.plugins.specialepisodeorder.client import LookupFailure, MetadataClient, TvdbEpisodeNotFound
 from app.plugins.specialepisodeorder.nfo import NfoEnricher, integer, parse_overrides
 from app.plugins.specialepisodeorder import repair as repair_module
 from app.plugins.specialepisodeorder.repair import RepairRunner
@@ -382,8 +382,8 @@ def test_client_cache_and_token_refresh(monkeypatch):
     assert http.get_res.call_count == 2
 
 
-def test_client_404_and_failure_cache_policy(monkeypatch):
-    """缓存明确的 404，临时故障不缓存以便后续恢复。"""
+def test_tmdb_404_and_failure_cache_policy(monkeypatch):
+    """短期缓存 TMDb 的 404，临时故障会在后续查询重试。"""
     client = MetadataClient()
     http = MagicMock()
     http.get_res.side_effect = [
@@ -398,6 +398,55 @@ def test_client_404_and_failure_cache_policy(monkeypatch):
         client.episode_ids(56353, 3)
     assert client.episode_ids(56353, 3) == {"id": 938554, "tvdb_id": 8636541}
     assert http.get_res.call_count == 3
+
+
+def test_tvdb_404_evicts_old_tmdb_mapping_and_retries_on_next_run(monkeypatch):
+    """从 3.0.0 的持久缓存读取失效 ID 后，下一轮可直接取得修正映射。"""
+    MetadataClient.clear_temporary_cache()
+    monkeypatch.setattr(MetadataClient, "configured", True)
+    monkeypatch.setattr(client_module.settings, "TMDB_API_DOMAIN", "api.themoviedb.org")
+    episode_key = "tmdb:api.themoviedb.org:tv/56353/season/0/episode/2/external_ids"
+    series_key = "tmdb:api.themoviedb.org:tv/56353/external_ids"
+    cache_key = client_module.METADATA_CACHE_KEY
+    old_ids = {"id": 938553, "tvdb_id": 3250591}
+    new_ids = {"id": 938553, "tvdb_id": 8636540}
+    stored = {cache_key: {episode_key: old_ids, series_key: {"tvdb_id": 194961}}}
+    http = MagicMock()
+    http.post_res.return_value = SimpleNamespace(status_code=200, json=lambda: {"data": {"token": "example"}})
+    http.get_res.side_effect = [
+        SimpleNamespace(status_code=404),
+        SimpleNamespace(status_code=200, json=lambda: old_ids),
+        SimpleNamespace(status_code=404),
+        SimpleNamespace(status_code=200, json=lambda: new_ids),
+        SimpleNamespace(status_code=200, json=lambda: {
+            "data": {"id": 8636540, "seriesId": 194961, "airsAfterSeason": 1}
+        }),
+    ]
+    monkeypatch.setattr(MetadataClient, "_http", staticmethod(lambda *args: http))
+    client = MetadataClient(stored.get, stored.__setitem__)
+    engine = NfoEnricher(client)
+    for _ in range(2):
+        result = engine.enrich(nfo(), 56353, 2)
+        assert result.status == "skipped" and "404" in result.reason
+        client.flush_cache()
+        assert stored[cache_key] == {series_key: {"tvdb_id": 194961}}
+
+    client = MetadataClient(stored.get, stored.__setitem__)
+    result = NfoEnricher(client).enrich(nfo(), 56353, 2)
+    assert result.status == "updated" and result.tvdb_episode_id == 8636540
+    assert tags(result.content)["airsafter_season"] == "1"
+    client.flush_cache()
+    assert stored[cache_key][episode_key] == new_ids
+    assert http.get_res.call_count == 5
+
+
+def test_tvdb_404_for_manual_override_preserves_tmdb_mapping(client):
+    """手动指定的 TVDB ID 失效时保留独立的 TMDb 自动映射。"""
+    client.episode.side_effect = TvdbEpisodeNotFound("TVDB 单集不存在（404）")
+    result = NfoEnricher(client, {938553: 8636540}).enrich(nfo(), 56353, 2)
+    assert result.status == "skipped" and "404" in result.reason
+    client.episode.assert_called_once_with(8636540)
+    client.invalidate_episode_mapping.assert_not_called()
 
 
 def test_metadata_cache_survives_recreation_without_memory_cache(monkeypatch):

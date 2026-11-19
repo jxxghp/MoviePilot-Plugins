@@ -49,7 +49,7 @@ class SpecialEpisodeOrder(_PluginBase):
     plugin_name = "特典播放顺序"
     plugin_desc = "精确映射 TMDb 与 TVDB 单集，补全 Season 0 特典播放位置，支持预览和修复已有 NFO。"
     plugin_icon = "specialepisodeorder.png"
-    plugin_version = "3.0.0"
+    plugin_version = "3.0.1"
     plugin_author = "OpportunityLiu"
     author_url = "https://github.com/OpportunityLiu"
     plugin_config_prefix = "specialepisodeorder_"
