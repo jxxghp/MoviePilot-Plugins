@@ -21,6 +21,10 @@ class LookupFailure(Exception):
     """表示外部查询失败；消息仅含服务和状态，不携带凭据。"""
 
 
+class TvdbEpisodeNotFound(LookupFailure):
+    """TVDB 明确返回单集 404，应重新查询对应的自动映射。"""
+
+
 class MetadataClient:
     """查询共享的元数据缓存，并在实例内管理 TVDB 登录。"""
 
@@ -111,32 +115,52 @@ class MetadataClient:
             raise LookupFailure(f"{service} 返回格式不正确")
         return result
 
-    def _tmdb(self, path: str, *, episode: bool = False) -> dict:
-        """按 TMDb 域名和请求路径缓存外部 ID 查询。"""
+    @staticmethod
+    def _tmdb_target(series_id: int, episode: int | None = None) -> tuple[str, str]:
+        """构造查询和失效处理共用的 TMDb 缓存键与地址。"""
         domain = str(settings.TMDB_API_DOMAIN).removeprefix("https://").removeprefix("http://").rstrip("/")
+        path = f"tv/{series_id}"
+        if episode is not None:
+            path += f"/season/0/episode/{episode}"
+        path += "/external_ids"
+        return f"tmdb:{domain}:{path}", f"https://{domain}/3/{path}"
+
+    def _tmdb(self, series_id: int, episode: int | None = None) -> dict:
+        """按 TMDb 域名和请求路径缓存外部 ID 查询。"""
+        key, url = self._tmdb_target(series_id, episode)
 
         def fetch() -> dict:
             """只保存匹配单集和剧集所需的 ID。"""
-            response = self._http().get_res(
-                f"https://{domain}/3/{path}", params={"api_key": settings.TMDB_API_KEY},
-            )
+            response = self._http().get_res(url, params={"api_key": settings.TMDB_API_KEY})
             data = self._json(response, "TMDb")
             return {key: data[key] for key in ("id", "tvdb_id") if data.get(key) is not None}
 
         def complete(data: dict) -> bool:
             """缺少 TVDB 映射或单集 ID 时仅短期缓存。"""
-            keys = ("id", "tvdb_id") if episode else ("tvdb_id",)
+            keys = ("id", "tvdb_id") if episode is not None else ("tvdb_id",)
             return all(type(data.get(key)) is int and data[key] > 0 for key in keys)
 
-        return self._cached(f"tmdb:{domain}:{path}", fetch, complete)
+        return self._cached(key, fetch, complete)
 
     def episode_ids(self, series_id: int, episode: int) -> dict:
         """查询 TMDb 默认 Season 0 单集身份及外部映射。"""
-        return self._tmdb(f"tv/{series_id}/season/0/episode/{episode}/external_ids", episode=True)
+        return self._tmdb(series_id, episode)
+
+    def invalidate_episode_mapping(self, series_id: int, episode: int, ids: dict) -> None:
+        """仅淘汰这次请求使用的失效映射，保护并发更新的新值。"""
+        key, _ = self._tmdb_target(series_id, episode)
+        with self._cache_lock:
+            if self._stopped.is_set():
+                return
+            if self._records is not None and self._records.get(key) == ids:
+                del self._records[key]
+                self._dirty = True
+            if _temporary_cache.get(key, region=TEMPORARY_CACHE_REGION) == ids:
+                _temporary_cache.delete(key, region=TEMPORARY_CACHE_REGION)
 
     def series_ids(self, series_id: int) -> dict:
         """查询 TVDB 剧集 ID，用于阻止跨剧误配。"""
-        return self._tmdb(f"tv/{series_id}/external_ids")
+        return self._tmdb(series_id)
 
     def _login(self) -> str:
         """创建 TVDB 会话；锁内再次检查，避免并发重复登录。"""
@@ -159,7 +183,7 @@ class MetadataClient:
         position_fields = ("airsAfterSeason", "airsBeforeSeason", "airsBeforeEpisode")
 
         def fetch() -> dict:
-            """按明确单集 ID 查询，404 作为无映射结果返回。"""
+            """按明确单集 ID 查询，404 直接抛出以跳过缓存。"""
             for attempt in range(2):
                 token = self._login()
                 response = self._http({"Authorization": f"Bearer {token}"}).get_res(
@@ -170,6 +194,8 @@ class MetadataClient:
                         if self._token == token:
                             self._token, self._token_until = "", 0
                     continue
+                if response is not None and response.status_code == 404:
+                    raise TvdbEpisodeNotFound("TVDB 单集不存在（404）")
                 data = self._json(response, "TVDB 单集").get("data", {})
                 if not isinstance(data, dict):
                     raise LookupFailure("TVDB 单集返回格式不正确")

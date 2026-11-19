@@ -15,7 +15,7 @@ import pytest
 from app.plugins import specialepisodeorder as plugin_module
 from app.plugins.specialepisodeorder import SpecialEpisodeOrder
 from app.plugins.specialepisodeorder import client as client_module
-from app.plugins.specialepisodeorder.client import LookupFailure, MetadataClient
+from app.plugins.specialepisodeorder.client import LookupFailure, MetadataClient, TvdbEpisodeNotFound
 from app.plugins.specialepisodeorder.nfo import NfoEnricher, integer, parse_overrides
 from app.plugins.specialepisodeorder import repair as repair_module
 from app.plugins.specialepisodeorder.repair import RepairRunner
@@ -67,9 +67,23 @@ def test_enrichment_preserves_content_type_and_format(client, as_bytes):
 def test_manual_override_and_cross_season_numbering(client):
     """人工修正优先于失效映射，TVDB 集号不同也可按身份精确匹配。"""
     client.episode.return_value.update(id=8636540, number=50, seasonNumber=0)
-    result = NfoEnricher(client, {938553: 8636540}).enrich(nfo(), 56353, 2)
+    result = NfoEnricher(client, parse_overrides("938553,tvdb=8636540")).enrich(nfo(), 56353, 2)
     assert result.status == "updated"
     assert result.mapping_source == "手动修正"
+    client.episode.assert_called_once_with(8636540)
+
+
+def test_manual_positions_merge_with_tvdb_and_suppress_explicit_empty_field(client):
+    """手动值覆盖 API，省略项也用本次映射替换旧值。"""
+    client.episode.return_value.update(id=8636540, airsBeforeSeason=2, airsBeforeEpisode=7)
+    overrides = parse_overrides("938553,tvdb=8636540,airsafter_season=0,airsbefore_episode=")
+    original = nfo("<airsafter_season>9</airsafter_season><displayseason>9</displayseason><airsbefore_episode>6</airsbefore_episode><displayepisode>6</displayepisode>")
+    result = NfoEnricher(client, overrides).enrich(original, 56353, 2)
+
+    assert result.status == "updated"
+    assert result.positions_after == {"airsafter_season": "0", "airsbefore_season": "2", "airsbefore_episode": None}
+    assert {"airsbefore_episode", "displayepisode"}.isdisjoint(tags(result.content))
+    assert "airsbefore_episode：6 → 未设置" in result.describe_changes()
     client.episode.assert_called_once_with(8636540)
 
 
@@ -93,12 +107,25 @@ def test_zero_and_before_positions(client, field, value):
 
 
 @pytest.mark.parametrize("tag", ["airsafter_season", "displayafterseason"])
-def test_existing_positions_and_aliases_are_never_overwritten(client, tag):
-    """保留标准标签和 Jellyfin 别名中已经存在的位置。"""
-    original = nfo(f"  <{tag}>9</{tag}>\n")
+def test_successful_mapping_replaces_existing_positions_and_aliases(client, tag):
+    """三项均有旧值时，同步本次结果并清除无值的位置。"""
+    original = nfo(f"<{tag}>9</{tag}><airsbefore_season>2</airsbefore_season><displayepisode>6</displayepisode>")
     result = NfoEnricher(client).enrich(original, 56353, 2)
-    assert result.status == "skipped"
-    assert result.content is original
+    assert result.status == "updated"
+    fields = tags(result.content)
+    assert fields[tag] == "1"
+    assert {"airsbefore_season", "displayepisode"}.isdisjoint(fields)
+    assert result.positions_after == {"airsafter_season": "1", "airsbefore_season": None, "airsbefore_episode": None}
+
+
+def test_successful_mapping_without_positions_clears_old_values(client):
+    """确认单集归属后，空位置结果也用于同步 NFO。"""
+    client.episode.return_value.pop("airsAfterSeason")
+    result = NfoEnricher(client).enrich(nfo("<displayafterseason>1</displayafterseason>"), 56353, 2)
+
+    assert result.status == "updated"
+    assert result.positions_after == dict.fromkeys(("airsafter_season", "airsbefore_season", "airsbefore_episode"))
+    assert "displayafterseason" not in tags(result.content)
 
 
 def test_repeated_enrichment_is_idempotent(client):
@@ -110,21 +137,21 @@ def test_repeated_enrichment_is_idempotent(client):
     assert second.content is first.content
 
 
-@pytest.mark.parametrize("mutate", [
-    lambda c: c.episode_ids.return_value.update(id=999),
-    lambda c: c.episode_ids.return_value.update(tvdb_id=None),
-    lambda c: setattr(c, "configured", False),
-    lambda c: c.episode.return_value.clear(),
-    lambda c: c.episode.return_value.update(id=999),
-    lambda c: c.episode.return_value.update(seriesId=999),
-    lambda c: c.series_ids.return_value.clear(),
+@pytest.mark.parametrize("mutate,status", [
+    (lambda c: c.episode_ids.return_value.update(id=999), "skipped"),
+    (lambda c: c.episode_ids.return_value.update(tvdb_id=None), "needs_correction"),
+    (lambda c: setattr(c, "configured", False), "skipped"),
+    (lambda c: c.episode.return_value.clear(), "needs_correction"),
+    (lambda c: c.episode.return_value.update(id=999), "needs_correction"),
+    (lambda c: c.episode.return_value.update(seriesId=999), "needs_correction"),
+    (lambda c: c.series_ids.return_value.clear(), "needs_correction"),
 ])
-def test_unverified_identity_does_not_modify_nfo(client, mutate):
-    """错集、缺映射、404、缺密钥与跨剧映射均保留原文件。"""
+def test_unverified_identity_does_not_modify_nfo(client, mutate, status):
+    """保留原文件，并区分需要修正的映射和普通跳过。"""
     mutate(client)
-    original = nfo()
+    original = nfo("<airsafter_season>1</airsafter_season><airsbefore_season>2</airsbefore_season><airsbefore_episode>3</airsbefore_episode>")
     result = NfoEnricher(client).enrich(original, 56353, 2)
-    assert result.status == "skipped"
+    assert result.status == status
     assert result.content is original
 
 
@@ -132,7 +159,7 @@ def test_unverified_identity_does_not_modify_nfo(client, mutate):
 def test_lookup_failure_preserves_original(client, method):
     """可选的外部补全失败不会损坏基础 NFO。"""
     getattr(client, method).side_effect = LookupFailure("测试服务 HTTP 503")
-    original = nfo()
+    original = nfo("<airsafter_season>9</airsafter_season>")
     result = NfoEnricher(client).enrich(original, 56353, 2)
     assert result.status == "failed"
     assert result.content is original
@@ -154,7 +181,12 @@ def test_unsuitable_nfo_does_not_query_network(client, original):
     client.episode_ids.assert_not_called()
 
 
-@pytest.mark.parametrize("text", ["bad", "1=2=3", "0=1", "1=-1", "1=2\n1=3", "True=4"])
+@pytest.mark.parametrize("text", [
+    "bad", "1=2=3", "0=1", "1=-1", "1=2\n1=3", "True=4",
+    "1,tvdb=", "1,tvdb=0", "1,airsbefore_episode=-1", "1,other=2", "1,airsafter_season",
+    "1,tvdb=2,tvdb=3", "1,airsafter_season=2\n1,airsafter_season=3",
+    "1,ignore,tvdb=2", "1,tvdb=2,ignore", "1,ignore=1", "1,ignore\n1,airsafter_season=2",
+])
 def test_invalid_override_configuration(text):
     """错误配置整体失败，避免悄悄丢弃用户输入。"""
     with pytest.raises(ValueError):
@@ -163,7 +195,13 @@ def test_invalid_override_configuration(text):
 
 def test_valid_override_comments_and_duplicates():
     """允许空行、注释和相同映射的重复声明。"""
-    assert parse_overrides("# 已核实\n938553=8636540\n\n938553 = 8636540") == {938553: 8636540}
+    assert parse_overrides("# 已核实\n938553=8636540\n\n938553 , tvdb = 8636540 # 同一集") == parse_overrides(
+        "938553,tvdb=8636540"
+    )
+    rule = parse_overrides("938555,airsafter_season=0,airsbefore_season=2,airsbefore_episode=")[938555]
+    assert rule.tvdb_id is None
+    assert rule.positions == {"airsafter_season": 0, "airsbefore_season": 2, "airsbefore_episode": None}
+    assert parse_overrides("1174618, ignore # 保留本集原值")[1174618].ignore
     assert integer(True) is None
 
 
@@ -197,10 +235,72 @@ def test_preview_shows_before_and_proposed_after_without_writing(client, tmp_pat
     assert report["counts"] == {"preview": 1}
     record = report["records"][0]
     assert record["before"] == {"airsafter_season": None, "airsbefore_season": "0", "airsbefore_episode": ""}
-    assert record["after"] == {"airsafter_season": "1", "airsbefore_season": "0", "airsbefore_episode": ""}
+    assert record["after"] == {"airsafter_season": "1", "airsbefore_season": None, "airsbefore_episode": None}
+    assert record["tvdb_episode_id"] == 3250591
     assert path.read_bytes() == original
     assert set(tmp_path.rglob("*")) == files
     debug.assert_not_called()
+
+
+def test_manual_positions_preview_and_repair_use_only_local_values(client, library):
+    """存量预览和修复会清除省略项，包括已有的 Jellyfin 别名。"""
+    root, path = library
+    original = nfo("<airsbefore_season>2</airsbefore_season><displayseason>2</displayseason><displayepisode>6</displayepisode>", identity=1174618)
+    path.write_bytes(original)
+    client.configured = False
+    overrides = parse_overrides("1174618,airsafter_season=1")
+    runner = RepairRunner(NfoEnricher(client, overrides), Event(), RLock())
+
+    preview = runner.run([str(root)])["records"][0]
+    assert preview["status"] == "preview"
+    assert preview["before"] == {"airsafter_season": None, "airsbefore_season": "2", "airsbefore_episode": "6"}
+    assert preview["after"] == {"airsafter_season": "1", "airsbefore_season": None, "airsbefore_episode": None}
+    assert preview["mapping_source"] == "手动修正"
+    assert preview["tmdb_episode_id"] == 1174618
+    assert preview["tvdb_episode_id"] is None
+    assert path.read_bytes() == original
+    updated = runner.run([str(root)], dry_run=False)["records"][0]
+    assert updated["status"] == "updated" and updated["after"] == preview["after"]
+    fields = tags(path.read_bytes())
+    assert {"airsbefore_season", "displayseason", "displayepisode"}.isdisjoint(fields)
+    assert fields["airsafter_season"] == "1"
+    assert runner.run([str(root)], dry_run=False)["counts"] == {"skipped": 1}
+    assert client.mock_calls == []
+
+
+@pytest.mark.parametrize("has_tvshow", [True, False])
+def test_scan_reports_configured_tvdb_id_without_lookup(client, library, has_tvshow):
+    """缺密钥或缺少剧集文件时，仍显示手动指定的单集 ID。"""
+    root, path = library
+    client.configured = False
+    if not has_tvshow:
+        (path.parent.parent / "tvshow.nfo").unlink()
+    path.write_bytes(nfo("<airsafter_season>1</airsafter_season><airsbefore_season>2</airsbefore_season><airsbefore_episode>3</airsbefore_episode>"))
+    overrides = parse_overrides("938553,tvdb=8636540")
+    record = RepairRunner(NfoEnricher(client, overrides), Event(), RLock()).run([str(root)])["records"][0]
+
+    assert record["status"] == "skipped"
+    assert record["tmdb_episode_id"] == 938553
+    assert record["tvdb_episode_id"] == 8636540
+    assert client.mock_calls == []
+
+
+def test_ignore_preserves_episode_and_skips_external_queries(client, library):
+    """忽略规则让存量扫描保留原始 NFO。"""
+    root, path = library
+    original = nfo("<airsbefore_season>2</airsbefore_season><displayepisode>6</displayepisode>", identity=1174618)
+    path.write_bytes(original)
+    overrides = parse_overrides("1174618,ignore")
+    runner = RepairRunner(NfoEnricher(client, overrides), Event(), RLock())
+
+    report = runner.run([str(root)], dry_run=False)
+    assert report["counts"] == {"skipped": 1}
+    record = report["records"][0]
+    assert record["reason"] == "已按手动规则忽略"
+    assert record["before"] == record["after"]
+    assert record["tmdb_episode_id"] == 1174618
+    assert path.read_bytes() == original
+    assert client.mock_calls == []
 
 
 def test_apply_logs_changes_preserves_permissions_and_creates_no_extra_files(client, tmp_path, library, monkeypatch):
@@ -286,6 +386,7 @@ def test_symlinks_and_missing_show_are_not_written(client, tmp_path, library):
     report = runner_for(client).run([str(path.parent)], dry_run=False)
     assert report["counts"] == {"skipped": 1}
     assert "tvshow.nfo" in report["records"][0]["reason"]
+    assert report["records"][0]["tmdb_episode_id"] == 938553
     client.episode.assert_not_called()
 
 
@@ -366,6 +467,23 @@ def test_auto_nfo_uses_system_module_without_recursive_dispatch(plugin, client, 
     assert "airsafter_season：未设置 → 1" in debug.call_args.args[0]
 
 
+def test_auto_nfo_applies_direct_position_without_api_keys(plugin, monkeypatch):
+    """基础刮削 NFO 可直接应用手动位置，插件无需访问 API。"""
+    monkeypatch.setattr(MetadataClient, "configured", False)
+    plugin.init_plugin({"enabled": True, "overrides": "938553,airsafter_season=1"})
+    module = MagicMock()
+    module.metadata_nfo.return_value = nfo()
+    manager = MagicMock()
+    manager.get_running_modules.return_value = [module]
+    monkeypatch.setattr(plugin_module, "ModuleManager", lambda: manager)
+    network = MagicMock(side_effect=AssertionError("直接指定位置无需访问 API"))
+    monkeypatch.setattr(plugin._engine.client, "_http", network)
+
+    result = plugin.metadata_nfo(None, media(), 0, 2)
+    assert tags(result)["airsafter_season"] == "1"
+    network.assert_not_called()
+
+
 def test_client_cache_and_token_refresh(monkeypatch):
     """缓存命中不重复请求；TVDB 401 仅重新登录一次。"""
     def response(code=200, data=None):
@@ -382,8 +500,8 @@ def test_client_cache_and_token_refresh(monkeypatch):
     assert http.get_res.call_count == 2
 
 
-def test_client_404_and_failure_cache_policy(monkeypatch):
-    """缓存明确的 404，临时故障不缓存以便后续恢复。"""
+def test_tmdb_404_and_failure_cache_policy(monkeypatch):
+    """短期缓存 TMDb 的 404，临时故障会在后续查询重试。"""
     client = MetadataClient()
     http = MagicMock()
     http.get_res.side_effect = [
@@ -398,6 +516,55 @@ def test_client_404_and_failure_cache_policy(monkeypatch):
         client.episode_ids(56353, 3)
     assert client.episode_ids(56353, 3) == {"id": 938554, "tvdb_id": 8636541}
     assert http.get_res.call_count == 3
+
+
+def test_tvdb_404_evicts_old_tmdb_mapping_and_retries_on_next_run(monkeypatch):
+    """从 3.0.0 的持久缓存读取失效 ID 后，下一轮可直接取得修正映射。"""
+    MetadataClient.clear_temporary_cache()
+    monkeypatch.setattr(MetadataClient, "configured", True)
+    monkeypatch.setattr(client_module.settings, "TMDB_API_DOMAIN", "api.themoviedb.org")
+    episode_key = "tmdb:api.themoviedb.org:tv/56353/season/0/episode/2/external_ids"
+    series_key = "tmdb:api.themoviedb.org:tv/56353/external_ids"
+    cache_key = client_module.METADATA_CACHE_KEY
+    old_ids = {"id": 938553, "tvdb_id": 3250591}
+    new_ids = {"id": 938553, "tvdb_id": 8636540}
+    stored = {cache_key: {episode_key: old_ids, series_key: {"tvdb_id": 194961}}}
+    http = MagicMock()
+    http.post_res.return_value = SimpleNamespace(status_code=200, json=lambda: {"data": {"token": "example"}})
+    http.get_res.side_effect = [
+        SimpleNamespace(status_code=404),
+        SimpleNamespace(status_code=200, json=lambda: old_ids),
+        SimpleNamespace(status_code=404),
+        SimpleNamespace(status_code=200, json=lambda: new_ids),
+        SimpleNamespace(status_code=200, json=lambda: {
+            "data": {"id": 8636540, "seriesId": 194961, "airsAfterSeason": 1}
+        }),
+    ]
+    monkeypatch.setattr(MetadataClient, "_http", staticmethod(lambda *args: http))
+    client = MetadataClient(stored.get, stored.__setitem__)
+    engine = NfoEnricher(client)
+    for _ in range(2):
+        result = engine.enrich(nfo(), 56353, 2)
+        assert result.status == "needs_correction" and "404" in result.reason
+        client.flush_cache()
+        assert stored[cache_key] == {series_key: {"tvdb_id": 194961}}
+
+    client = MetadataClient(stored.get, stored.__setitem__)
+    result = NfoEnricher(client).enrich(nfo(), 56353, 2)
+    assert result.status == "updated" and result.tvdb_episode_id == 8636540
+    assert tags(result.content)["airsafter_season"] == "1"
+    client.flush_cache()
+    assert stored[cache_key][episode_key] == new_ids
+    assert http.get_res.call_count == 5
+
+
+def test_tvdb_404_for_manual_override_preserves_tmdb_mapping(client):
+    """手动指定的 TVDB ID 失效时保留独立的 TMDb 自动映射。"""
+    client.episode.side_effect = TvdbEpisodeNotFound("TVDB 单集不存在（404）")
+    result = NfoEnricher(client, parse_overrides("938553,tvdb=8636540")).enrich(nfo(), 56353, 2)
+    assert result.status == "needs_correction" and "404" in result.reason
+    client.episode.assert_called_once_with(8636540)
+    client.invalidate_episode_mapping.assert_not_called()
 
 
 def test_metadata_cache_survives_recreation_without_memory_cache(monkeypatch):
@@ -516,33 +683,50 @@ def test_report_page_formats_summary_and_field_diff_as_renderable_text(plugin, m
             "status": "preview",
             "reason": "可补全缺失的播放位置",
             "mapping_source": "TMDb",
+            "tmdb_episode_id": 938553,
+            "tvdb_episode_id": 8636540,
             "before": {"airsafter_season": None, "airsbefore_season": "0", "airsbefore_episode": ""},
             "after": {"airsafter_season": "2", "airsbefore_season": "0", "airsbefore_episode": ""},
         }
         for path in paths
     ]
+    records[-1].update(status="needs_correction", reason="TMDb 未提供 TVDB 单集映射", mapping_source="", tvdb_episode_id=None)
     monkeypatch.setattr(plugin_module.settings, "TZ", "Asia/Shanghai")
     plugin._last_report = {
         "dry_run": True,
         "status": "completed",
-        "counts": {"preview": 24},
+        "counts": {"preview": 23, "needs_correction": 1},
         "records": records,
         "finished_at": datetime(2026, 11, 19, 8, 30, 45, tzinfo=timezone.utc),
     }
     nodes = list(page_nodes(plugin.get_page()))
     texts = [node.get("text") for node in nodes]
     assert all(f"{directory}/" in texts and filename in texts for directory, filename in map(split, paths))
-    assert {"文件", "结果", "映射", "播放位置（修改前 → 预览值）"}.issubset(texts)
+    assert [node["text"] for node in nodes if node["component"] == "th"] == ["文件", "结果", "映射", "播放位置"]
     assert {"airsafter_season", "airsbefore_season", "airsbefore_episode", "0", "空值"}.issubset(texts)
-    assert {node["text"] for node in nodes if node.get("props", {}).get("class") == "text-error"} == {"未设置"}
-    assert {node["text"] for node in nodes if node.get("props", {}).get("class") == "text-success"} == {"2"}
-    assert "预览完成 · 待补全 24 项" in texts
+    assert "预览完成 · 待更新 23 项 · 待修正 1 项" in texts
+    assert any(node.get("text") == "待修正" and node["props"]["class"] == "text-warning" for node in nodes)
     assert "扫描结束于 2026-11-19 16:30:45+08:00" in texts
     first_row = next(node for node in nodes if node["component"] == "tr" and node["content"][0]["component"] == "td")
     dir_line, file_line = first_row["content"][0]["content"]
     assert dir_line["text"] == "/library/"
     assert file_line["text"] == "<img src=x onerror=alert(1)>.nfo"
-    assert [node["text"] for node in first_row["content"][1]["content"]] == ["待补全", "可补全缺失的播放位置"]
+    assert [node["text"] for node in first_row["content"][1]["content"]] == ["待更新", "可补全缺失的播放位置"]
+    assert first_row["content"][1]["content"][1]["props"]["class"] == "text-caption"
+    source_line, tmdb_line, tvdb_line = first_row["content"][2]["content"]
+    assert source_line == {"component": "strong", "text": "TMDb"}
+    for line, label, episode_id in ((tmdb_line, "TMDb ", "938553"), (tvdb_line, "TVDB ", "8636540")):
+        assert line["props"]["class"] == "text-caption"
+        assert [node["text"] for node in line["content"]] == [label, episode_id]
+        assert "user-select: all" in line["content"][1]["props"]["style"]
+    result_rows = [node for node in nodes if node["component"] == "tr" and node["content"][0]["component"] == "td"]
+    assert len(result_rows[-1]["content"][2]["content"]) == 2
+    changed, unchanged_zero, unchanged_empty = [line["content"][1] for line in first_row["content"][3]["content"]]
+    assert [(mark["component"], mark["text"]) for mark in changed["content"]] == [("del", "未设置"), ("ins", "2")]
+    assert "--v-theme-error" in changed["content"][0]["props"]["style"]
+    assert "--v-theme-success" in changed["content"][1]["props"]["style"]
+    assert unchanged_zero == {"component": "span", "text": "0"}
+    assert unchanged_empty == {"component": "span", "text": "空值"}
     assert sum(node.get("component") == "tr" for node in nodes) == 25
     assert not any(node.get("html") for node in nodes)
 
