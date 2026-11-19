@@ -34,7 +34,7 @@ class UpdateWeChatIp(_PluginBase):
     # 插件版本，必须和 package.v3.json 中保持一致
     plugin_version = "2.0.0"
     # 作者信息
-    plugin_author = "书小白"
+    plugin_author = "书小白,iamchq"
     author_url = "https://github.com/thshu/MoviePilot-Plugins"
     # 配置项前缀，建议保持唯一，避免与其他插件冲突
     plugin_config_prefix = "UpdateWeChatIp_"
