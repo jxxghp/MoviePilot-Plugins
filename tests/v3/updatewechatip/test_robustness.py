@@ -85,6 +85,18 @@ def test_save_ip_error_payload_is_recorded_as_failure():
     assert plugin._saved[1][0]["status"] is False
 
 
+def test_save_ip_nested_result_error_is_recorded_as_failure():
+    """真实接口把 errCode 放在 result 内，也必须判定为失败。"""
+    payload = {"statusCode": 200, "result": {"errCode": -80037, "humanMessage": "应用不存在"}}
+    plugin = make_plugin(SimpleNamespace(
+        post=lambda *args, **kwargs: FakeResponse(text=json.dumps(payload), payload=payload)
+    ))
+
+    plugin._save_ip_config()
+
+    assert plugin._saved[1][0]["status"] is False
+
+
 def test_party_cache_accepts_zero_err_code():
     """成功响应即使带 errCode=0 也应判定为已登录。"""
     payload = {"errCode": 0, "data": {"party_list": {"list": [{"name": "corp"}]}}}
@@ -351,6 +363,39 @@ def test_page_groups_same_check_app_ids_in_one_cell():
     assert "最近 1 条" in texts
     assert "app2," in texts
     assert "app1" in texts
+
+
+def test_page_shows_each_app_result_and_mixed_status():
+    """同一检测行内成功与失败并存时，结果列按应用逐条显示，状态为部分失败。"""
+    plugin = UpdateWeChatIp.__new__(UpdateWeChatIp)
+    plugin._is_login = True
+    plugin._ip = "1.2.3.4"
+    plugin._party_cache_data = {"party_list": {"list": [{"name": "小螺号"}]}}
+    plugin.get_data = lambda key: [
+        {"status": True, "ip": "1.2.3.4", "app_id": "app1",
+         "result": "{}", "UpdateTime": "2026-11-20T01:00:00.100000"},
+        {"status": False, "ip": "1.2.3.4", "app_id": "app2",
+         "result": '{"result":{"errCode":-80037,"humanMessage":"应用不存在"}}',
+         "UpdateTime": "2026-11-20T01:00:00.900000"},
+    ]
+
+    page = plugin.get_page()
+    texts = []
+
+    def collect(node):
+        if isinstance(node, dict):
+            if "text" in node:
+                texts.append(node["text"])
+            for value in node.values():
+                collect(value)
+        elif isinstance(node, list):
+            for item in node:
+                collect(item)
+
+    collect(page)
+    assert "部分失败" in texts
+    assert "已更新" in texts
+    assert "应用不存在" in texts
 
 
 def test_log_result_text_hides_success_payload():

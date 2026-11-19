@@ -640,7 +640,7 @@ class UpdateWeChatIp(_PluginBase):
             {
                 "component": "tr",
                 "content": [
-                    {"component": "td", "props": {"class": "px-2", "style": {"width": "80px"}}, "content": [{
+                    {"component": "td", "props": {"class": "px-2"}, "content": [{
                         "component": "VChip",
                         "props": {
                             "size": "x-small",
@@ -657,7 +657,7 @@ class UpdateWeChatIp(_PluginBase):
                             for index, row in enumerate(group)
                         ],
                     }]},
-                    {"component": "td", "props": {"class": "text-no-wrap font-monospace px-2", "style": {"width": "150px"}},
+                    {"component": "td", "props": {"class": "text-no-wrap font-monospace px-2"},
                      "text": group[-1].ip},
                     {"component": "td", "props": {"class": "px-2"}, "content": [{
                         "component": "div",
@@ -702,10 +702,7 @@ class UpdateWeChatIp(_PluginBase):
                         "component": "VCol",
                         "props": {"cols": 12, "class": "pa-0"},
                         "content": [
-                            {"component": "VCard",
-                             "props": {"variant": "tonal", "class": "mb-4",
-                                       "style": {"width": "fit-content", "maxWidth": "100%"}},
-                             "content": [
+                            {"component": "VCard", "props": {"variant": "tonal", "class": "mb-4"}, "content": [
                                 {"component": "VCardText",
                                  "props": {"class": "d-flex flex-wrap align-center ga-2 px-3 py-2"},
                                  "content": [
@@ -721,10 +718,7 @@ class UpdateWeChatIp(_PluginBase):
                                      {"component": "span", "props": {"class": "text-caption text-medium-emphasis"},
                                       "text": f"最近更新：{last_update}"},
                                  ]}]},
-                            {"component": "VCard",
-                             "props": {"variant": "outlined",
-                                       "style": {"width": "fit-content", "maxWidth": "100%"}},
-                             "content": [
+                            {"component": "VCard", "props": {"variant": "outlined"}, "content": [
                                 {"component": "VCardTitle",
                                  "props": {"class": "d-flex align-center justify-space-between flex-wrap ga-2 text-body-1"},
                                  "content": [
@@ -744,14 +738,15 @@ class UpdateWeChatIp(_PluginBase):
                                           {"component": "thead", "props": {"class": "text-no-wrap"},
                                            "content": [
                                                {"component": "th",
-                                                "props": {"class": "text-start px-2", "style": {"width": width}},
+                                                "props": {"class": "text-start px-2",
+                                                          **({"style": {"width": width}} if width else {})},
                                                 "text": name}
                                                for name, width in (
-                                                   ("状态", "80px"),
+                                                   ("状态", None),
                                                    ("应用ID", "160px"),
-                                                   ("更新IP", "150px"),
-                                                   ("结果", "220px"),
-                                                   ("更新时间", "auto"),
+                                                   ("更新IP", None),
+                                                   ("结果", None),
+                                                   ("更新时间", None),
                                                )
                                            ]},
                                           {"component": "tbody", "content": update_log_trs}]}]},
@@ -1054,12 +1049,17 @@ class UpdateWeChatIp(_PluginBase):
             return False
         if not isinstance(payload, dict):
             return False
-        for key in ("errCode", "errcode"):
-            if key in payload:
-                try:
-                    return int(payload[key]) == 0
-                except (TypeError, ValueError):
-                    return False
+        nested = payload.get("result")
+        for item in (nested, payload):
+            if not isinstance(item, dict):
+                continue
+            for key in ("errCode", "errcode"):
+                if key in item:
+                    try:
+                        if int(item[key]) != 0:
+                            return False
+                    except (TypeError, ValueError):
+                        return False
         return True
 
     def _save_ip_config(self):
