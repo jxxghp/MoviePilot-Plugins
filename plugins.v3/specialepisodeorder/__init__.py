@@ -17,8 +17,8 @@ from .repair import RepairRunner
 
 
 SCAN_RESULTS = {
-    "preview": ("待补全", "info"),
-    "updated": ("已补全", "success"),
+    "preview": ("待更新", "info"),
+    "updated": ("已更新", "success"),
     "needs_correction": ("待修正", "warning"),
     "skipped": ("已跳过", "secondary"),
     "failed": ("失败", "error"),
@@ -48,9 +48,9 @@ class SpecialEpisodeOrder(_PluginBase):
     """通过公开的 NFO 模块扩展点补全 TVDB 特典播放位置。"""
 
     plugin_name = "特典播放顺序"
-    plugin_desc = "精确映射 TMDb 与 TVDB 单集，补全 Season 0 特典播放位置，支持预览和修复已有 NFO。"
+    plugin_desc = "精确映射 TMDb 与 TVDB 单集，同步 Season 0 特典播放位置，支持预览和修复已有 NFO。"
     plugin_icon = "specialepisodeorder.png"
-    plugin_version = "3.1.1"
+    plugin_version = "3.2.0"
     plugin_author = "OpportunityLiu"
     author_url = "https://github.com/OpportunityLiu"
     plugin_config_prefix = "specialepisodeorder_"
@@ -212,15 +212,15 @@ class SpecialEpisodeOrder(_PluginBase):
             {"component": "VTextarea", "props": {"class": "mb-4", "model": "paths", "label": "扫描目录（每行一个）", "rows": 3, "hint": "填写 MP 内可访问的本地目录；范围内须含 tvshow.nfo；留空不扫描。"}},
             {"component": "VTextarea", "props": {
                 "class": "mb-4", "model": "overrides", "label": "手动映射修正", "rows": 4,
-                "placeholder": "938553,tvdb=8636540\n938554,airsafter_season=1\n938555,tvdb=8636542,airsbefore_episode=",
-                "hint": "每行以 TMDb 单集 ID 开头，用逗号分隔 tvdb 和播放位置字段。省略 tvdb 时清除未填写的位置，位置字段留空也可明确清除。支持 # 注释。",
+                "placeholder": "938553,tvdb=8636540\n938554,airsafter_season=1\n938555,tvdb=8636542,airsbefore_episode=\n1174618,ignore",
+                "hint": "每行以 TMDb 单集 ID 开头。使用 ,ignore 保留该集原有位置，或用逗号分隔 tvdb 和位置字段。映射成功后按结果更新三项位置，支持 # 注释。",
             }},
             {"component": "VCheckbox", "props": {
                 "class": "mb-4", "model": "clear_cache", "label": "清空缓存",
                 "hint": "保存时执行一次。下次扫描会重新查询元数据。",
                 "persistent-hint": True,
             }},
-            {"component": "VAlert", "props": {"type": "info", "variant": "tonal", "text": "启用后自动补全 TMDb 默认编号的 Season 0 特典。修复已有 NFO 请先预览，再关闭仅预览并运行一次。修复会直接更新 NFO。"}},
+            {"component": "VAlert", "props": {"type": "info", "variant": "tonal", "text": "启用后按映射同步 TMDb 默认编号的 Season 0 特典播放位置。修复已有 NFO 请先预览，再关闭仅预览并运行一次。修复会直接更新 NFO。"}},
         ]}], dict(DEFAULT_CONFIG)
 
     def get_page(self) -> list:

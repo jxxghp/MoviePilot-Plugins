@@ -25,10 +25,11 @@ def integer(value: Any, *, minimum: int = 0) -> int | None:
 
 @dataclass
 class EpisodeOverride:
-    """保存指定的 TVDB 单集与位置字段，空值表示屏蔽对应位置。"""
+    """保存指定的 TVDB 单集、位置字段或忽略规则。"""
 
     tvdb_id: int | None
     positions: dict[str, int | None]
+    ignore: bool = False
 
 
 def parse_overrides(text: str) -> dict[int, EpisodeOverride]:
@@ -48,21 +49,24 @@ def parse_overrides(text: str) -> dict[int, EpisodeOverride]:
         label = f"手动映射第 {index} 行"
         if source is None or not assignments:
             raise ValueError(f"{label}请使用 TMDb单集ID,tvdb=TVDB单集ID 或指定播放位置字段")
-        values: dict[str, int | None] = {}
-        for assignment in assignments:
-            name, equals, raw_value = assignment.partition("=")
-            name, raw_value = name.strip(), raw_value.strip()
-            if not equals or name not in allowed or name in values:
-                raise ValueError(f"{label}含未知、重复或格式无效的字段")
-            if name != "tvdb" and not raw_value:
-                values[name] = None
-                continue
-            value = integer(raw_value, minimum=1 if name == "tvdb" else 0)
-            if value is None:
-                valid_values = "正整数" if name == "tvdb" else "非负整数或留空"
-                raise ValueError(f"{label}的 {name} 必须为{valid_values}")
-            values[name] = value
-        override = EpisodeOverride(tvdb_id=values.pop("tvdb", None), positions=values)
+        if len(assignments) == 1 and assignments[0].strip() == "ignore":
+            override = EpisodeOverride(tvdb_id=None, positions={}, ignore=True)
+        else:
+            values: dict[str, int | None] = {}
+            for assignment in assignments:
+                name, equals, raw_value = assignment.partition("=")
+                name, raw_value = name.strip(), raw_value.strip()
+                if not equals or name not in allowed or name in values:
+                    raise ValueError(f"{label}含未知、重复或格式无效的字段。ignore 须单独使用")
+                if name != "tvdb" and not raw_value:
+                    values[name] = None
+                    continue
+                value = integer(raw_value, minimum=1 if name == "tvdb" else 0)
+                if value is None:
+                    valid_values = "正整数" if name == "tvdb" else "非负整数或留空"
+                    raise ValueError(f"{label}的 {name} 必须为{valid_values}")
+                values[name] = value
+            override = EpisodeOverride(tvdb_id=values.pop("tvdb", None), positions=values)
         if source in result and result[source] != override:
             raise ValueError(f"{label}与同一 TMDb 单集的其他规则冲突")
         result[source] = override
@@ -114,16 +118,12 @@ def apply_positions(
     document: minidom.Document,
     nodes: dict[str, minidom.Element],
     positions: dict[str, int | None],
-    override: EpisodeOverride | None,
 ) -> dict[str, tuple[str | None, str | None]]:
-    """补齐自动位置，对手动指定的位置更新或移除已有标签。"""
+    """按本次映射结果同步三项位置，并记录新增、替换和移除。"""
     changes: dict[str, tuple[str | None, str | None]] = {}
     root = document.documentElement
     for _, tag, alias in POSITION_TAGS:
         names = [name for name in (tag, alias) if name in nodes]
-        replace = override is not None and (override.tvdb_id is None or tag in override.positions)
-        if names and not replace:
-            continue
         value = positions.get(tag)
         new = str(value) if value is not None else None
         if not names and new is not None:
@@ -198,7 +198,7 @@ class NfoEnricher:
     @property
     def has_local_overrides(self) -> bool:
         """检查是否有可直接应用到基础刮削结果的位置规则。"""
-        return any(override.tvdb_id is None for override in self.overrides.values())
+        return any(override.tvdb_id is None and not override.ignore for override in self.overrides.values())
 
     def enrich(self, content: bytes | str, series_id: int | None, episode: int) -> Enrichment:
         """严格验证身份；所有失败均携带未改动的原始内容返回。"""
@@ -218,11 +218,11 @@ class NfoEnricher:
             if override is not None:
                 result.mapping_source = "手动修正"
                 result.tvdb_episode_id = override.tvdb_id
+                if override.ignore:
+                    result.reason = "已按手动规则忽略"
+                    return result
             if series_id is None:
                 result.reason = "扫描范围内缺少有效的 tvshow.nfo 剧集身份"
-                return result
-            if (override is None or not override.positions) and all(tag in nodes or alias in nodes for _, tag, alias in POSITION_TAGS):
-                result.reason = "播放位置字段已齐全"
                 return result
             if result.tmdb_episode_id is None:
                 result.reason = "缺少有效且一致的 TMDb 单集身份"
@@ -233,9 +233,9 @@ class NfoEnricher:
                 positions = self._lookup_positions(result, series_id, episode, override)
                 if positions is None:
                     return result
-            result.changes = apply_positions(document, nodes, positions, override)
+            result.changes = apply_positions(document, nodes, positions)
             if not result.changes:
-                result.reason = "没有可补全的播放位置"
+                result.reason = "播放位置与映射结果一致"
                 return result
             for element in document.getElementsByTagName("*"):
                 if any(child.nodeType == child.ELEMENT_NODE for child in element.childNodes):
@@ -245,7 +245,7 @@ class NfoEnricher:
             result.content = document.toprettyxml(indent="  ", encoding="utf-8") if isinstance(content, bytes) else document.toprettyxml(indent="  ")
             result.positions_after = read_positions(nodes)
             result.status = "updated"
-            result.reason = "已按手动规则更新播放位置" if result.replaces_positions else "已补全缺失播放位置"
+            result.reason = "已更新播放位置" if result.replaces_positions else "已补全缺失播放位置"
         except LookupFailure as error:
             result.status, result.reason = "failed", str(error)
         except Exception as error:

@@ -74,10 +74,10 @@ def test_manual_override_and_cross_season_numbering(client):
 
 
 def test_manual_positions_merge_with_tvdb_and_suppress_explicit_empty_field(client):
-    """配置值覆盖已有位置，省略项沿用 API 补全，留空则清除已有标签。"""
+    """手动值覆盖 API，省略项也用本次映射替换旧值。"""
     client.episode.return_value.update(id=8636540, airsBeforeSeason=2, airsBeforeEpisode=7)
     overrides = parse_overrides("938553,tvdb=8636540,airsafter_season=0,airsbefore_episode=")
-    original = nfo("<airsafter_season>9</airsafter_season><airsbefore_episode>6</airsbefore_episode><displayepisode>6</displayepisode>")
+    original = nfo("<airsafter_season>9</airsafter_season><displayseason>9</displayseason><airsbefore_episode>6</airsbefore_episode><displayepisode>6</displayepisode>")
     result = NfoEnricher(client, overrides).enrich(original, 56353, 2)
 
     assert result.status == "updated"
@@ -107,12 +107,25 @@ def test_zero_and_before_positions(client, field, value):
 
 
 @pytest.mark.parametrize("tag", ["airsafter_season", "displayafterseason"])
-def test_existing_positions_and_aliases_are_never_overwritten(client, tag):
-    """保留标准标签和 Jellyfin 别名中已经存在的位置。"""
-    original = nfo(f"  <{tag}>9</{tag}>\n")
+def test_successful_mapping_replaces_existing_positions_and_aliases(client, tag):
+    """三项均有旧值时，同步本次结果并清除无值的位置。"""
+    original = nfo(f"<{tag}>9</{tag}><airsbefore_season>2</airsbefore_season><displayepisode>6</displayepisode>")
     result = NfoEnricher(client).enrich(original, 56353, 2)
-    assert result.status == "skipped"
-    assert result.content is original
+    assert result.status == "updated"
+    fields = tags(result.content)
+    assert fields[tag] == "1"
+    assert {"airsbefore_season", "displayepisode"}.isdisjoint(fields)
+    assert result.positions_after == {"airsafter_season": "1", "airsbefore_season": None, "airsbefore_episode": None}
+
+
+def test_successful_mapping_without_positions_clears_old_values(client):
+    """确认单集归属后，空位置结果也用于同步 NFO。"""
+    client.episode.return_value.pop("airsAfterSeason")
+    result = NfoEnricher(client).enrich(nfo("<displayafterseason>1</displayafterseason>"), 56353, 2)
+
+    assert result.status == "updated"
+    assert result.positions_after == dict.fromkeys(("airsafter_season", "airsbefore_season", "airsbefore_episode"))
+    assert "displayafterseason" not in tags(result.content)
 
 
 def test_repeated_enrichment_is_idempotent(client):
@@ -136,7 +149,7 @@ def test_repeated_enrichment_is_idempotent(client):
 def test_unverified_identity_does_not_modify_nfo(client, mutate, status):
     """保留原文件，并区分需要修正的映射和普通跳过。"""
     mutate(client)
-    original = nfo()
+    original = nfo("<airsafter_season>1</airsafter_season><airsbefore_season>2</airsbefore_season><airsbefore_episode>3</airsbefore_episode>")
     result = NfoEnricher(client).enrich(original, 56353, 2)
     assert result.status == status
     assert result.content is original
@@ -146,7 +159,7 @@ def test_unverified_identity_does_not_modify_nfo(client, mutate, status):
 def test_lookup_failure_preserves_original(client, method):
     """可选的外部补全失败不会损坏基础 NFO。"""
     getattr(client, method).side_effect = LookupFailure("测试服务 HTTP 503")
-    original = nfo()
+    original = nfo("<airsafter_season>9</airsafter_season>")
     result = NfoEnricher(client).enrich(original, 56353, 2)
     assert result.status == "failed"
     assert result.content is original
@@ -172,6 +185,7 @@ def test_unsuitable_nfo_does_not_query_network(client, original):
     "bad", "1=2=3", "0=1", "1=-1", "1=2\n1=3", "True=4",
     "1,tvdb=", "1,tvdb=0", "1,airsbefore_episode=-1", "1,other=2", "1,airsafter_season",
     "1,tvdb=2,tvdb=3", "1,airsafter_season=2\n1,airsafter_season=3",
+    "1,ignore,tvdb=2", "1,tvdb=2,ignore", "1,ignore=1", "1,ignore\n1,airsafter_season=2",
 ])
 def test_invalid_override_configuration(text):
     """错误配置整体失败，避免悄悄丢弃用户输入。"""
@@ -187,6 +201,7 @@ def test_valid_override_comments_and_duplicates():
     rule = parse_overrides("938555,airsafter_season=0,airsbefore_season=2,airsbefore_episode=")[938555]
     assert rule.tvdb_id is None
     assert rule.positions == {"airsafter_season": 0, "airsbefore_season": 2, "airsbefore_episode": None}
+    assert parse_overrides("1174618, ignore # 保留本集原值")[1174618].ignore
     assert integer(True) is None
 
 
@@ -220,7 +235,7 @@ def test_preview_shows_before_and_proposed_after_without_writing(client, tmp_pat
     assert report["counts"] == {"preview": 1}
     record = report["records"][0]
     assert record["before"] == {"airsafter_season": None, "airsbefore_season": "0", "airsbefore_episode": ""}
-    assert record["after"] == {"airsafter_season": "1", "airsbefore_season": "0", "airsbefore_episode": ""}
+    assert record["after"] == {"airsafter_season": "1", "airsbefore_season": None, "airsbefore_episode": None}
     assert record["tvdb_episode_id"] == 3250591
     assert path.read_bytes() == original
     assert set(tmp_path.rglob("*")) == files
@@ -255,8 +270,9 @@ def test_manual_positions_preview_and_repair_use_only_local_values(client, libra
 
 @pytest.mark.parametrize("has_tvshow", [True, False])
 def test_scan_reports_configured_tvdb_id_without_lookup(client, library, has_tvshow):
-    """已有位置完整或缺少剧集文件时，仍显示手动指定的单集 ID。"""
+    """缺密钥或缺少剧集文件时，仍显示手动指定的单集 ID。"""
     root, path = library
+    client.configured = False
     if not has_tvshow:
         (path.parent.parent / "tvshow.nfo").unlink()
     path.write_bytes(nfo("<airsafter_season>1</airsafter_season><airsbefore_season>2</airsbefore_season><airsbefore_episode>3</airsbefore_episode>"))
@@ -266,6 +282,24 @@ def test_scan_reports_configured_tvdb_id_without_lookup(client, library, has_tvs
     assert record["status"] == "skipped"
     assert record["tmdb_episode_id"] == 938553
     assert record["tvdb_episode_id"] == 8636540
+    assert client.mock_calls == []
+
+
+def test_ignore_preserves_episode_and_skips_external_queries(client, library):
+    """忽略规则让存量扫描保留原始 NFO。"""
+    root, path = library
+    original = nfo("<airsbefore_season>2</airsbefore_season><displayepisode>6</displayepisode>", identity=1174618)
+    path.write_bytes(original)
+    overrides = parse_overrides("1174618,ignore")
+    runner = RepairRunner(NfoEnricher(client, overrides), Event(), RLock())
+
+    report = runner.run([str(root)], dry_run=False)
+    assert report["counts"] == {"skipped": 1}
+    record = report["records"][0]
+    assert record["reason"] == "已按手动规则忽略"
+    assert record["before"] == record["after"]
+    assert record["tmdb_episode_id"] == 1174618
+    assert path.read_bytes() == original
     assert client.mock_calls == []
 
 
@@ -670,14 +704,14 @@ def test_report_page_formats_summary_and_field_diff_as_renderable_text(plugin, m
     assert all(f"{directory}/" in texts and filename in texts for directory, filename in map(split, paths))
     assert [node["text"] for node in nodes if node["component"] == "th"] == ["文件", "结果", "映射", "播放位置"]
     assert {"airsafter_season", "airsbefore_season", "airsbefore_episode", "0", "空值"}.issubset(texts)
-    assert "预览完成 · 待补全 23 项 · 待修正 1 项" in texts
+    assert "预览完成 · 待更新 23 项 · 待修正 1 项" in texts
     assert any(node.get("text") == "待修正" and node["props"]["class"] == "text-warning" for node in nodes)
     assert "扫描结束于 2026-11-19 16:30:45+08:00" in texts
     first_row = next(node for node in nodes if node["component"] == "tr" and node["content"][0]["component"] == "td")
     dir_line, file_line = first_row["content"][0]["content"]
     assert dir_line["text"] == "/library/"
     assert file_line["text"] == "<img src=x onerror=alert(1)>.nfo"
-    assert [node["text"] for node in first_row["content"][1]["content"]] == ["待补全", "可补全缺失的播放位置"]
+    assert [node["text"] for node in first_row["content"][1]["content"]] == ["待更新", "可补全缺失的播放位置"]
     assert first_row["content"][1]["content"][1]["props"]["class"] == "text-caption"
     source_line, tmdb_line, tvdb_line = first_row["content"][2]["content"]
     assert source_line == {"component": "strong", "text": "TMDb"}

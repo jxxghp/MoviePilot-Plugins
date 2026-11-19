@@ -123,7 +123,7 @@ class RepairRunner:
                         if outcome.status == "updated":
                             if dry_run:
                                 record["status"] = "preview"
-                                record["reason"] = "可按手动规则更新播放位置" if outcome.replaces_positions else "可补全缺失的播放位置"
+                                record["reason"] = "可更新播放位置" if outcome.replaces_positions else "可补全缺失的播放位置"
                             else:
                                 with self.write_lock:
                                     if self.stopped.is_set():

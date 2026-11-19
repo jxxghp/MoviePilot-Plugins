@@ -1335,15 +1335,16 @@
   },
   "SpecialEpisodeOrder": {
     "name": "特典播放顺序",
-    "description": "精确映射 TMDb 与 TVDB 单集，补全 Season 0 特典播放位置，支持预览和修复已有 NFO。",
+    "description": "精确映射 TMDb 与 TVDB 单集，同步 Season 0 特典播放位置，支持预览和修复已有 NFO。",
     "labels": "刮削,Jellyfin,特典",
-    "version": "3.1.1",
+    "version": "3.2.0",
     "icon": "specialepisodeorder.png",
     "author": "OpportunityLiu",
     "level": 1,
     "release": true,
     "system_version": ">=3.2.6",
     "history": {
+      "v3.2.0": "支持按单集忽略规则保留 NFO。映射成功后按本次结果更新三项播放位置，清除无值的字段。",
       "v3.1.1": "手动位置可覆盖或清除已有 NFO 字段。结果表显示 TMDb 和 TVDB 单集 ID，并适配亮暗主题的播放位置差异。",
       "v3.1.0": "手动修正支持直接指定播放位置或覆盖 TVDB 查询结果。扫描明细显示「待修正」和可选中复制的 TMDb 单集 ID。",
       "v3.0.1": "TVDB 单集返回 404 时移除对应的 TMDb 自动映射缓存，下次运行自动重新查询。",
