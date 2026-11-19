@@ -468,8 +468,8 @@ def test_state_string_must_equal_success(monkeypatch, state, success):
 
 @pytest.mark.parametrize("payload, expected", [
     ({"state": "success"}, (True, "签到成功")),
-    ({"state": False}, (True, "今日已签到")),
-    ({"state": "false"}, (True, "今日已签到")),
+    ({"state": False}, (True, "今日已签到（接口未返回原因）")),
+    ({"state": "false"}, (True, "今日已签到（接口未返回原因）")),
     ({"state": "false", "msg": "验证码错误"}, (False, "签到失败，签到接口返回 HTTP 200：验证码错误")),
     ({"state": "error"}, (False, "签到失败，签到接口返回 HTTP 200：未返回成功状态")),
     ({"state": True}, (False, "签到失败，签到接口返回 HTTP 200：未返回成功状态")),

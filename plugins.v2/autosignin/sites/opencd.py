@@ -134,9 +134,10 @@ class Opencd(_ISiteSigninHandler):
                 logger.info(f"{site} 签到成功")
                 return True, '签到成功'
             elif str(sign_dict.get('state', '')).lower() == 'false' and not str(sign_dict.get('msg') or '').strip():
-                # 当日已签到后重复提交只回不带原因的 state=false；验证码错误等真实失败会带 msg。
-                logger.info(f"{site} 今日已签到")
-                return True, '今日已签到'
+                # 当日重复提交只回不带 msg 的 state=false；验证码错误等真实失败会带 msg。
+                message = '今日已签到（接口未返回原因）'
+                logger.info(f"{site} {message}")
+                return True, message
             reason = ' '.join(str(sign_dict.get('msg') or '未返回成功状态').split())[:200]
             logger.error(f"{site} 签到失败，签到接口返回：{reason}")
             return False, f'签到失败，{reason}'

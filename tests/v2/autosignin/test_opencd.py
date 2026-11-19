@@ -39,8 +39,8 @@ def _context(monkeypatch, pages=None, post=None, captcha="ABCDEF") -> SimpleName
 
 @pytest.mark.parametrize("payload, expected", [
     ({"state": "success"}, (True, "签到成功")),
-    ({"state": False}, (True, "今日已签到")),
-    ({"state": "false"}, (True, "今日已签到")),
+    ({"state": False}, (True, "今日已签到（接口未返回原因）")),
+    ({"state": "false"}, (True, "今日已签到（接口未返回原因）")),
     ({"state": "false", "msg": "验证码错误"}, (False, "签到失败，验证码错误")),
     ({"state": "error"}, (False, "签到失败，未返回成功状态")),
     ({"state": True}, (False, "签到失败，未返回成功状态")),
