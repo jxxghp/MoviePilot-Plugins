@@ -407,17 +407,24 @@ def test_log_result_text_hides_success_payload():
 
 
 def test_log_result_text_shows_failure_message():
-    """失败记录优先展示接口返回的错误信息。"""
+    """失败记录优先展示中文化的错误原因。"""
     assert UpdateWeChatIp._log_result_text(
         False, '{"errCode":-4,"errmsg":"invalid ip"}'
-    ) == "invalid ip"
+    ) == "不安全的访问IP"
 
 
 def test_log_result_text_uses_message_field():
-    """企业微信常见的 message 字段也应作为失败原因展示。"""
+    """企业微信常见的 message 字段同样映射为中文原因。"""
     assert UpdateWeChatIp._log_result_text(
         False, '{"errCode":-3,"message":"outsession","etype":"otherLogin"}'
-    ) == "outsession"
+    ) == "登录已失效，请重新登录"
+
+
+def test_log_result_text_maps_error_codes_without_message():
+    """没有原文说明时按错误码映射，-4 缺省按登录失效处理。"""
+    assert UpdateWeChatIp._log_result_text(False, '{"errCode":-4}') == "登录已失效，请重新登录"
+    assert UpdateWeChatIp._log_result_text(False, '{"errcode":-80037}') == "应用不存在"
+    assert UpdateWeChatIp._log_result_text(False, '{"errCode":60020}') == "不安全的访问IP"
 
 
 def test_log_result_text_handles_empty_response():
