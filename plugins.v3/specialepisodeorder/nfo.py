@@ -1,4 +1,4 @@
-"""特典身份校验与 NFO 补全；仅修改缺失的播放位置字段。"""
+"""校验特典身份，补全或按手动规则修正 NFO 播放位置。"""
 
 import re
 from dataclasses import dataclass, field
@@ -105,6 +105,49 @@ def read_positions(nodes: dict[str, minidom.Element]) -> dict[str, str | None]:
     return positions
 
 
+def format_position(value: str | None) -> str:
+    """区分缺失节点、空节点和实际值。"""
+    return "未设置" if value is None else value or "空值"
+
+
+def apply_positions(
+    document: minidom.Document,
+    nodes: dict[str, minidom.Element],
+    positions: dict[str, int | None],
+    override: EpisodeOverride | None,
+) -> dict[str, tuple[str | None, str | None]]:
+    """补齐自动位置，对手动指定的位置更新或移除已有标签。"""
+    changes: dict[str, tuple[str | None, str | None]] = {}
+    root = document.documentElement
+    for _, tag, alias in POSITION_TAGS:
+        names = [name for name in (tag, alias) if name in nodes]
+        replace = override is not None and (override.tvdb_id is None or tag in override.positions)
+        if names and not replace:
+            continue
+        value = positions.get(tag)
+        new = str(value) if value is not None else None
+        if not names and new is not None:
+            node = document.createElement(tag)
+            node.appendChild(document.createTextNode(new))
+            root.appendChild(node)
+            nodes[tag] = node
+            changes[tag] = (None, new)
+        for name in names:
+            node = nodes[name]
+            old = node_text(node)
+            if old == new:
+                continue
+            if new is None:
+                root.removeChild(node)
+                del nodes[name]
+            else:
+                while node.firstChild:
+                    node.removeChild(node.firstChild)
+                node.appendChild(document.createTextNode(new))
+            changes[name] = (old, new)
+    return changes
+
+
 def tmdb_identity(root: minidom.Element) -> int | None:
     """读取传统及 uniqueid 格式，要求所有 TMDb 身份均有效且一致。"""
     values = []
@@ -128,11 +171,20 @@ class Enrichment:
     tmdb_episode_id: int | None = None
     tvdb_episode_id: int | None = None
     mapping_source: str = ""
-    added: dict[str, int] = field(default_factory=dict)
+    changes: dict[str, tuple[str | None, str | None]] = field(default_factory=dict)
+    positions_after: dict[str, str | None] = field(default_factory=dict)
+
+    @property
+    def replaces_positions(self) -> bool:
+        """判断有无已有位置被覆盖或移除。"""
+        return any(old is not None for old, _ in self.changes.values())
 
     def describe_changes(self) -> str:
-        """格式化实际新增字段，供 NFO 修改日志使用。"""
-        return "，".join(f"{tag}：未设置 → {value}" for tag, value in self.added.items())
+        """格式化新增、替换和移除的字段，供修改日志使用。"""
+        return "，".join(
+            f"{tag}：{format_position(old)} → {format_position(new)}"
+            for tag, (old, new) in self.changes.items()
+        )
 
 
 class NfoEnricher:
@@ -148,7 +200,7 @@ class NfoEnricher:
         """检查是否有可直接应用到基础刮削结果的位置规则。"""
         return any(override.tvdb_id is None for override in self.overrides.values())
 
-    def enrich(self, content: bytes | str, series_id: int, episode: int) -> Enrichment:
+    def enrich(self, content: bytes | str, series_id: int | None, episode: int) -> Enrichment:
         """严格验证身份；所有失败均携带未改动的原始内容返回。"""
         result = Enrichment(content)
         try:
@@ -162,29 +214,27 @@ class NfoEnricher:
                 result.reason = "NFO 季集身份与请求不一致"
                 return result
             result.tmdb_episode_id = tmdb_identity(root)
-            if all(tag in nodes or alias in nodes for _, tag, alias in POSITION_TAGS):
+            override = self.overrides.get(result.tmdb_episode_id) if result.tmdb_episode_id is not None else None
+            if override is not None:
+                result.mapping_source = "手动修正"
+                result.tvdb_episode_id = override.tvdb_id
+            if series_id is None:
+                result.reason = "扫描范围内缺少有效的 tvshow.nfo 剧集身份"
+                return result
+            if (override is None or not override.positions) and all(tag in nodes or alias in nodes for _, tag, alias in POSITION_TAGS):
                 result.reason = "播放位置字段已齐全"
                 return result
             if result.tmdb_episode_id is None:
                 result.reason = "缺少有效且一致的 TMDb 单集身份"
                 return result
-            override = self.overrides.get(result.tmdb_episode_id)
             if override is not None and override.tvdb_id is None:
-                result.mapping_source = "手动修正"
                 positions = override.positions
             else:
                 positions = self._lookup_positions(result, series_id, episode, override)
                 if positions is None:
                     return result
-            for _, tag, alias in POSITION_TAGS:
-                value = positions.get(tag)
-                if tag in nodes or alias in nodes or value is None:
-                    continue
-                node = document.createElement(tag)
-                node.appendChild(document.createTextNode(str(value)))
-                root.appendChild(node)
-                result.added[tag] = value
-            if not result.added:
+            result.changes = apply_positions(document, nodes, positions, override)
+            if not result.changes:
                 result.reason = "没有可补全的播放位置"
                 return result
             for element in document.getElementsByTagName("*"):
@@ -193,7 +243,9 @@ class NfoEnricher:
                         if child.nodeType == child.TEXT_NODE and not (child.nodeValue or "").strip():
                             element.removeChild(child)
             result.content = document.toprettyxml(indent="  ", encoding="utf-8") if isinstance(content, bytes) else document.toprettyxml(indent="  ")
-            result.status, result.reason = "updated", "已补全缺失播放位置"
+            result.positions_after = read_positions(nodes)
+            result.status = "updated"
+            result.reason = "已按手动规则更新播放位置" if result.replaces_positions else "已补全缺失播放位置"
         except LookupFailure as error:
             result.status, result.reason = "failed", str(error)
         except Exception as error:
@@ -211,10 +263,7 @@ class NfoEnricher:
         if integer(ids.get("id"), minimum=1) != result.tmdb_episode_id:
             result.reason = "单集 ID 与 TMDb 默认季集编号不一致；可能使用了剧集组"
             return None
-        if override is not None:
-            result.tvdb_episode_id = override.tvdb_id
-            result.mapping_source = "手动修正"
-        else:
+        if override is None:
             result.tvdb_episode_id = integer(ids.get("tvdb_id"), minimum=1)
             if result.tvdb_episode_id is not None:
                 result.mapping_source = "TMDb"

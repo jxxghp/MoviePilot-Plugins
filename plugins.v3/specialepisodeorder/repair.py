@@ -114,20 +114,16 @@ class RepairRunner:
                         record["after"] = record["before"].copy()
                         if path.parent not in show_ids:
                             show_ids[path.parent] = self._show_id(path, root)
-                        series_id = show_ids[path.parent]
-                        if series_id is None:
-                            record["reason"] = "扫描范围内缺少有效的 tvshow.nfo 剧集身份"
-                            record["tmdb_episode_id"] = tmdb_identity(root_node)
-                            self._record(report, record)
-                            continue
-                        outcome = self.engine.enrich(original, series_id, episode)
+                        outcome = self.engine.enrich(original, show_ids[path.parent], episode)
                         record.update(
                             status=outcome.status, reason=outcome.reason,
                             mapping_source=outcome.mapping_source, tmdb_episode_id=outcome.tmdb_episode_id,
+                            tvdb_episode_id=outcome.tvdb_episode_id,
                         )
                         if outcome.status == "updated":
                             if dry_run:
-                                record.update(status="preview", reason="可补全缺失的播放位置")
+                                record["status"] = "preview"
+                                record["reason"] = "可按手动规则更新播放位置" if outcome.replaces_positions else "可补全缺失的播放位置"
                             else:
                                 with self.write_lock:
                                     if self.stopped.is_set():
@@ -141,7 +137,7 @@ class RepairRunner:
                                         atomic_write(path, output, original_stat)
                                         logger.debug(f"特典播放顺序：已更新 {path}（{outcome.mapping_source}），{outcome.describe_changes()}")
                             if record["status"] in ("preview", "updated"):
-                                record["after"].update({tag: str(value) for tag, value in outcome.added.items()})
+                                record["after"] = outcome.positions_after
                     except Exception as error:
                         record.update(status="failed", reason=f"文件处理失败：{type(error).__name__}")
                     self._record(report, record)

@@ -12,7 +12,7 @@ from app.sdk.plugin import ModuleManager, _PluginBase
 from app.schemas.types import MediaType
 
 from .client import METADATA_CACHE_KEY, MetadataClient
-from .nfo import POSITION_TAGS, NfoEnricher, integer, parse_overrides
+from .nfo import POSITION_TAGS, NfoEnricher, format_position, integer, parse_overrides
 from .repair import RepairRunner
 
 
@@ -50,7 +50,7 @@ class SpecialEpisodeOrder(_PluginBase):
     plugin_name = "特典播放顺序"
     plugin_desc = "精确映射 TMDb 与 TVDB 单集，补全 Season 0 特典播放位置，支持预览和修复已有 NFO。"
     plugin_icon = "specialepisodeorder.png"
-    plugin_version = "3.1.0"
+    plugin_version = "3.1.1"
     plugin_author = "OpportunityLiu"
     author_url = "https://github.com/OpportunityLiu"
     plugin_config_prefix = "specialepisodeorder_"
@@ -213,7 +213,7 @@ class SpecialEpisodeOrder(_PluginBase):
             {"component": "VTextarea", "props": {
                 "class": "mb-4", "model": "overrides", "label": "手动映射修正", "rows": 4,
                 "placeholder": "938553,tvdb=8636540\n938554,airsafter_season=1\n938555,tvdb=8636542,airsbefore_episode=",
-                "hint": "每行以 TMDb 单集 ID 开头，用逗号分隔 tvdb 和播放位置字段。位置字段可留空以屏蔽 API 值。支持 # 注释。",
+                "hint": "每行以 TMDb 单集 ID 开头，用逗号分隔 tvdb 和播放位置字段。省略 tvdb 时清除未填写的位置，位置字段留空也可明确清除。支持 # 注释。",
             }},
             {"component": "VCheckbox", "props": {
                 "class": "mb-4", "model": "clear_cache", "label": "清空缓存",
@@ -249,11 +249,11 @@ class SpecialEpisodeOrder(_PluginBase):
                     {"component": "div", "props": {"class": "text-caption"}, "text": f"扫描结束于 {time_text}"},
                 ],
             })
-            content.append(self._report_table(records, dry_run=report["dry_run"]))
+            content.append(self._report_table(records))
         return [{"component": "VCol", "props": {"cols": 12}, "content": content}]
 
     @staticmethod
-    def _report_table(records: list[dict], dry_run: bool) -> dict:
+    def _report_table(records: list[dict]) -> dict:
         """显式声明表头和行，兼容 PageRender 默认插槽并安全呈现文件名。"""
         rows = []
         for record in records:
@@ -281,7 +281,7 @@ class SpecialEpisodeOrder(_PluginBase):
                         "props": {"style": "min-width: 10rem"},
                         "content": [
                             {"component": "strong", "props": {"class": f"text-{color}"}, "text": label},
-                            {"component": "div", "props": {"class": "text-body-2"}, "text": record["reason"]},
+                            {"component": "div", "props": {"class": "text-caption"}, "text": record["reason"]},
                         ],
                     },
                     {"component": "td", "props": {"class": "text-no-wrap"}, "content": SpecialEpisodeOrder._mapping_details(record)},
@@ -291,25 +291,26 @@ class SpecialEpisodeOrder(_PluginBase):
         if not rows:
             rows.append({"component": "tr", "content": [{"component": "td", "props": {"colspan": 4}, "text": "本次扫描未找到符合条件的特典 NFO。"}]})
         # PageRender 总会提供默认插槽，VDataTable 的内置行会被覆盖，故使用显式 VTable。
-        position_label = "播放位置（修改前 → 预览值）" if dry_run else "播放位置（修改前 → 修改后）"
         return {
             "component": "VTable",
             "props": {"density": "compact", "hover": True, "fixed-header": True, "height": 480 if len(records) > 10 else None},
             "content": [
-                {"component": "thead", "content": [{"component": "tr", "content": [{"component": "th", "text": title} for title in ["文件", "结果", "映射", position_label]]}]},
+                {"component": "thead", "content": [{"component": "tr", "content": [{"component": "th", "text": title} for title in ["文件", "结果", "映射", "播放位置"]]}]},
                 {"component": "tbody", "content": rows},
             ],
         }
 
     @staticmethod
     def _mapping_details(record: dict) -> list[dict]:
-        """展示映射来源与可独立选中的 TMDb 单集 ID。"""
+        """展示映射来源与可独立选中的单集 ID。"""
         content = [{"component": "strong", "text": record.get("mapping_source") or "—"}]
-        episode_id = record.get("tmdb_episode_id")
-        if episode_id is not None:
-            content.append({"component": "div", "props": {"class": "text-body-2"}, "content": [
-                {"component": "span", "text": "TMDb "},
-                {"component": "code", "props": {"style": "padding-block: 0; user-select: all"}, "text": str(episode_id)},
+        for label, key in (("TMDb", "tmdb_episode_id"), ("TVDB", "tvdb_episode_id")):
+            episode_id = record.get(key)
+            if episode_id is None:
+                continue
+            content.append({"component": "div", "props": {"class": "text-caption"}, "content": [
+                {"component": "span", "text": f"{label} "},
+                {"component": "code", "props": {"style": "font-size: inherit; padding-block: 0; user-select: all"}, "text": str(episode_id)},
             ]})
         return content
 
@@ -321,12 +322,20 @@ class SpecialEpisodeOrder(_PluginBase):
         for _, tag, _ in POSITION_TAGS:
             old = SpecialEpisodeOrder._position_value(before, tag)
             new = SpecialEpisodeOrder._position_value(after, tag)
-            changed = before.get(tag) != after.get(tag)
-            values = [
-                {"component": "span", "props": {"class": "text-error" if changed else ""}, "text": old},
-                {"component": "span", "props": {"class": "mx-1"}, "text": "→"},
-                {"component": "span", "props": {"class": "text-success" if changed else ""}, "text": new},
-            ]
+            if old == new:
+                value = {"component": "span", "text": new}
+            else:
+                value = {
+                    "component": "span", "props": {"class": "d-inline-flex flex-wrap ga-1"},
+                    "content": [
+                        {"component": element, "text": text, "props": {"style": (
+                            "border-radius: 3px; padding-inline: 0.3em; text-decoration: none; "
+                            f"background-color: rgba(var(--v-theme-{tone}), 0.16); "
+                            f"color: color-mix(in srgb, rgb(var(--v-theme-{tone})) 55%, rgb(var(--v-theme-on-surface)))"
+                        )}}
+                        for element, tone, text in (("del", "error", old), ("ins", "success", new))
+                    ],
+                }
             fields.append({
                 "component": "div",
                 "props": {
@@ -335,7 +344,7 @@ class SpecialEpisodeOrder(_PluginBase):
                 },
                 "content": [
                     {"component": "code", "props": {"style": "min-width: 10rem; padding-block: 0"}, "text": tag},
-                    {"component": "span", "content": values},
+                    value,
                 ],
             })
         return fields
@@ -345,7 +354,4 @@ class SpecialEpisodeOrder(_PluginBase):
         """区分未读取、未设置、空值和实际值。"""
         if tag not in positions:
             return "未读取"
-        value = positions[tag]
-        if value is None:
-            return "未设置"
-        return value or "空值"
+        return format_position(positions[tag])

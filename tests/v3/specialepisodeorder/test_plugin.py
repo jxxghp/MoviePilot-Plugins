@@ -74,14 +74,16 @@ def test_manual_override_and_cross_season_numbering(client):
 
 
 def test_manual_positions_merge_with_tvdb_and_suppress_explicit_empty_field(client):
-    """配置值优先，省略的位置沿用 API，显式留空的位置不写入。"""
+    """配置值覆盖已有位置，省略项沿用 API 补全，留空则清除已有标签。"""
     client.episode.return_value.update(id=8636540, airsBeforeSeason=2, airsBeforeEpisode=7)
     overrides = parse_overrides("938553,tvdb=8636540,airsafter_season=0,airsbefore_episode=")
-    result = NfoEnricher(client, overrides).enrich(nfo(), 56353, 2)
+    original = nfo("<airsafter_season>9</airsafter_season><airsbefore_episode>6</airsbefore_episode><displayepisode>6</displayepisode>")
+    result = NfoEnricher(client, overrides).enrich(original, 56353, 2)
 
     assert result.status == "updated"
-    assert result.added == {"airsafter_season": 0, "airsbefore_season": 2}
-    assert "airsbefore_episode" not in tags(result.content)
+    assert result.positions_after == {"airsafter_season": "0", "airsbefore_season": "2", "airsbefore_episode": None}
+    assert {"airsbefore_episode", "displayepisode"}.isdisjoint(tags(result.content))
+    assert "airsbefore_episode：6 → 未设置" in result.describe_changes()
     client.episode.assert_called_once_with(8636540)
 
 
@@ -219,29 +221,51 @@ def test_preview_shows_before_and_proposed_after_without_writing(client, tmp_pat
     record = report["records"][0]
     assert record["before"] == {"airsafter_season": None, "airsbefore_season": "0", "airsbefore_episode": ""}
     assert record["after"] == {"airsafter_season": "1", "airsbefore_season": "0", "airsbefore_episode": ""}
+    assert record["tvdb_episode_id"] == 3250591
     assert path.read_bytes() == original
     assert set(tmp_path.rglob("*")) == files
     debug.assert_not_called()
 
 
 def test_manual_positions_preview_and_repair_use_only_local_values(client, library):
-    """存量预览与修复仅应用指定的位置，无密钥也可处理。"""
+    """存量预览和修复会清除省略项，包括已有的 Jellyfin 别名。"""
     root, path = library
-    original = path.read_bytes()
+    original = nfo("<airsbefore_season>2</airsbefore_season><displayseason>2</displayseason><displayepisode>6</displayepisode>", identity=1174618)
+    path.write_bytes(original)
     client.configured = False
-    overrides = parse_overrides("938553,airsbefore_season=2,airsbefore_episode=0")
+    overrides = parse_overrides("1174618,airsafter_season=1")
     runner = RepairRunner(NfoEnricher(client, overrides), Event(), RLock())
 
     preview = runner.run([str(root)])["records"][0]
     assert preview["status"] == "preview"
-    assert preview["after"] == {"airsafter_season": None, "airsbefore_season": "2", "airsbefore_episode": "0"}
+    assert preview["before"] == {"airsafter_season": None, "airsbefore_season": "2", "airsbefore_episode": "6"}
+    assert preview["after"] == {"airsafter_season": "1", "airsbefore_season": None, "airsbefore_episode": None}
     assert preview["mapping_source"] == "手动修正"
-    assert preview["tmdb_episode_id"] == 938553
+    assert preview["tmdb_episode_id"] == 1174618
+    assert preview["tvdb_episode_id"] is None
     assert path.read_bytes() == original
     updated = runner.run([str(root)], dry_run=False)["records"][0]
     assert updated["status"] == "updated" and updated["after"] == preview["after"]
-    assert "airsafter_season" not in tags(path.read_bytes())
-    assert tags(path.read_bytes())["airsbefore_episode"] == "0"
+    fields = tags(path.read_bytes())
+    assert {"airsbefore_season", "displayseason", "displayepisode"}.isdisjoint(fields)
+    assert fields["airsafter_season"] == "1"
+    assert runner.run([str(root)], dry_run=False)["counts"] == {"skipped": 1}
+    assert client.mock_calls == []
+
+
+@pytest.mark.parametrize("has_tvshow", [True, False])
+def test_scan_reports_configured_tvdb_id_without_lookup(client, library, has_tvshow):
+    """已有位置完整或缺少剧集文件时，仍显示手动指定的单集 ID。"""
+    root, path = library
+    if not has_tvshow:
+        (path.parent.parent / "tvshow.nfo").unlink()
+    path.write_bytes(nfo("<airsafter_season>1</airsafter_season><airsbefore_season>2</airsbefore_season><airsbefore_episode>3</airsbefore_episode>"))
+    overrides = parse_overrides("938553,tvdb=8636540")
+    record = RepairRunner(NfoEnricher(client, overrides), Event(), RLock()).run([str(root)])["records"][0]
+
+    assert record["status"] == "skipped"
+    assert record["tmdb_episode_id"] == 938553
+    assert record["tvdb_episode_id"] == 8636540
     assert client.mock_calls == []
 
 
@@ -626,12 +650,13 @@ def test_report_page_formats_summary_and_field_diff_as_renderable_text(plugin, m
             "reason": "可补全缺失的播放位置",
             "mapping_source": "TMDb",
             "tmdb_episode_id": 938553,
+            "tvdb_episode_id": 8636540,
             "before": {"airsafter_season": None, "airsbefore_season": "0", "airsbefore_episode": ""},
             "after": {"airsafter_season": "2", "airsbefore_season": "0", "airsbefore_episode": ""},
         }
         for path in paths
     ]
-    records[-1].update(status="needs_correction", reason="TMDb 未提供 TVDB 单集映射", mapping_source="")
+    records[-1].update(status="needs_correction", reason="TMDb 未提供 TVDB 单集映射", mapping_source="", tvdb_episode_id=None)
     monkeypatch.setattr(plugin_module.settings, "TZ", "Asia/Shanghai")
     plugin._last_report = {
         "dry_run": True,
@@ -643,10 +668,8 @@ def test_report_page_formats_summary_and_field_diff_as_renderable_text(plugin, m
     nodes = list(page_nodes(plugin.get_page()))
     texts = [node.get("text") for node in nodes]
     assert all(f"{directory}/" in texts and filename in texts for directory, filename in map(split, paths))
-    assert {"文件", "结果", "映射", "播放位置（修改前 → 预览值）"}.issubset(texts)
+    assert [node["text"] for node in nodes if node["component"] == "th"] == ["文件", "结果", "映射", "播放位置"]
     assert {"airsafter_season", "airsbefore_season", "airsbefore_episode", "0", "空值"}.issubset(texts)
-    assert {node["text"] for node in nodes if node.get("props", {}).get("class") == "text-error"} == {"未设置"}
-    assert {node["text"] for node in nodes if node.get("props", {}).get("class") == "text-success"} == {"2"}
     assert "预览完成 · 待补全 23 项 · 待修正 1 项" in texts
     assert any(node.get("text") == "待修正" and node["props"]["class"] == "text-warning" for node in nodes)
     assert "扫描结束于 2026-11-19 16:30:45+08:00" in texts
@@ -655,11 +678,21 @@ def test_report_page_formats_summary_and_field_diff_as_renderable_text(plugin, m
     assert dir_line["text"] == "/library/"
     assert file_line["text"] == "<img src=x onerror=alert(1)>.nfo"
     assert [node["text"] for node in first_row["content"][1]["content"]] == ["待补全", "可补全缺失的播放位置"]
-    source_line, id_line = first_row["content"][2]["content"]
+    assert first_row["content"][1]["content"][1]["props"]["class"] == "text-caption"
+    source_line, tmdb_line, tvdb_line = first_row["content"][2]["content"]
     assert source_line == {"component": "strong", "text": "TMDb"}
-    assert id_line["props"]["class"] == "text-body-2"
-    id_code = id_line["content"][1]
-    assert id_code["text"] == "938553" and "user-select: all" in id_code["props"]["style"]
+    for line, label, episode_id in ((tmdb_line, "TMDb ", "938553"), (tvdb_line, "TVDB ", "8636540")):
+        assert line["props"]["class"] == "text-caption"
+        assert [node["text"] for node in line["content"]] == [label, episode_id]
+        assert "user-select: all" in line["content"][1]["props"]["style"]
+    result_rows = [node for node in nodes if node["component"] == "tr" and node["content"][0]["component"] == "td"]
+    assert len(result_rows[-1]["content"][2]["content"]) == 2
+    changed, unchanged_zero, unchanged_empty = [line["content"][1] for line in first_row["content"][3]["content"]]
+    assert [(mark["component"], mark["text"]) for mark in changed["content"]] == [("del", "未设置"), ("ins", "2")]
+    assert "--v-theme-error" in changed["content"][0]["props"]["style"]
+    assert "--v-theme-success" in changed["content"][1]["props"]["style"]
+    assert unchanged_zero == {"component": "span", "text": "0"}
+    assert unchanged_empty == {"component": "span", "text": "空值"}
     assert sum(node.get("component") == "tr" for node in nodes) == 25
     assert not any(node.get("html") for node in nodes)
 
