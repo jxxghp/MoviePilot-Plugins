@@ -17,7 +17,7 @@ from fastapi import HTTPException
 from fastapi.responses import Response
 
 from app.schemas.notification import ChannelCapability, ChannelCapabilityManager
-from app.schemas.types import EventType, NotificationChannel
+from app.schemas.types import EventType, ModuleType, NotificationChannel
 from app.sdk.config import settings
 from app.sdk.events import eventmanager, Event
 from app.sdk.logging import logger
@@ -36,7 +36,7 @@ class UpdateWeChatIp(_PluginBase):
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本，必须和 package.v3.json 中保持一致
-    plugin_version = "2.0.1"
+    plugin_version = "2.0.2"
     # 作者信息
     plugin_author = "书小白,iamchq"
     author_url = "https://github.com/thshu/MoviePilot-Plugins"
@@ -209,26 +209,26 @@ class UpdateWeChatIp(_PluginBase):
         arg_str = event_data.get("arg_str")
         source = event_data.get("source")
         user = event_data.get("user")
+
+        def remind_missing_qrcode() -> None:
+            """提示先获取登录二维码。"""
+            self.post_message(
+                channel=channel,
+                title="未获取二维码",
+                userid=user,
+                text="请先执行 /update_wechat_ip 获取登录二维码。",
+            )
+
         if arg_str is not None and str(arg_str).strip():
             arg_text = str(arg_str).strip()
             if arg_text == '扫码完成':
                 if not self._qrcode_key:
-                    self.post_message(
-                        channel=channel,
-                        title="未获取二维码",
-                        userid=user,
-                        text="请先执行 /update_wechat_ip 获取登录二维码。",
-                    )
+                    remind_missing_qrcode()
                     return
                 self._login(channel, user, source=source)
             elif len(self._digits_of(arg_text)) == self._captcha_length:
                 if not self._qrcode_key:
-                    self.post_message(
-                        channel=channel,
-                        title="未获取二维码",
-                        userid=user,
-                        text="请先执行 /update_wechat_ip 获取登录二维码。",
-                    )
+                    remind_missing_qrcode()
                     return
                 # 命令一次性提交完整验证码：先归一化再校验长度
                 self._captcha[self._qrcode_key] = self._digits_of(arg_text)
@@ -241,6 +241,8 @@ class UpdateWeChatIp(_PluginBase):
                     text=f"未识别到 {self._captcha_length} 位数字验证码，可回复：\n```\n/update_wechat_ip 验证码内容\n```",
                 )
         else:
+            # 只保留一个待扫码的二维码，新的会覆盖上一次
+            replaced = bool(self._qrcode_key)
             # 初始化变量
             self._qrcode_key = None
             self._tl_key = None
@@ -264,26 +266,63 @@ class UpdateWeChatIp(_PluginBase):
                     text="企业微信登录二维码图片获取失败，请稍后重试。",
                 )
                 return
-            self.post_message(**self._qrcode_message(channel, user, image_url))
+            self.post_message(**self._qrcode_message(channel, user, image_url, replaced=replaced))
 
-    def _qrcode_message(self, channel, user, image_url: str) -> Dict[str, Any]:
+    def _qrcode_message(self, channel, user, image_url: str,
+                        replaced: bool = False) -> Dict[str, Any]:
         """
-        通过统一原图参数发送二维码，渠道上传与降级交给宿主处理。
+        投递二维码：原图上传与降级由宿主统一处理，插件只补地址兜底与可达性判断。
         """
         lines = ["请选择要执行的操作：", "请识别或扫描二维码完成登录。",
                  "如果按钮不可用，可回复：\n```\n/update_wechat_ip 扫码完成\n```"]
-        return {
+        if replaced:
+            lines.insert(0, "上一次待扫码的二维码已失效，请以本次为准。")
+        message: Dict[str, Any] = {
             "channel": channel,
             "title": "登录二维码",
-            "text": "\n".join(lines),
             "userid": user,
             "buttons": [[{
                 "text": "扫码完成",
                 "callback_data": f"[PLUGIN]{self.__class__.__name__}|扫码完成|{self._qrcode_key}",
             }]],
-            "image": image_url,
-            "native_image": True,
         }
+        if self._is_same_origin_channel(channel):
+            message.update({"text": "\n".join(lines), "image": image_url})
+            return message
+        shareable = self._shareable_image_url(image_url)
+        if not shareable:
+            # 宿主不会校验地址可达性，回环地址发出去就是一张抓不到的图
+            message.update({"text": "\n".join(lines + [
+                "当前渠道不能上传原图，也没有配置可对外访问的地址，"
+                "请在 MoviePilot 页面打开本插件获取二维码。",
+            ])})
+            return message
+        if (self._channel_supports(channel, ChannelCapability.IMAGES)
+                and not self._channel_supports(channel, ChannelCapability.NATIVE_IMAGES)):
+            # 这类渠道由客户端抓图，抓不到时正文里的地址还能救场
+            lines.append(f"二维码地址（图片未显示时可打开）：{shareable}")
+        message.update({"text": "\n".join(lines), "image": image_url, "native_image": True})
+        return message
+
+    @staticmethod
+    def _shareable_image_url(image_url: str) -> Optional[str]:
+        """返回可交给外部客户端打开的图片地址；相对地址与本地保留地址不可用。"""
+        candidate = str(image_url or "").strip()
+        if not candidate.startswith(("http://", "https://")):
+            return None
+        host = (urlparse(candidate).hostname or "").lower()
+        if not host:
+            return None
+        try:
+            address = ipaddress.ip_address(host)
+        except ValueError:
+            # RFC 6761 规定 localhost 及其子域都解析到回环
+            if host == "localhost" or host.endswith(".localhost"):
+                return None
+            return candidate
+        if address.is_loopback or address.is_unspecified or address.is_link_local:
+            return None
+        return candidate
 
     @eventmanager.register(EventType.MessageAction)
     def message_action(self, event: Event):
@@ -327,6 +366,18 @@ class UpdateWeChatIp(_PluginBase):
         text, qrcode_key = callback_text.split("|", 1)
         qrcode_key = self._resolve_captcha_key(qrcode_key)
 
+        def resend_prompt(note: Optional[str] = None) -> None:
+            """按当前会话重发验证码输入提示。"""
+            self._send_captcha_prompt(
+                channel=channel,
+                userid=userid,
+                qrcode_key=qrcode_key,
+                source=source,
+                original_message_id=original_message_id,
+                original_chat_id=original_chat_id,
+                note=note,
+            )
+
         if text == "扫码完成":
             self._qrcode_key = qrcode_key
             self._login(
@@ -341,58 +392,20 @@ class UpdateWeChatIp(_PluginBase):
             self._submit_captcha(channel, userid, qrcode_key, source=source)
         elif text == "退格":
             self._captcha[qrcode_key] = self._captcha.get(qrcode_key, "")[:-1]
-            self._send_captcha_prompt(
-                channel=channel,
-                userid=userid,
-                qrcode_key=qrcode_key,
-                source=source,
-                original_message_id=original_message_id,
-                original_chat_id=original_chat_id,
-            )
+            resend_prompt()
         elif text == "清空":
             self._captcha[qrcode_key] = ""
-            self._send_captcha_prompt(
-                channel=channel,
-                userid=userid,
-                qrcode_key=qrcode_key,
-                source=source,
-                original_message_id=original_message_id,
-                original_chat_id=original_chat_id,
-                note="已清空输入，可重新输入验证码。",
-            )
+            resend_prompt(note="已清空输入，可重新输入验证码。")
         elif text == "文本输入":
             if self._request_text_input(channel, userid, source, qrcode_key):
-                self._send_captcha_prompt(
-                    channel=channel,
-                    userid=userid,
-                    qrcode_key=qrcode_key,
-                    source=source,
-                    original_message_id=original_message_id,
-                    original_chat_id=original_chat_id,
-                    note=self._text_input_note(channel),
-                )
+                resend_prompt(note=self._text_input_note(channel))
             else:
-                self._send_captcha_prompt(
-                    channel=channel,
-                    userid=userid,
-                    qrcode_key=qrcode_key,
-                    source=source,
-                    original_message_id=original_message_id,
-                    original_chat_id=original_chat_id,
-                    note="当前宿主未提供文本输入会话接口，请使用数字按钮或 /update_wechat_ip 命令输入。",
-                )
+                resend_prompt(note="当前宿主未提供文本输入会话接口，请使用数字按钮或 /update_wechat_ip 命令输入。")
         elif len(re.findall('[0-9]', text)) != 0:
             if qrcode_key not in self._captcha.keys():
                 self._captcha[qrcode_key] = ""
             self._captcha[qrcode_key] += text
-            self._send_captcha_prompt(
-                channel=channel,
-                userid=userid,
-                qrcode_key=qrcode_key,
-                source=source,
-                original_message_id=original_message_id,
-                original_chat_id=original_chat_id,
-            )
+            resend_prompt()
         else:
             self.post_message(
                 channel=channel,
@@ -416,15 +429,16 @@ class UpdateWeChatIp(_PluginBase):
             {
                 "path": "/UpdateIP",
                 "endpoint": self.UpdateIp,
-                "methods": ["GET"],
+                # 会改写企微可信IP，必须用 POST，避免预取或爬虫触发状态变更
+                "methods": ["POST"],
                 # 前端插件页面通过 api 模块调用时，通常使用 bear
                 "auth": "apikey",
                 "summary": "更新企业微信IP白名单",
-                "description": "更新企业微信IP白名单,需要传递查询参数,参数名为:ip",
+                "description": "更新企业微信IP白名单,需要传递查询参数,参数名为:ip；返回各应用的写入结果",
             },
         ]
 
-    def UpdateIp(self, ip):
+    def UpdateIp(self, ip: str) -> Dict[str, Any]:
         """更新指定 IP 的企业微信可信IP配置。"""
         candidate = str(ip or "").strip()
         try:
@@ -432,7 +446,13 @@ class UpdateWeChatIp(_PluginBase):
         except ValueError:
             raise HTTPException(status_code=400, detail="非法 IPv4 地址")
         self._ip = candidate
-        self._save_ip_config()
+        results = self._save_ip_config()
+        return {
+            "success": bool(results) and all(item.status for item in results),
+            "ip": candidate,
+            "updated": len(results),
+            "failed_app_ids": [item.app_id for item in results if not item.status],
+        }
 
     def get_img(self, uuid: str, t: Optional[str] = None):
         """输出最近一次登录二维码图片，凭据为本次登录签发的令牌 t。"""
@@ -449,7 +469,9 @@ class UpdateWeChatIp(_PluginBase):
                 detail="二维码已失效，请重新执行 /update_wechat_ip"
             )
         content, media_type = image
-        return Response(content=content, media_type=media_type)
+        # 二维码里带登录凭据，禁止任何中间层缓存
+        return Response(content=content, media_type=media_type,
+                        headers={"Cache-Control": "no-store"})
 
     @staticmethod
     def _image_media_type(content: bytes) -> str:
@@ -953,15 +975,18 @@ class UpdateWeChatIp(_PluginBase):
         logger.info("登录二维码图片获取成功")
         with self._qr_image_lock:
             self._qr_image = (content, self._image_media_type(content))
-        # 图片地址会进通知和日志，只放本次登录的短期令牌
+        # 图片地址会进通知，只放本次登录的短期令牌
         uri = (f"/api/v1/plugin/{self.__class__.__name__}/img/"
                f"{uuid.uuid4().hex}?t={self._new_img_token()}")
         if self._is_same_origin_channel(channel):
             # 页面内渲染的渠道用相对地址，跟随用户实际访问入口
             img_url = uri
+            source = "站内相对地址"
         else:
             img_url = settings.MP_DOMAIN(uri) or f"http://127.0.0.1:{settings.PORT}{uri}"
-        logger.info(f"构建二维码地址为:{img_url}")
+            source = "外部域名地址"
+        # 地址里的 t 是本次登录的访问令牌，只记录来源形式不落盘
+        logger.info(f"登录二维码图片地址已生成（{source}）")
         return img_url
 
     def _check(self, key, timeout: int = 30) -> Dict:
@@ -1062,13 +1087,52 @@ class UpdateWeChatIp(_PluginBase):
         return False
 
     def _login(self, channel, userid, source=None, original_message_id=None, original_chat_id=None):
-        """执行扫码后的登录步骤，需要时下发短信验证码输入交互。"""
+        """接收扫码确认并交给后台线程处理，避免在事件线程里阻塞等待。"""
         logger.info("触发登录回调，开始执行登录步骤")
-        check_data = self._check(self._qrcode_key)
+        qrcode_key = self._qrcode_key
+        if not qrcode_key:
+            self.post_message(
+                channel=channel,
+                title="未获取二维码",
+                userid=userid,
+                text="请先执行 /update_wechat_ip 获取登录二维码。",
+            )
+            return
+        # 扫码确认最多要等 30 秒，放到后台线程，先给用户一个即时回执
+        self.post_message(
+            channel=channel,
+            title="登录中",
+            userid=userid,
+            text="已收到扫码确认，正在校验登录状态，请稍候…",
+        )
+        threading.Thread(
+            target=self._login_worker,
+            args=(channel, userid, qrcode_key, source, original_message_id, original_chat_id),
+            name=f"{self.__class__.__name__}-login",
+            daemon=True,
+        ).start()
+
+    def _login_worker(self, channel, userid, qrcode_key, source=None,
+                      original_message_id=None, original_chat_id=None):
+        """后台完成扫码确认与登录，需要时下发短信验证码输入交互。"""
+        if not self._se:
+            logger.warning("网络会话已关闭，跳过本次登录处理")
+            return
+        check_data = self._check(qrcode_key)
         if check_data:
-            code = check_data.get('auth_code')
+            # code 为空时 requests 会丢掉该参数，登录页静默失败后可能拿旧 sid 报成功
+            code = str(check_data.get('auth_code') or '').strip()
+            if not code:
+                logger.error("扫码结果缺少 auth_code")
+                self.post_message(
+                    channel=channel,
+                    title="登录失败",
+                    userid=userid,
+                    text="扫码结果异常（缺少 auth_code），请重新发送 /update_wechat_ip 扫码。",
+                )
+                return
             try:
-                res = self._loginpage_wx(self._qrcode_key, code)
+                res = self._loginpage_wx(qrcode_key, code)
             except Exception as e:
                 logger.error(f"登录请求异常: {e}")
                 self.post_message(
@@ -1087,7 +1151,7 @@ class UpdateWeChatIp(_PluginBase):
                 self._start_captcha_input(
                     channel,
                     userid,
-                    self._qrcode_key,
+                    qrcode_key,
                     source=source,
                     original_message_id=original_message_id,
                     original_chat_id=original_chat_id,
@@ -1175,13 +1239,27 @@ class UpdateWeChatIp(_PluginBase):
             except Exception as e:
                 logger.debug(f"首次登录失效提醒失败: {e}")
             return
-        for channel in NotificationChannel:
-            if channel.name in self._notify_silent_channels:
-                continue
+        for channel in self._enabled_notify_channels():
             try:
                 self.post_message(channel=channel, title=title, text=text)
             except Exception as e:
                 logger.debug(f"{channel.name} 渠道提醒失败: {e}")
+
+    def _enabled_notify_channels(self) -> List[NotificationChannel]:
+        """列出宿主已配置的通知渠道，读取失败时退回全部渠道。"""
+        channels: List[NotificationChannel] = []
+        try:
+            manager = self.chain.modulemanager
+            for module in manager.get_running_type_modules(ModuleType.Notification):
+                if not module.get_configs():
+                    continue
+                channel = module.get_subtype()
+                if isinstance(channel, NotificationChannel) and channel not in channels:
+                    channels.append(channel)
+        except Exception as err:
+            logger.debug(f"读取已启用通知渠道失败，按全部渠道提醒: {err}")
+            return [c for c in NotificationChannel if c.name not in self._notify_silent_channels]
+        return [c for c in channels if c.name not in self._notify_silent_channels]
 
     def _clear_fail(self):
         """登录恢复正常后清除失败计数。"""
@@ -1212,15 +1290,19 @@ class UpdateWeChatIp(_PluginBase):
                         return False
         return True
 
-    def _save_ip_config(self):
-        """把当前公网 IP 写入每个应用的可信IP列表。"""
+    def _save_ip_config(self, app_ids: Optional[List[str]] = None) -> List['UpdateLogDto']:
+        """
+        把当前公网 IP 写入指定应用的可信IP列表。
+
+        :param app_ids: 待写入的应用 ID；为空时按配置顺序写入全部应用
+        :return: 每个应用的写入结果，供调用方按其真实结果通知
+        """
         logger.info(f"更新IP为:{self._ip}")
-        _update_log = []
+        # 同一次更新共用时间戳，避免逐个应用的写入记录在详情页按秒被拆成多组
+        now = datetime.now()
+        _update_log: List[UpdateLogDto] = []
         url = 'https://work.weixin.qq.com/wework_admin/apps/saveIpConfig?lang=zh_CN&f=json&ajax=1'
-        for appId in (self._app_id or "").split(','):
-            appId = appId.strip()
-            if not appId:
-                continue
+        for appId in (app_ids or self._app_ids()):
             data = {
                 'app_id': appId,
                 'ipList[]': self._ip
@@ -1233,7 +1315,8 @@ class UpdateWeChatIp(_PluginBase):
                     status=False,
                     ip=self._ip,
                     app_id=appId,
-                    result=f"请求异常: {e}"
+                    result=f"请求异常: {e}",
+                    UpdateTime=now,
                 ))
                 continue
             success = self._response_ok(res)
@@ -1250,17 +1333,20 @@ class UpdateWeChatIp(_PluginBase):
                 status=success,
                 ip=self._ip,
                 app_id=appId,
-                result=result_text
+                result=result_text,
+                UpdateTime=now,
             ))
 
         update_log: List[UpdateLogDto] = [UpdateLogDto.from_dict(i) for i in self.get_data(self._UpdateLogKey) or []]
         merged = (update_log + _update_log)[-self._update_log_limit:]
         self.save_data(self._UpdateLogKey, [i.to_dict() for i in merged])
+        return _update_log
 
     def _login_success(self):
         """清理失败状态并把登录凭据写入插件配置。"""
         logger.info("保存配置文件")
         self._clear_fail()
+        self._tl_key = None
         config = self.get_config() or {}
         config.update({
             '_enabled': self._enabled,
@@ -1613,14 +1699,25 @@ class UpdateWeChatIp(_PluginBase):
             return candidate
         return None
 
-    def _get_corp_app_v2(self):
-        """读取首个应用的配置，用于比对可信IP列表。"""
-        logger.info("开始获取企业应用配置")
-        if not self._app_id:
+    def _app_ids(self) -> List[str]:
+        """按配置顺序返回去重后的应用 ID。"""
+        app_ids: List[str] = []
+        for item in (self._app_id or "").split(","):
+            app_id = item.strip()
+            if app_id and app_id not in app_ids:
+                app_ids.append(app_id)
+        return app_ids
+
+    def _get_corp_app_v2(self, app_id: Optional[str] = None):
+        """读取指定应用（默认首个）的配置，用于比对可信IP列表。"""
+        app_ids = self._app_ids()
+        target = (app_id or (app_ids[0] if app_ids else "")).strip()
+        if not target:
             logger.error("未配置应用ID")
             return {}
-        app_id = self._app_id.split(",")[0].strip()
-        url = f'https://work.weixin.qq.com/wework_admin/apps/getCorpAppV2?lang=zh_CN&f=json&ajax=1&app_id={app_id}'
+        # 多应用逐个校验时只保留一行汇总日志，这里降为 debug 避免刷屏
+        logger.debug(f"获取企业应用配置：{target}")
+        url = f'https://work.weixin.qq.com/wework_admin/apps/getCorpAppV2?lang=zh_CN&f=json&ajax=1&app_id={target}'
         try:
             res = self._se.get(url, headers=self._headers, timeout=10)
             if res.status_code == 200:
@@ -1630,6 +1727,36 @@ class UpdateWeChatIp(_PluginBase):
         except Exception as e:
             logger.error(f"获取企业应用配置异常: {e}")
         return {}
+
+    def _apps_missing_ip(self) -> List[str]:
+        """返回可信IP列表未包含当前公网 IP 的应用，读取失败的应用按缺少处理。"""
+        logger.info("开始校验各应用的可信IP列表")
+        missing: List[str] = []
+        for app_id in self._app_ids():
+            white_ip_list = (self._get_corp_app_v2(app_id).get('app') or {}).get('white_ip_list') or {}
+            if self._ip in (white_ip_list.get('ip') or []):
+                continue
+            missing.append(app_id)
+        return missing
+
+    def _notify_ip_update(self, results: List['UpdateLogDto']) -> None:
+        """按各应用的真实结果通知，全部失败时不再报告成功。"""
+        if not results:
+            return
+        failed = [row for row in results if not row.status]
+        if not failed:
+            text = "触发IP更新,最新IP为：" + self._ip
+        elif len(failed) == len(results):
+            detail = "；".join(
+                f"{row.app_id}：{self._log_result_text(row.status, row.result)}" for row in failed[:3]
+            )
+            if len(failed) > 3:
+                detail += f"；共 {len(failed)} 个应用失败"
+            text = f"IP更新失败，最新IP为：{self._ip}\n{detail}"
+        else:
+            text = (f"IP更新部分失败，最新IP为：{self._ip}；成功 {len(results) - len(failed)} 个，"
+                    f"失败 {len(failed)} 个（{'、'.join(row.app_id for row in failed[:3])}）")
+        self.post_message(title='企业微信IP更新', text=text)
 
     def _run_check_safe(self):
         """Timer 线程里安全执行 check()，避免异常导致线程静默退出。"""
@@ -1660,14 +1787,15 @@ class UpdateWeChatIp(_PluginBase):
         if not self._ip:
             logger.error("获取当前公网IP失败，跳过本次检测")
             return
-        app_config = self._get_corp_app_v2()
-        app_config_ips = app_config.get('app', {}).get('white_ip_list', {}).get('ip', [])
-        if self._ip not in app_config_ips:
-            self._save_ip_config()
-            self.post_message(
-                title='企业微信IP更新',
-                text="触发IP更新,最新IP为：" + self._ip
-            )
+        if not self._app_ids():
+            logger.error("未配置应用ID，跳过可信IP校验")
+            return
+        missing_apps = self._apps_missing_ip()
+        if not missing_apps:
+            logger.debug(f"可信IP列表已包含当前IP {self._ip}，无需更新")
+            return
+        logger.info(f"以下应用缺少当前IP {self._ip}：{','.join(missing_apps)}")
+        self._notify_ip_update(self._save_ip_config(missing_apps))
 
 
 @dataclass
@@ -1696,13 +1824,17 @@ class UpdateLogDto:
 
     @classmethod
     def from_dict(cls, data: dict):
-        """从持久化字典还原记录。"""
-        # 深拷贝一份，避免修改原字典
-        kwargs = dict(data)
-        # 旧记录可能没有时间字段，交给 __post_init__ 补当前时间
-        raw_time = kwargs.pop('UpdateTime', None)
+        """从持久化字典还原记录，忽略未知字段并容忍缺失字段。"""
+        raw = data if isinstance(data, dict) else {}
+        raw_time = raw.get('UpdateTime')
         try:
-            kwargs['UpdateTime'] = datetime.fromisoformat(raw_time) if raw_time else None
+            update_time = datetime.fromisoformat(raw_time) if raw_time else None
         except (TypeError, ValueError):
-            kwargs['UpdateTime'] = None
-        return cls(**kwargs)
+            update_time = None
+        return cls(
+            status=bool(raw.get('status', False)),
+            ip=str(raw.get('ip') or ''),
+            app_id=str(raw.get('app_id') or ''),
+            result=str(raw.get('result') or ''),
+            UpdateTime=update_time,
+        )
