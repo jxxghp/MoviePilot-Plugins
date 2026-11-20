@@ -238,6 +238,83 @@ class TestPageRender:
             assert isinstance(block, dict)
             assert block.get("component")
 
+    def test_page_survives_reload_with_saved_state(self):
+        """重载后应从持久化配置恢复上次结果，而不是回到「未知」。"""
+        plugin = object.__new__(WeComIPGuard)
+        plugin._reset_config()
+        plugin._load_config(
+            {
+                "enabled": True,
+                "last_ip": "1.2.3.4",
+                "last_ip_source": "https://example.com/ip",
+                "last_checked_at": "2026-11-20 15:00:00",
+                "last_sync_at": "2026-11-20 15:00:05",
+                "last_sync_result": "成功",
+                "last_sync_detail": ["应用1: 1.2.3.4 -> 1.2.3.4 (成功)"],
+                "cookie_valid": True,
+            }
+        )
+        assert plugin._current_ip == "1.2.3.4"
+        assert plugin._sync_result == "成功"
+        assert plugin._ip_checked_at == "2026-11-20 15:00:00"
+
+        page = plugin.get_page()
+        text = _flatten_text(page)
+        assert "1.2.3.4" in text
+        assert "未知" not in text
+
+
+class TestAutoCheckOnEnable:
+    """启用后必须自动检测一次，避免页面停在「未知」。"""
+
+    def test_enabled_schedules_startup_check(self):
+        plugin = object.__new__(WeComIPGuard)
+        plugin._reset_config()
+        plugin.stop_service = MagicMock()
+        plugin.update_config = MagicMock()
+        plugin.send_cookie_status = MagicMock()
+
+        with patch("app.plugins.wecomipguard.BackgroundScheduler") as scheduler_cls:
+            scheduler = MagicMock()
+            scheduler.get_jobs.return_value = []
+            scheduler_cls.return_value = scheduler
+            plugin.init_plugin({"enabled": True, "onlyonce": False, "cookie_valid": True})
+
+            job_names = [
+                call.kwargs.get("name") or (call.args[0] if call.args else "")
+                for call in scheduler.add_job.call_args_list
+            ]
+        assert any("自动检测" in str(name) for name in job_names), job_names
+
+    def test_disabled_does_not_schedule_check(self):
+        """未启用时不应安排检测任务。"""
+        plugin = object.__new__(WeComIPGuard)
+        plugin._reset_config()
+        plugin.stop_service = MagicMock()
+        plugin.update_config = MagicMock()
+
+        with patch("app.plugins.wecomipguard.BackgroundScheduler") as scheduler_cls:
+            plugin.init_plugin({"enabled": False})
+        scheduler_cls.assert_not_called()
+
+
+def _flatten_text(node) -> str:
+    """收集组件树里的全部 text 字段，便于断言页面内容。"""
+    out = []
+
+    def walk(item):
+        if isinstance(item, dict):
+            if isinstance(item.get("text"), str):
+                out.append(item["text"])
+            for value in item.values():
+                walk(value)
+        elif isinstance(item, list):
+            for entry in item:
+                walk(entry)
+
+    walk(node)
+    return "\n".join(out)
+
 
 class TestStatusApi:
     """状态查询 API 的返回结构。"""

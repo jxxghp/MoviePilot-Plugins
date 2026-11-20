@@ -49,7 +49,7 @@ class WeComIPGuard(_PluginBase):
         "支持 IPv4 严格校验、CookieCloud、扫码登录、手机验证码、Cookie 保活与待同步自动补写。"
     )
     plugin_icon = "wecomipguard.png"
-    plugin_version = "1.1.0"
+    plugin_version = "1.3.0"
     plugin_author = "workroom2008"
     author_url = "https://github.com/workroom2008"
     plugin_config_prefix = "wecomipguard_"
@@ -134,6 +134,15 @@ class WeComIPGuard(_PluginBase):
                 name="立即检测公网IP",
             )
             self._onlyonce = False
+        elif self._enabled:
+            # 启用后自动跑一次检测：否则首次启动页面上 IP 与同步状态都会停在上次的空值，
+            # 显示为「未知 / 未同步」，看起来像插件没工作。
+            self._scheduler.add_job(
+                func=self.check_ip,
+                trigger="date",
+                run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=5),
+                name="启动后自动检测公网IP",
+            )
 
         # 保活任务：首次启动若 cookie 未标记有效，先跑一次探活
         if self._cookie_valid:
@@ -220,6 +229,15 @@ class WeComIPGuard(_PluginBase):
         self._cookie_valid = bool(config.get("cookie_valid", False))
         self._pending_sync = bool(config.get("pending_sync", False))
         self._cookie_from_cloud = config.get("cookie_list") or ""
+        # 上次检测/同步结果，重启后仍可展示，避免页面回到「未知」
+        self._current_ip = config.get("last_ip") or ""
+        self._ip_source = config.get("last_ip_source") or ""
+        self._ip_checked_at = config.get("last_checked_at") or ""
+        self._sync_at = config.get("last_sync_at") or ""
+        self._sync_result = config.get("last_sync_result") or ""
+        detail = config.get("last_sync_detail")
+        self._sync_detail = detail if isinstance(detail, list) else []
+        self._ip_error = ""
 
     @staticmethod
     def _as_int(value: Any, default: int) -> int:
@@ -1076,6 +1094,13 @@ class WeComIPGuard(_PluginBase):
                 "cookie_valid": self._cookie_valid,
                 "pending_sync": self._pending_sync,
                 "cookie_list": self._cookie_from_cloud,
+                # 上次执行结果，供插件重载后继续展示
+                "last_ip": self._current_ip,
+                "last_ip_source": self._ip_source,
+                "last_checked_at": self._ip_checked_at,
+                "last_sync_at": self._sync_at,
+                "last_sync_result": self._sync_result,
+                "last_sync_detail": self._sync_detail,
             }
         )
 

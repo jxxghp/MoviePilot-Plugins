@@ -60,13 +60,13 @@ class TestPluginMetadata:
     def test_metadata(self):
         plugin = _make_plugin()
         assert plugin.plugin_name == "企业微信可信IP助手"
-        assert plugin.plugin_version == "1.1.0"
+        assert plugin.plugin_version == "1.3.0"
         assert plugin.plugin_config_prefix == "wecomipguard_"
         assert plugin.plugin_author == "workroom2008"
         assert plugin.auth_level == 1
 
     def test_icon_is_local_file(self):
-        """图标必须是仓库 icons/ 下的文件名，不能是完整 URL。"""
+        """官方仓的图标是 icons/ 下的文件名，由宿主 /plugin_icon/ 提供。"""
         assert not WeComIPGuard.plugin_icon.startswith(("http://", "https://"))
         assert WeComIPGuard.plugin_icon.endswith(".png")
 

@@ -1385,13 +1385,16 @@
     "name": "企业微信可信IP助手",
     "description": "自动检测动态公网IP并同步到企业微信应用的可信IP白名单，解决企业微信应用 not allow to access from your ip 报错。默认IP源全部为实测可用的IPv4专用接口；Cookie保活优先走一次普通HTTP请求（含Set-Cookie续期），仅在探活失败时才启动浏览器内核，显著降低CPU占用；登录态失效时记录待同步标记，恢复后自动补写。支持CookieCloud、扫码登录、手机验证码。",
     "labels": "企业微信,企微,可信IP,动态IP,DDNS,工具",
-    "version": "1.1.0",
+    "version": "1.3.0",
     "icon": "wecomipguard.png",
     "author": "workroom2008",
-    "level": 2,
+    "level": 1,
     "system_version": ">=3.0.0",
     "release": true,
     "history": {
+      "v1.3.0": "插件启用后自动执行一次 IP 检测与同步，不再需要手动点「立即检测一次」；上次检测结果持久化保存，插件重载或重启后页面仍显示上次的 IP、来源、检测时间与同步明细，不会回到「未知」。",
+      "v1.2.1": "修复图标不显示：图标字段改为完整 URL。宿主的裸文件名会走前端静态路径 /plugin_icon/<文件名>，该目录只包含官方插件图标，第三方图标需用完整 URL 才会走图片代理加载。官方仓内仍按官方约定使用 icons/ 下的文件名。",
+      "v1.2.0": "修复：改用 V3 稳定导入路径（app.sdk.plugin._PluginBase、NotificationChannel、MessageType），消除宿主旧导入告警；pyproject 元数据改为官方规范（moviepilot-plugin-wecomipguard、dynamic version、requires-python >=3.14）；补全 _reset_config 对调度器与运行态字段的重置，修复重复初始化后残留上一轮状态的问题。",
       "v1.1.0": "详情页改为状态仪表盘（状态环、当前IP、四格指标，异常时才展开明细与二维码），配置页改为分区卡片并折叠高级项；补充测试目录与 pyproject.toml",
       "v1.0.0": "首个版本：IPv4 专用源与 ipaddress 严格校验、HTTP 探活保活与 Set-Cookie 续期、待同步自动补写、写入后回读校验、可配置周期与超时"
     }
