@@ -1,6 +1,7 @@
 """按外部代码审查结论逐条验证插件行为。"""
 
 import json
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -182,10 +183,24 @@ def test_submit_captcha_without_tl_key_prompts_rescan():
     assert sent[0]["title"] == "验证码不可用"
 
 
-def test_login_reports_loginpage_exception():
-    """登录页请求异常时应回执失败，而不是抛到事件处理层。"""
+def test_login_returns_immediately_and_runs_worker():
+    """扫码确认后应先回执，再交给后台线程完成登录。"""
     plugin = make_plugin(SimpleNamespace())
     plugin._qrcode_key = "key1"
+    sent = []
+    plugin.post_message = lambda **kwargs: sent.append(kwargs)
+    done = threading.Event()
+    plugin._login_worker = lambda *args, **kwargs: done.set()
+
+    plugin._login("Wechat", "member")
+
+    assert sent[0]["title"] == "登录中"
+    assert done.wait(5)
+
+
+def test_login_worker_reports_loginpage_exception():
+    """登录页请求异常时应回执失败，而不是抛到事件处理层。"""
+    plugin = make_plugin(SimpleNamespace())
     plugin._check = lambda *args: {"auth_code": "code1"}
     sent = []
     plugin.post_message = lambda **kwargs: sent.append(kwargs)
@@ -195,7 +210,7 @@ def test_login_reports_loginpage_exception():
 
     plugin._loginpage_wx = boom
 
-    plugin._login("Wechat", "member")
+    plugin._login_worker("Wechat", "member", "key1")
 
     assert sent[0]["title"] == "登录失败"
     assert "异常" in sent[0]["text"]
@@ -475,9 +490,13 @@ def test_update_ip_accepts_valid_ipv4_and_trims():
     """合法地址去掉首尾空格后写入。"""
     plugin = make_plugin(SimpleNamespace())
     called = []
-    plugin._save_ip_config = lambda: called.append(True)
+    plugin._save_ip_config = lambda app_ids=None: called.append(app_ids) or [
+        SimpleNamespace(status=True, app_id="app1")
+    ]
 
-    plugin.UpdateIp(" 1.2.3.4 ")
+    result = plugin.UpdateIp(" 1.2.3.4 ")
 
     assert plugin._ip == "1.2.3.4"
     assert called
+    assert result["success"] is True
+    assert result["updated"] == 1
