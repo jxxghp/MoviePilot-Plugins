@@ -1380,5 +1380,20 @@
       "1.0.1": "IP更新时发送通知,增加API接口,指定更新的IP",
       "1.0.0": "初始化"
     }
+  },
+  "WeComIPGuard": {
+    "name": "企业微信可信IP助手",
+    "description": "自动检测动态公网IP并同步到企业微信应用的可信IP白名单，解决企业微信应用 not allow to access from your ip 报错。默认IP源全部为实测可用的IPv4专用接口；Cookie保活优先走一次普通HTTP请求（含Set-Cookie续期），仅在探活失败时才启动浏览器内核，显著降低CPU占用；登录态失效时记录待同步标记，恢复后自动补写。支持CookieCloud、扫码登录、手机验证码。",
+    "labels": "企业微信,企微,可信IP,动态IP,DDNS,工具",
+    "version": "1.1.0",
+    "icon": "wecomipguard.png",
+    "author": "workroom2008",
+    "level": 2,
+    "system_version": ">=3.0.0",
+    "release": true,
+    "history": {
+      "v1.1.0": "详情页改为状态仪表盘（状态环、当前IP、四格指标，异常时才展开明细与二维码），配置页改为分区卡片并折叠高级项；补充测试目录与 pyproject.toml",
+      "v1.0.0": "首个版本：IPv4 专用源与 ipaddress 严格校验、HTTP 探活保活与 Set-Cookie 续期、待同步自动补写、写入后回读校验、可配置周期与超时"
+    }
   }
 }
