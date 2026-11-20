@@ -1,11 +1,12 @@
 [project]
-name = "wecomipguard"
-version = "1.1.0"
+name = "moviepilot-plugin-wecomipguard"
+dynamic = ["version"]
 description = "企业微信可信IP助手：自动把动态公网 IPv4 同步到企业微信应用的可信IP白名单"
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 dependencies = []
 
 # 说明：
+# - 插件版本号由 package.v3.json 与插件类 plugin_version 维护，不在依赖清单中重复声明。
 # - cloakbrowser（浏览器内核）由 MoviePilot V3 运行时镜像自带，不在插件依赖中声明。
 # - requests / apscheduler / pytz 同样由宿主提供。
 # - 本插件没有额外第三方依赖，dependencies 保持为空即可。
