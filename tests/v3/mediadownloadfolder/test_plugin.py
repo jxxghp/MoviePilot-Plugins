@@ -396,7 +396,7 @@ def test_real_download_chain_accepts_folder_and_persists_actual_path(
         sync_session=sessionmaker(bind=engine), async_session=MagicMock(),
     )
     chain = object.__new__(DownloadChain)
-    chain.runtime_config = SimpleNamespace(media_extensions=(".mkv",))
+    chain.runtime_config = SimpleNamespace(media_extensions=(".mkv",), video_extensions=(".mkv",))
     chain.download_history_repository = repository
     chain.durable_event_writer = None
     chain.eventmanager = MagicMock()
