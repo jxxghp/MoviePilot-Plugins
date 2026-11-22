@@ -4,7 +4,7 @@ import json
 import re
 import time
 import traceback
-from typing import Optional, List, Dict
+from typing import Any, Optional, List, Dict
 
 from app.chain.search import SearchChain
 from app.schemas.types import SystemConfigKey, MessageType, MediaSource
@@ -16,6 +16,7 @@ from app.sdk.services import DownloaderHelper
 from app.sdk.utilities import StringUtils
 
 
+from app.plugins.autosports.search.indexer import build_sportscult_indexer
 from app.plugins.autosports.search.models import Matchinfo
 
 
@@ -71,6 +72,11 @@ class Search:
         if not kept:
             return []
 
+        # 若启动阶段尚未完成认证，在命中本站种子时补齐索引规则校验与站点 ID
+        if self._sportscult_site_id is None:
+            self._ensure_sportscult_indexer()
+            self._resolve_sportscult_site_id()
+
         # 给本站种子写入插件数据源身份，下载时宿主会按该来源调用插件识别
         for torrent in kept:
             self._stamp_torrent_identity(torrent)
@@ -101,16 +107,26 @@ class Search:
         """
         判断种子是否来自 Sportscult 站点。
 
+        依次按站点名称、详情/下载地址域名及惰性解析的站点 ID 判断。
+
         :param torrent: 待判断的种子信息
-        :return: 站点名或站点 ID 命中 Sportscult 时返回 True
+        :return: 命中 Sportscult 站点时返回 True
         """
         if not torrent:
             return False
         site_name = (getattr(torrent, "site_name", None) or "").strip().casefold()
         if site_name == "sportscult":
             return True
+        page_url = (getattr(torrent, "page_url", None) or "").casefold()
+        enclosure = (getattr(torrent, "enclosure", None) or "").casefold()
+        if "sportscult.org" in page_url or "sportscult.org" in enclosure:
+            return True
         site_id = getattr(torrent, "site", None)
-        return bool(site_id and self._sportscult_site_id and site_id == self._sportscult_site_id)
+        if not site_id:
+            return False
+        if self._sportscult_site_id is None:
+            self._resolve_sportscult_site_id()
+        return bool(self._sportscult_site_id and site_id == self._sportscult_site_id)
 
     def check(self):
         """
@@ -128,6 +144,8 @@ class Search:
 
         searchchain = SearchChain()
 
+        # 每次搜索前优先校验内置规则，缺失或不可用时回退使用插件规则
+        self._ensure_sportscult_indexer()
         sportscult_indexer_id = self.get_sportscult_indexer()
 
         if not sportscult_indexer_id:
@@ -196,33 +214,35 @@ class Search:
             try:
                 title = result.torrent_info.title
                 logger.info(f"找到种子：{title}，开始处理......")
-                description = result.torrent_info.description
+                description = result.torrent_info.description or ""
                 size = result.torrent_info.size
                 # 检查是否处理过
                 if not title or title in [h.get("torrent_title") for h in history]:
                     logger.info("已处理过该种子，请清除记录后重试")
                     continue
+                combined_text = f"{title} {description}"
                 # 默认排除篮球等其它比赛的关键词
                 not_football = ['basketball', 'baseball', 'hockey']
-                if any (x in f'{title.lower()} {description.lower()}' for x in not_football):
-                    logger.info(f"该种子不是足球比赛，跳过")
+                if any(x in combined_text.lower() for x in not_football):
+                    logger.info("该种子不是足球比赛，跳过")
                     continue
                 # 检查规则
-                if self._include and not any(re.search(r"%s" % include_word,
-                                                    f"{title} {description}", re.IGNORECASE) for include_word in self._include.split(",")):
-                    logger.info(f"该种子不符合包含规则，跳过")
+                include_patterns = self._split_filter_patterns(self._include)
+                if include_patterns and not self._matches_any_pattern(include_patterns, combined_text):
+                    logger.info("该种子不符合包含规则，跳过")
                     continue
-                if self._exclude and any(re.search(r"%s" % exclude_word,
-                                                f"{title} {description}", re.IGNORECASE) for exclude_word in self._exclude.split(",")):
-                    logger.info(f"该种子不符合排除规则，跳过")
+                exclude_patterns = self._split_filter_patterns(self._exclude)
+                if exclude_patterns and self._matches_any_pattern(exclude_patterns, combined_text):
+                    logger.info("该种子不符合排除规则，跳过")
                     continue
                 if self._size_range:
                     sizes = [float(_size) * 1024 ** 3 for _size in self._size_range.split("-")]
-                    size_gb = float(size or 0) / 1024 ** 3
-                    if len(sizes) == 1 and float(size) < sizes[0]:
+                    size_bytes = float(size or 0)
+                    size_gb = size_bytes / 1024 ** 3
+                    if len(sizes) == 1 and size_bytes < sizes[0]:
                         logger.info(f"该种子大小不符合条件：{size_gb:.2f} GB，设置下限 {self._size_range} GB")
                         continue
-                    elif len(sizes) > 1 and not sizes[0] <= float(size) <= sizes[1]:
+                    elif len(sizes) > 1 and not sizes[0] <= size_bytes <= sizes[1]:
                         logger.info(f"该种子大小不在指定范围：{size_gb:.2f} GB，设置范围 {self._size_range} GB")
                         continue
 
@@ -272,13 +292,7 @@ class Search:
                 # 判断新搜索到的种子是否比之前的种子更好
                 gotten_matchinfo = self.Matchinfo(gotten_torrentinfo, gotten_match_mediainfo, gotten_match_metainfo)
                 gotten_matchinfo.language = self.recognize_language(gotten_match_metainfo)
-                if gotten_metainfo.resource_pix:
-                    if gotten_metainfo.resource_pix == '4k':
-                        gotten_matchinfo.pix = 2160
-                    elif gotten_metainfo.resource_pix == '2k':
-                        gotten_matchinfo.pix = 1440
-                    else:
-                        gotten_matchinfo.pix = int(gotten_metainfo.resource_pix[0:-1])
+                gotten_matchinfo.pix = self._parse_pix(gotten_metainfo.resource_pix)
                 self.find_best(force_en=self._force_en, lowest_pix=self._lowest_pix, matchesinfo=matchesinfo,
                                new_matchinfo=gotten_matchinfo)
             except Exception as err:
@@ -306,37 +320,28 @@ class Search:
                 if not torrent_hash:
                     logger.warning(f'{title} 下载失败')
                     processed_num += 1
-                elif is_existed:
-                    logger.info(f'{title} 已存在，种子 HASH 值为：{torrent_hash}')
-                    # 存储历史记录
-                    history.append({
-                        "torrent_title": torrentinfo.title,
-                        "competition_name": match_metainfo.title,
-                        "roundinfo": match_metainfo.season_episode,
-                        "round_cn_name": match_metainfo.cn_name.split(' - ')[0] + ' - ' + match_metainfo.cn_name.split(' - ')[1],
-                        "matchmake": match_metainfo.subtitle,
-                        "home_crest": self._match_crest_pair(match_metainfo.subtitle)[0],
-                        "away_crest": self._match_crest_pair(match_metainfo.subtitle)[1],
-                        "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    })
-                    processed_num += 1
                 else:
-                    logger.info(f'{title} 下载成功，种子 HASH 值为：{torrent_hash}')
-                    # 发送消息
-                    self.post_message(mtype=MessageType.Download,
-                                      title=f"体育比赛种子【{title}】已开始下载",
-                                      text=f"赛事：{match_mediainfo.title}\n"
-                                           f"轮次: {match_metainfo.cn_name.split(' - ')[0] + ' - ' + match_metainfo.cn_name.split(' - ')[1]}\n"
-                                           f"对阵: {match_metainfo.subtitle}")
+                    round_display = self._format_round_display(match_metainfo.cn_name)
+                    home_crest, away_crest = self._match_crest_pair(match_metainfo.subtitle)
+                    if is_existed:
+                        logger.info(f'{title} 已存在，种子 HASH 值为：{torrent_hash}')
+                    else:
+                        logger.info(f'{title} 下载成功，种子 HASH 值为：{torrent_hash}')
+                        # 发送消息
+                        self.post_message(mtype=MessageType.Download,
+                                          title=f"体育比赛种子【{title}】已开始下载",
+                                          text=f"赛事：{match_mediainfo.title}\n"
+                                               f"轮次: {round_display}\n"
+                                               f"对阵: {match_metainfo.subtitle}")
                     # 存储历史记录
                     history.append({
                         "torrent_title": torrentinfo.title,
                         "competition_name": match_metainfo.title,
                         "roundinfo": match_metainfo.season_episode,
-                        "round_cn_name": match_metainfo.cn_name.split(' - ')[0] + ' - ' + match_metainfo.cn_name.split(' - ')[1],
+                        "round_cn_name": round_display,
                         "matchmake": match_metainfo.subtitle,
-                        "home_crest": self._match_crest_pair(match_metainfo.subtitle)[0],
-                        "away_crest": self._match_crest_pair(match_metainfo.subtitle)[1],
+                        "home_crest": home_crest,
+                        "away_crest": away_crest,
                         "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     })
                     processed_num += 1
@@ -404,75 +409,337 @@ class Search:
         return value
 
     @staticmethod
-    def get_sportscult_indexer() -> int | None:
-        for indexer in SitesHelper().get_indexers():
-            if indexer.get("name") == "Sportscult":
-                # 检查站点索引开关
-                if indexer.get("is_active"):
-                    # sportscult_indexer = indexer
-                    sportscult_indexer_id: int = indexer.get("id")
-                    return sportscult_indexer_id
-                else:
-                    logger.error(f"Sportscult 站点未启用，请检查站点设置")
-                    return None
-
-        # 遍历所有站点没有找到，返回 None
-        logger.error(f"Sportscult 站点未正确添加，请检查站点设置")
-        return None
-
-    @staticmethod
-    def _has_indexer(domain: str) -> bool:
+    def _is_sportscult_indexer_dict(indexer: dict) -> bool:
         """
-        判断站点索引器是否已经存在，避免重复添加覆盖用户修改。
+        判断站点索引配置是否对应 Sportscult 站点。
 
-        :param domain: 站点域名
-        :return: 已存在时返回 True
+        优先按站点域名匹配，兼容默认名称 SportsCult/Sportscult 及用户自定义站点名。
+
+        :param indexer: 站点索引配置字典
+        :return: 命中 Sportscult 站点时返回 True
+        """
+        if not isinstance(indexer, dict):
+            return False
+        raw_domain = str(indexer.get("domain") or "").strip()
+        if raw_domain:
+            try:
+                domain = StringUtils.get_url_domain(raw_domain).casefold()
+            except RuntimeError:
+                domain = StringUtils.get_url_netloc(raw_domain)[1].casefold()
+            if domain == "sportscult.org" or "sportscult.org" in raw_domain.casefold():
+                return True
+        return (str(indexer.get("name") or "")).strip().casefold() == "sportscult"
+
+    @classmethod
+    def _has_builtin_sportscult(cls, sites_helper: Any) -> bool:
+        """
+        判断宿主站点目录中是否已内置或登记 sportscult.org。
+
+        通过 get_indexsites() 检查站点索引清单，不依赖站点认证状态。
+
+        :param sites_helper: 宿主 SitesHelper 实例
+        :return: 清单中包含 sportscult.org 时返回 True
         """
         try:
-            return bool(SitesHelper().get_indexer(domain))
+            index_sites = sites_helper.get_indexsites()
         except Exception as err:
-            logger.debug(f"读取站点索引器 {domain} 失败：{str(err)}")
+            logger.debug(f"读取宿主内置站点目录失败：{str(err)}")
             return False
-
-    @staticmethod
-    def is_match_in_vault(exist_matches: Dict[str, Dict[int, list]] = None, gotten_match_metainfo: MetaVideo = None) -> bool:
-        logger.debug(f"开始判断该场比赛是否已入库")
-        if exist_matches:
-            exist_competitions = exist_matches.keys()
-            for exist_competition in exist_competitions:
-                if exist_competition == gotten_match_metainfo.title:
-                    exist_seasons = exist_matches.get(exist_competition)
-                    if exist_seasons:
-                        exist_episodes = exist_seasons.get(gotten_match_metainfo.begin_season)
-                        if exist_episodes and set(gotten_match_metainfo.episode_list).issubset(set(exist_episodes)):
-                            return True
+        if isinstance(index_sites, dict):
+            return any(str(key).strip().casefold() == "sportscult.org" for key in index_sites)
+        if isinstance(index_sites, list):
+            return any(
+                isinstance(item, dict) and cls._is_sportscult_indexer_dict(item)
+                for item in index_sites
+            )
         return False
 
     @staticmethod
-    def add_match_to_vault(exist_matches: Dict[str, Dict[int, list]] = None,
-                          gotten_match_metainfo: MetaVideo = None) -> bool:
-        logger.debug(f"开始添加已整理比赛到已入库列表中")
+    def _is_usable_sportscult_indexer(indexer: dict) -> bool:
+        """
+        判断现有 Sportscult 索引器配置是否具备有效的 xbtit 搜索与解析规则。
 
-        if exist_matches:
-            exist_competitions = exist_matches.keys()
-            if gotten_match_metainfo.title not in exist_competitions:
-                # 赛事不存在，添加该赛事的该赛季的该场比赛
-                exist_matches.update({gotten_match_metainfo.title: {gotten_match_metainfo.begin_season: gotten_match_metainfo.episode_list}})
-            elif gotten_match_metainfo.begin_season not in exist_matches.get(gotten_match_metainfo.title):
-                # 赛季不存在，添加该赛季的该场比赛
-                exist_matches[gotten_match_metainfo.title].update({gotten_match_metainfo.begin_season: gotten_match_metainfo.episode_list})
-            else:
-                # 比赛不存在，添加比赛
-                exist_matches[gotten_match_metainfo.title][gotten_match_metainfo.begin_season].extend(gotten_match_metainfo.episode_list)
-            return True
-        else:
+        若搜索或浏览路径仍指向错误的 browse.php、旧首页分页 ?p={page}，
+        或缺少种子列表与字段选择器，则判定为不可用。
+
+        :param indexer: 宿主返回的站点索引器配置字典
+        :return: 索引器具备有效搜索与解析规则时返回 True
+        """
+        if not isinstance(indexer, dict) or not indexer:
             return False
+        search = indexer.get("search")
+        if not isinstance(search, dict):
+            return False
+        paths = search.get("paths")
+        if not isinstance(paths, list) or not paths:
+            return False
+        path_strs = [
+            str(item.get("path") or "").strip()
+            for item in paths
+            if isinstance(item, dict) and str(item.get("path") or "").strip()
+        ]
+        if not path_strs:
+            return False
+        if any("browse.php" in path.casefold() for path in path_strs):
+            return False
+        if not any("page=torrents" in path.casefold() for path in path_strs):
+            return False
+        browse = indexer.get("browse")
+        if isinstance(browse, dict):
+            browse_path = str(browse.get("path") or "").strip().casefold()
+            if browse_path and ("browse.php" in browse_path or browse_path == "?p={page}"):
+                return False
+        torrents = indexer.get("torrents")
+        if not isinstance(torrents, dict):
+            return False
+        return bool(torrents.get("list") and torrents.get("fields"))
+
+    @classmethod
+    def _ensure_sportscult_indexer(cls) -> None:
+        """
+        优先复用宿主可用的内置 Sportscult 索引规则，缺失或不可用时回退添加插件规则。
+
+        老版本宿主未内置 sportscult.org 时直接注册；已内置且尚未通过站点认证（auth_level < 2）时，
+        延后到认证完成后的搜索或过滤阶段再校验规则有效性，避免触发未认证错误日志。
+        """
+        sites_helper = SitesHelper()
+        if not cls._has_builtin_sportscult(sites_helper):
+            sites_helper.add_indexer(domain="sportscult.org", indexer=build_sportscult_indexer())
+            logger.info("当前宿主未内置 Sportscult 索引器，已添加插件索引规则")
+            return
+        if getattr(sites_helper, "auth_level", 0) < 2:
+            logger.debug("宿主尚未完成站点认证，延后校验内置 Sportscult 索引规则")
+            return
+        existing = sites_helper.get_indexer("sportscult.org") or {}
+        if cls._is_usable_sportscult_indexer(existing):
+            logger.debug("检测到可用的内置或现有 Sportscult 索引规则，优先复用")
+            return
+        sites_helper.add_indexer(domain="sportscult.org", indexer=build_sportscult_indexer())
+        logger.info("宿主内置 Sportscult 索引规则不可用，已回退使用插件索引规则")
+
+    def _resolve_sportscult_site_id(self) -> Optional[int]:
+        """
+        惰性解析并缓存当前激活的 Sportscult 站点 ID。
+
+        当宿主尚未通过站点认证（auth_level < 2）时不查询站点列表，避免触发未认证错误日志。
+
+        :return: 已启用的 Sportscult 站点 ID；未启用或未认证时返回 None
+        """
+        sites_helper = SitesHelper()
+        if getattr(sites_helper, "auth_level", 0) < 2:
+            return None
+        for indexer in sites_helper.get_indexers() or []:
+            if self._is_sportscult_indexer_dict(indexer) and indexer.get("is_active"):
+                site_id = indexer.get("id")
+                if site_id:
+                    self._sportscult_site_id = site_id
+                    return site_id
+        return None
+
+    @classmethod
+    def get_sportscult_indexer(cls) -> int | None:
+        """
+        获取已启用的 Sportscult 站点索引 ID。
+
+        按域名优先、站点名大小写不敏感匹配，兼容宿主内置名称 SportsCult 及用户自定义站点名。
+
+        :return: 站点 ID；未找到或未启用时返回 None
+        """
+        for indexer in SitesHelper().get_indexers() or []:
+            if cls._is_sportscult_indexer_dict(indexer):
+                # 检查站点索引开关
+                if indexer.get("is_active"):
+                    sportscult_indexer_id: int = indexer.get("id")
+                    return sportscult_indexer_id
+                logger.error("Sportscult 站点未启用，请检查站点设置")
+                return None
+
+        # 遍历所有站点没有找到，返回 None
+        logger.error("Sportscult 站点未正确添加，请检查站点设置")
+        return None
 
     @staticmethod
-    def find_best(force_en: bool = False, lowest_pix: int = 0, matchesinfo: list[Matchinfo] = None,
-                  new_matchinfo: Matchinfo = None):
+    def _split_filter_patterns(raw: Optional[str]) -> List[str]:
         """
-          判断传入的种子是否比现有的优先级更高
+        把逗号或换行分隔的过滤规则拆分为非空正则列表，避免空规则误匹配。
+
+        :param raw: 原始过滤规则配置文本
+        :return: 去空白后的非空规则字符串列表
+        """
+        if not raw:
+            return []
+        return [item.strip() for item in re.split(r"[,\n]+", str(raw)) if item.strip()]
+
+    @staticmethod
+    def _matches_any_pattern(patterns: List[str], text: str) -> bool:
+        """
+        按不区分大小写的正则依次匹配文本，遇到非法正则时记录告警并跳过。
+
+        :param patterns: 过滤规则正则列表
+        :param text: 待匹配文本
+        :return: 命中任意合法规则时返回 True
+        """
+        for pattern in patterns:
+            try:
+                if re.search(pattern, text, re.IGNORECASE):
+                    return True
+            except re.error as err:
+                logger.warning(f"过滤正则表达式无效（{pattern}）：{err}，已跳过该规则")
+        return False
+
+    @staticmethod
+    def _parse_pix(resource_pix: Optional[str]) -> int:
+        """
+        将分辨率标记解析为整型垂直像素值，无法解析时返回 0。
+
+        :param resource_pix: 如 ``4k``、``1080p``、``FHD`` 等清晰度字符串
+        :return: 垂直像素整数，未识别时返回 0
+        """
+        if not resource_pix:
+            return 0
+        token = str(resource_pix).strip().lower()
+        aliases = {
+            "4k": 2160,
+            "2160p": 2160,
+            "uhd": 2160,
+            "2k": 1440,
+            "1440p": 1440,
+            "fhd": 1080,
+            "1080p": 1080,
+            "1080i": 1080,
+            "hd": 720,
+            "720p": 720,
+            "sd": 480,
+            "480p": 480,
+        }
+        if token in aliases:
+            return aliases[token]
+        matched = re.match(r"^(\d{3,4})[pi]?$", token)
+        return int(matched.group(1)) if matched else 0
+
+    @staticmethod
+    def _format_round_display(cn_name: Optional[str]) -> str:
+        """
+        从完整的中文比赛名中安全提取“赛季 - 轮次”展示文本。
+
+        :param cn_name: 形如 ``赛季 - 轮次 - 对阵`` 的中文比赛名
+        :return: ``赛季 - 轮次``，格式不足两段时回退原文本
+        """
+        text = str(cn_name or "").strip()
+        if not text:
+            return ""
+        parts = text.split(" - ")
+        if len(parts) >= 2:
+            return f"{parts[0]} - {parts[1]}"
+        return text
+
+    @classmethod
+    def _extract_matchup_pair(cls, subtitle: Optional[str]) -> Optional[frozenset]:
+        """
+        把 ``主队 vs 客队`` 文本归一化为无序队名集合，用于同轮多场比赛消歧。
+
+        :param subtitle: 对阵副标题文本
+        :return: 包含归一化主客队名的 frozenset；缺失对阵时返回 None
+        """
+        if not subtitle or " vs " not in str(subtitle).lower():
+            return None
+        parts = re.split(r"\s+vs\s+", str(subtitle), maxsplit=1, flags=re.IGNORECASE)
+        if len(parts) != 2:
+            return None
+        home_norm = cls.normalize_team_name(parts[0])
+        away_norm = cls.normalize_team_name(parts[1])
+        if home_norm and away_norm:
+            return frozenset((home_norm, away_norm))
+        return None
+
+    @classmethod
+    def is_match_in_vault(
+        cls,
+        exist_matches: Dict[str, Dict[int, list]] = None,
+        gotten_match_metainfo: MetaVideo = None,
+    ) -> bool:
+        """
+        判断目标比赛是否已在本地媒体库中入库，支持同轮不同对阵精确区分。
+
+        :param exist_matches: 已入库比赛索引映射
+        :param gotten_match_metainfo: 待查重的比赛元数据
+        :return: 已入库返回 True，否则返回 False
+        """
+        logger.debug("开始判断该场比赛是否已入库")
+        if not exist_matches or not gotten_match_metainfo:
+            return False
+        exist_seasons = exist_matches.get(gotten_match_metainfo.title)
+        if not exist_seasons:
+            return False
+        exist_episodes = exist_seasons.get(gotten_match_metainfo.begin_season)
+        if not exist_episodes:
+            return False
+        wanted_pair = cls._extract_matchup_pair(getattr(gotten_match_metainfo, "subtitle", None))
+        wanted_episodes = (
+            gotten_match_metainfo.episode_list
+            or ([gotten_match_metainfo.begin_episode] if gotten_match_metainfo.begin_episode else [])
+        )
+        if not wanted_episodes:
+            return False
+        for ep in wanted_episodes:
+            matched_ep = False
+            for item in exist_episodes:
+                if isinstance(item, tuple) and len(item) == 2:
+                    saved_ep, saved_pair = item
+                    if saved_ep == ep and (wanted_pair is None or saved_pair == wanted_pair):
+                        matched_ep = True
+                        break
+                elif item == ep:
+                    matched_ep = True
+                    break
+            if not matched_ep:
+                return False
+        return True
+
+    @classmethod
+    def add_match_to_vault(
+        cls,
+        exist_matches: Dict[str, Dict[int, list]] = None,
+        gotten_match_metainfo: MetaVideo = None,
+    ) -> bool:
+        """
+        把比赛元数据写入已入库索引映射并去重。
+
+        :param exist_matches: 已入库比赛索引映射
+        :param gotten_match_metainfo: 待写入的比赛元数据
+        :return: 写入成功返回 True，入参缺失时返回 False
+        """
+        logger.debug("开始添加已整理比赛到已入库列表中")
+        if exist_matches is None or not gotten_match_metainfo or not gotten_match_metainfo.title:
+            return False
+        season = gotten_match_metainfo.begin_season or 1
+        episodes = exist_matches.setdefault(gotten_match_metainfo.title, {}).setdefault(season, [])
+        pair = cls._extract_matchup_pair(getattr(gotten_match_metainfo, "subtitle", None))
+        target_episodes = (
+            gotten_match_metainfo.episode_list
+            or ([gotten_match_metainfo.begin_episode] if gotten_match_metainfo.begin_episode else [])
+        )
+        for ep in target_episodes:
+            entry = (ep, pair) if pair is not None else ep
+            if entry not in episodes:
+                episodes.append(entry)
+        return True
+
+    @classmethod
+    def find_best(
+        cls,
+        force_en: bool = False,
+        lowest_pix: int = 0,
+        matchesinfo: list[Matchinfo] = None,
+        new_matchinfo: Matchinfo = None,
+    ):
+        """
+        判断传入的种子是否比已选同场比赛种子优先级更高，并原地更新候选列表。
+
+        :param force_en: 是否仅保留英语解说版本
+        :param lowest_pix: 最低清晰度要求
+        :param matchesinfo: 已选候选比赛列表（原地更新）
+        :param new_matchinfo: 新候选比赛信息
         """
         if force_en and new_matchinfo.language != "en":
             # 语言不满足约束条件，直接退出
@@ -483,32 +750,38 @@ class Search:
             logger.info(f"不满足约束条件（清晰度 {new_matchinfo.pix}p 低于 {lowest_pix}p），跳过：{new_matchinfo.torrentinfo.title}")
             return
 
-        # 判断之前是否已搜索到该场比赛的种子
+        new_pair = cls._extract_matchup_pair(getattr(new_matchinfo.metainfo, "subtitle", None))
+        # 判断之前是否已搜索到同一场比赛的种子
         for i, old_matchinfo in enumerate(matchesinfo):
             if new_matchinfo.metainfo.title != old_matchinfo.metainfo.title:
                 # 如果赛事不匹配，直接跳过
                 continue
-            if new_matchinfo.metainfo.season_episode == old_matchinfo.metainfo.season_episode:
-                if new_matchinfo.language == "en" and old_matchinfo.language != "en":
-                    matchesinfo[i] = new_matchinfo
-                    logger.info(
-                        f"新种子 ({new_matchinfo.torrentinfo.title}) 的解说语言为英语，而之前搜索到的种子 ({old_matchinfo.torrentinfo.title}) 不是，替换")
-                    return
-                elif new_matchinfo.pix > old_matchinfo.pix:
-                    matchesinfo[i] = new_matchinfo
-                    logger.info(
-                        f"新种子 ({new_matchinfo.torrentinfo.title})的清晰度高于之前搜索到的种子 ({old_matchinfo.torrentinfo.title}) ，替换")
-                    return
-                elif new_matchinfo.pix == old_matchinfo.pix \
-                        and (new_matchinfo.torrentinfo.seeders or 0) > (old_matchinfo.torrentinfo.seeders or 0):
-                    matchesinfo[i] = new_matchinfo
-                    logger.info(
-                        f"新种子 ({new_matchinfo.torrentinfo.title}) 与之前搜索到的种子清晰度相同但做种数更多，替换")
-                    return
-                else:
-                    logger.info(
-                        f"新种子 ({new_matchinfo.torrentinfo.title}) 不如之前搜索到的种子 ({old_matchinfo.torrentinfo.title}) ，不替换")
-                    return
+            if new_matchinfo.metainfo.season_episode != old_matchinfo.metainfo.season_episode:
+                continue
+            old_pair = cls._extract_matchup_pair(getattr(old_matchinfo.metainfo, "subtitle", None))
+            if new_pair is not None and old_pair is not None and new_pair != old_pair:
+                # 同一赛事同一轮次下的不同对阵比赛独立保留，互不顶替
+                continue
+            if new_matchinfo.language == "en" and old_matchinfo.language != "en":
+                matchesinfo[i] = new_matchinfo
+                logger.info(
+                    f"新种子 ({new_matchinfo.torrentinfo.title}) 的解说语言为英语，而之前搜索到的种子 ({old_matchinfo.torrentinfo.title}) 不是，替换")
+                return
+            elif new_matchinfo.pix > old_matchinfo.pix:
+                matchesinfo[i] = new_matchinfo
+                logger.info(
+                    f"新种子 ({new_matchinfo.torrentinfo.title})的清晰度高于之前搜索到的种子 ({old_matchinfo.torrentinfo.title}) ，替换")
+                return
+            elif new_matchinfo.pix == old_matchinfo.pix \
+                    and (new_matchinfo.torrentinfo.seeders or 0) > (old_matchinfo.torrentinfo.seeders or 0):
+                matchesinfo[i] = new_matchinfo
+                logger.info(
+                    f"新种子 ({new_matchinfo.torrentinfo.title}) 与之前搜索到的种子清晰度相同但做种数更多，替换")
+                return
+            else:
+                logger.info(
+                    f"新种子 ({new_matchinfo.torrentinfo.title}) 不如之前搜索到的种子 ({old_matchinfo.torrentinfo.title}) ，不替换")
+                return
 
         # 如果已有种子列表中没有该场比赛，则添加之
         matchesinfo.append(new_matchinfo)

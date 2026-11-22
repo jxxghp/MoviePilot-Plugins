@@ -129,11 +129,18 @@ class Recognition:
         :param meta: 待识别的标题元数据
         :return: 含插件来源身份的比赛媒体信息；无法识别时返回 None
         """
-        if not meta or not self._football_apikey:
+        if not meta:
             return None
         try:
             competition = self.recognize_competition_mediainfo(meta_info=meta)
             if not competition:
+                return None
+            competition_parse = next(
+                (item for item in self._competitions_parses if item.get("title") == competition.title),
+                {},
+            )
+            # 仅在线刮削赛事强依赖 API key，纯离线赛事无 key 时也可识别
+            if not competition_parse.get("offline_info") and not self._football_apikey:
                 return None
             match_meta, _ = self.recognized_match_metainfo(competition, meta)
             if not match_meta:
@@ -391,14 +398,25 @@ class Recognition:
         }
 
         requests_key = competition_shortname + "_" + str(season)
+        cache_ttl = getattr(self, "_CACHED_MATCH_TTL", 21600)
+        cached_at_map = getattr(self, "_cached_matches_at", None)
+        if cached_at_map is None:
+            cached_at_map = {}
+            self._cached_matches_at = cached_at_map
+        now = time.time()
+
         # 短时间内失败过的赛事直接跳过，避免同一轮对同一接口反复重试
         failed_at = self._failed_matches.get(requests_key)
-        if failed_at and time.time() - failed_at < self._FAILED_MATCH_TTL:
+        if failed_at and now - failed_at < self._FAILED_MATCH_TTL:
             logger.debug(f"{requests_key} 最近请求失败，本次跳过重复请求")
             return None
-        # 判断当前订阅是否已经在缓存中，如果已经处理过，那么这里直接跳过
-        if requests_key in self._cached_matches.keys():
-            data = self._cached_matches.get(requests_key)
+
+        # 判断赛程缓存是否命中且未超过 TTL
+        cached_data = self._cached_matches.get(requests_key)
+        cached_at = cached_at_map.get(requests_key)
+        is_cache_valid = cached_data is not None and (cached_at is None or now - cached_at < cache_ttl)
+        if is_cache_valid:
+            data = cached_data
             logger.debug(f"从缓存 {requests_key} 中读取 football-data.org 赛事数据...")
         else:
             logger.debug(f"从 {url} 中读取 football-data.org 赛事数据...")
@@ -422,6 +440,7 @@ class Recognition:
                 self._failed_matches[requests_key] = time.time()
                 return None
             self._cached_matches[requests_key] = data
+            cached_at_map[requests_key] = time.time()
             self._failed_matches.pop(requests_key, None)
 
         if "matches" not in data:
@@ -695,7 +714,7 @@ class Recognition:
                         "决赛"
                     ]
                     round_en_name_list = [
-                        "联赛阶段附加赛 次回合", "联赛阶段附加赛 次回合",
+                        "Knockout Phase Playoffs 1st Leg", "Knockout Phase Playoffs 2nd Leg",
                         # "R32 1st Round", "R32 2nd Round",
                         "R16 1st Round", "R16 2nd Round",
                         "R8 1st Round", "R8 2nd Round",
@@ -804,64 +823,76 @@ class Recognition:
     @staticmethod
     def extract_date(s: str):
         """
-            从种子名中提取日期
+        从种子名或文件名中提取合法的比赛日历日期。
+
+        :param s: 种子标题或文件名
+        :return: (年, 月, 日) 三元组；未识别到合法日期时返回 None
         """
+        if not s:
+            return None
         date_re = re.compile(
             r"""
-            \b
-            (?:                                  # 非捕获组：两种顺序
-                ((?:19|20)\d{2})\s+(\d{1,2})\s+(\d{1,2})   # YYYY MM DD
+            (?<!\d)
+            (?:
+                ((?:19|20)\d{2})[\s._/\-]+(\d{1,2})[\s._/\-]+(\d{1,2})
               |
-                (\d{1,2})\s+(\d{1,2})\s+((?:19|20)\d{2})   # DD MM YYYY
+                (\d{1,2})[\s._/\-]+(\d{1,2})[\s._/\-]+((?:19|20)\d{2})
               |
-                (\d{2})\.(\d{2})\.(\d{4})   # DD MM YYYY  
+                ((?:19|20)\d{2})(\d{2})(\d{2})
               |
-                ((?:19|20)\d{2})\s*(\d{1,2})\s*(\d{1,2})   # YYYY MM DD 忽略空格
-              |
-                (\d{1,2})\s*(\d{1,2})\s*((?:19|20)\d{2})   # DD MM YYYY 忽略空格
+                (\d{2})(\d{2})((?:19|20)\d{2})
             )
-            \b
+            (?!\d)
             """,
-            re.VERBOSE
+            re.VERBOSE,
         )
 
-        m = date_re.search(s)
-        if not m:
-            return None
-
-        groups = m.groups()
         # 每个分支依次给出 (年, 月, 日) 在分组中的下标
-        for year_index, month_index, day_index in (
-            (0, 1, 2),     # YYYY MM DD
-            (5, 4, 3),     # DD MM YYYY
-            (8, 7, 6),     # DD.MM.YYYY
-            (9, 10, 11),   # YYYYMMDD
-            (14, 13, 12),  # DDMMYYYY
-        ):
-            if groups[year_index]:
-                year, month, day = int(groups[year_index]), int(groups[month_index]), int(groups[day_index])
-                if 1 <= month <= 12 and 1 <= day <= 31:
-                    return year, month, day
-                return None
+        group_mappings = (
+            (0, 1, 2),
+            (5, 4, 3),
+            (6, 7, 8),
+            (11, 10, 9),
+        )
+        for matched in date_re.finditer(s):
+            groups = matched.groups()
+            for year_index, month_index, day_index in group_mappings:
+                if groups[year_index]:
+                    year = int(groups[year_index])
+                    month = int(groups[month_index])
+                    day = int(groups[day_index])
+                    try:
+                        datetime.date(year, month, day)
+                        return year, month, day
+                    except ValueError:
+                        break
         return None
 
     @staticmethod
     def recognize_language(metainfo: MetaVideo) -> str:
         """
-        从种子标题中识别解说语言。
+        从种子标题中按单词边界识别解说语言，避免队名子串误判。
+
+        :param metainfo: 标题解析元数据
+        :return: 标准化后的简写语言代码（默认 'en'）
         """
-        # 语言标识出现在种子标题里，赛事名中一般不体现，优先使用识别字符串
-        source = metainfo.org_string or metainfo.name or ""
-        if any(lang in source for lang in ["EN", "English"]):
-            return "en"
-        elif any(lang in source for lang in ["PL", "Polish", "POLISH"]):
-            return "pl"
-        elif any(lang in source for lang in ["Spanish", "SPANISH", "spanish"]):
-            return "sp"
-        elif any(lang in source for lang in ["French", "FRENCH", "french"]):
-            return "fr"
-        elif any(lang in source for lang in ["Dutch", "DUTCH", "drench"]):
-            return "dt"
+        # 仅在标题标记完整独立词时识别语言，避免 ARSENAL/VALENCIA/EPL/Atletico de Madrid 误命中
+        source = (metainfo.org_string or getattr(metainfo, "name", None) or metainfo.title or "") if metainfo else ""
+        cleaned = re.sub(r"[._\-/\[\]()]+", " ", source)
+        language_rules = (
+            ("en", r"\bEN\b", r"\b(?:eng|english)\b"),
+            ("pl", r"\bPL\b", r"\b(?:pol|polish)\b"),
+            ("sp", r"\b(?:ES|ESP)\b", r"\b(?:spa|spanish|castellano)\b"),
+            ("fr", r"\bFR\b", r"\b(?:fra|fre|french)\b"),
+            ("dt", r"\bNL\b", r"\b(?:nld|dut|dutch)\b"),
+            ("de", r"\bDE\b", r"\b(?:deu|ger|german)\b"),
+            ("it", r"\bIT\b", r"\b(?:ita|italian)\b"),
+            ("pt", r"\bPT\b", r"\b(?:por|portuguese)\b"),
+            ("ru", r"\bRU\b", r"\b(?:rus|russian)\b"),
+        )
+        for code, short_pat, long_pat in language_rules:
+            if re.search(short_pat, cleaned) or re.search(long_pat, cleaned, re.IGNORECASE):
+                return code
 
         # 默认英语
         return "en"
@@ -897,7 +928,20 @@ class Recognition:
         round_info = int(season_round_info.group(2))
         match_metainfo.set_season(season)
         match_metainfo.set_episode(round_info)
-        match_metainfo.subtitle = ""
+        # 若已入库文件名中带有 "A vs B" 对阵信息，提取供同轮多场精确查重
+        subtitle = ""
+        matchup = re.search(
+            r"([A-Za-zÀ-ÿ0-9&'\-. ]+?)\s+vs\s+([A-Za-zÀ-ÿ0-9&'\-. ]+)",
+            org_str or "",
+            re.IGNORECASE,
+        )
+        if matchup:
+            home_part = matchup.group(1).split(" - ")[-1].strip()
+            away_part = re.sub(r"\bS\d+E\d+\b.*$", "", matchup.group(2), flags=re.I).strip()
+            away_part = re.sub(r"\b(?:480|720|1080|1440|2160)[pi]\b.*$", "", away_part, flags=re.I).strip()
+            if home_part and away_part:
+                subtitle = f"{home_part} vs {away_part}"
+        match_metainfo.subtitle = subtitle
         match_metainfo.title = competition_cn_name
         match_metainfo.begin_episode = round_info
         match_metainfo.begin_season = season
@@ -1046,7 +1090,10 @@ class Recognition:
             if not isinstance(selfdefined_config, dict) or not selfdefined_config:
                 # 自定义配置为空，跳过
                 continue
-            if selfdefined_config.get("homepage"):
-                # 用户自定义了赛事配置
-                selfdefined_config["homepage"] = f"https://{selfdefined_config['homepage']}"
+            homepage = str(selfdefined_config.get("homepage") or "").strip()
+            if homepage:
+                # 仅在未携带协议前缀时补充 https://，避免重复拼接
+                if not homepage.startswith(("http://", "https://")):
+                    homepage = f"https://{homepage}"
+                selfdefined_config["homepage"] = homepage
             self._competitions_parses.append(selfdefined_config)

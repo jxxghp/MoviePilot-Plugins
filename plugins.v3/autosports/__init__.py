@@ -10,7 +10,6 @@ import re
 import threading
 from pathlib import Path
 from typing import Optional, Any, List, Dict
-from typing import Union
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -18,23 +17,15 @@ from apscheduler.triggers.cron import CronTrigger
 from watchdog.observers import Observer
 from watchdog.observers.polling import PollingObserver
 
-from app.chain.download import DownloadChain
-from app.chain.media import MediaChain
-from app.chain.search import SearchChain
-from app.chain.subscribe import SubscribeChain
-from app.modules.qbittorrent import Qbittorrent
-from app.modules.transmission import Transmission
-from app.plugins import _PluginBase
 from app.schemas import ServiceInfo
 from app.sdk.cache import TTLCache
 from app.sdk.config import settings
 from app.sdk.logging import logger
-from app.sdk.network import SitesHelper
+from app.plugins import _PluginBase
 from app.sdk.services import DownloaderHelper
 
 
 from app.plugins.autosports.recognition.competitions import get_demo_competitions_config, get_raw_competitions_parse
-from app.plugins.autosports.search.indexer import build_sportscult_indexer
 from app.plugins.autosports.search.models import Matchinfo
 from app.plugins.autosports.monitor import FileMonitorHandler, Monitor
 from app.plugins.autosports.recognition import Recognition
@@ -58,7 +49,7 @@ class AutoSports(Recognition, Search, Monitor, Ui, _PluginBase):
     plugin_icon = "https://raw.githubusercontent.com/Sinterdial/MoviePilot-Plugins/main/icons/autosports.png"
 
     # 插件版本
-    plugin_version = "3.1.0"
+    plugin_version = "3.1.1"
 
     # 插件作者
     plugin_author = "Sinterdial"
@@ -152,7 +143,12 @@ class AutoSports(Recognition, Search, Monitor, Ui, _PluginBase):
     _competitions_config = get_demo_competitions_config()  # 自定义赛事信息
 
     # 订阅缓存信息
-    _cached_matches = {}
+    _cached_matches: Dict[str, dict] = {}
+
+    _cached_matches_at: Dict[str, float] = {}
+
+    # 在线赛事元数据缓存过期时间（秒）
+    _CACHED_MATCH_TTL = 21600
 
     # football-data.org 请求失败后的短时负缓存，避免同一轮反复请求被限流
     _failed_matches: Dict[str, float] = {}
@@ -167,6 +163,8 @@ class AutoSports(Recognition, Search, Monitor, Ui, _PluginBase):
     _VAULT_CACHE_TTL = 60
 
     _vault_cache_lock = threading.Lock()
+
+    _cache_lock = threading.Lock()
 
     # 内置搜索结果身份识别的短时缓存，避免重复搜索时反复识别同一标题
     _stamp_cache: Dict[str, tuple] = {}
@@ -225,21 +223,27 @@ class AutoSports(Recognition, Search, Monitor, Ui, _PluginBase):
         r"\b决赛\b": 2,
     }
 
-    downloadchain: DownloadChain = None
-
-    subscribechain: SubscribeChain = None
-
-    mediachain: MediaChain = None
-
-    searchchain: SearchChain = None
-
-    torrents_list = []
-
     def __init__(self):
+        """
+        初始化插件实例及独立的运行期缓存与锁状态。
+        """
         super().__init__()
+        self._tags = []
+        self._observer = []
+        self._matches = {}
+        self._cached_matches = {}
+        self._cached_matches_at = {}
+        self._failed_matches = {}
+        self._stamp_cache = {}
+        self._match_crests = {}
+        self._vault_cache = None
+        self._vault_cache_at = 0.0
+        self._vault_cache_lock = threading.Lock()
+        self._cache_lock = threading.Lock()
+        self._competitions_parses = get_raw_competitions_parse()
 
     @property
-    def _downloader(self) -> Optional[Union[Qbittorrent, Transmission]]:
+    def _downloader(self) -> Optional[Any]:
         """
         下载器实例
         """
@@ -266,48 +270,44 @@ class AutoSports(Recognition, Search, Monitor, Ui, _PluginBase):
         # 停止现有任务
         self.stop_service()
 
-        sportscult_json = build_sportscult_indexer()
-        # 添加 SportsCult 站点；已存在时保留用户对站点/索引器的自定义修改
-        if not self._has_indexer(domain="sportscult.org"):
-            SitesHelper().add_indexer(domain="sportscult.org", indexer=sportscult_json)
-        else:
-            logger.debug("Sportscult 索引器已存在，跳过重复添加")
+        # 优先复用宿主可用的内置 Sportscult 索引规则，缺失或不可用时回退添加插件规则
+        self._ensure_sportscult_indexer()
+        self._sportscult_site_id = self._resolve_sportscult_site_id()
         # 创建缓存实例
         self._system_cache = TTLCache(region='autosports', maxsize=128, ttl=43200)
 
         # 载入配置
         if config:
             self._validate_and_fix_config(config=config)
-            self._football_apikey = config.get("football_apikey")
-            self._teams_info = config.get("teams_info")
-            self._enabled = config.get("enabled")
-            self._cron = config.get("cron")
-            self._notify = config.get("notify")
-            self._onlyonce = config.get("onlyonce")
-            self._include = config.get("include")
-            self._exclude = config.get("exclude")
-            self._proxy = config.get("proxy")
-            self._force_en = config.get("force_en") or False
+            self._football_apikey = str(config.get("football_apikey") or "").strip()
+            self._teams_info = config.get("teams_info") or ""
+            self._enabled = bool(config.get("enabled"))
+            self._cron = str(config.get("cron") or "").strip()
+            self._notify = bool(config.get("notify"))
+            self._onlyonce = bool(config.get("onlyonce"))
+            self._include = str(config.get("include") or "").strip()
+            self._exclude = str(config.get("exclude") or "").strip()
+            self._proxy = bool(config.get("proxy"))
+            self._force_en = bool(config.get("force_en"))
             self._lowest_pix = self._to_int(config.get("lowest_pix"), 720)
-            self._filter = config.get("filter")
-            self._filter_builtin_search = config.get("filter_builtin_search") or False
-            self._clear = config.get("clear")
-            self._action = config.get("action")
-            self._save_path = config.get("save_path")
-            self._dest_path = config.get("dest_path")
+            self._filter = bool(config.get("filter"))
+            self._filter_builtin_search = bool(config.get("filter_builtin_search"))
+            self._clear = bool(config.get("clear"))
+            self._action = config.get("action") or "download"
+            self._save_path = str(config.get("save_path") or "").strip()
+            self._dest_path = str(config.get("dest_path") or "").strip()
             self._downloaders = config.get("downloaders")
             self._transfer_type = config.get("transfer_type") or "link"
-            self._start_paused = config.get("start_paused")
+            start_paused = config.get("start_paused")
+            self._start_paused = True if start_paused is None else bool(start_paused)
             self._max_download = self._to_int(config.get("max_download"), 0)
             self._competitions_config = config.get("competitions_config", "[]")
             monitor_mode_gotten = config.get("monitor_mode")
             self._monitor_mode = monitor_mode_gotten \
                 if monitor_mode_gotten in ("normal", "compatibility") else "normal"
-            self._sync_all = config.get("sync_all")
-            if config.get("need_rename"):
-                self._need_rename = config.get("need_rename")
-            else:
-                self._need_rename = True
+            self._sync_all = bool(config.get("sync_all"))
+            need_rename = config.get("need_rename")
+            self._need_rename = True if need_rename is None else bool(need_rename)
             # 如果未设置下载器，使用默认的下载器
             if not self._downloaders:
                 for downloader_config in DownloaderHelper().get_configs().values():
@@ -315,11 +315,7 @@ class AutoSports(Recognition, Search, Monitor, Ui, _PluginBase):
                         self._downloaders = downloader_config.name
                         break
 
-            try:
-                category_gotten = config.get("category")
-                self._category = category_gotten
-            except AttributeError:
-                self._category = ""
+            self._category = str(config.get("category") or "").strip()
             tags_gotten = config.get("tags")
             if isinstance(tags_gotten, str):
                 self._tags = [tag.strip() for tag in tags_gotten.split(",") if tag.strip()]
@@ -327,7 +323,14 @@ class AutoSports(Recognition, Search, Monitor, Ui, _PluginBase):
                 self._tags = [str(tag).strip() for tag in tags_gotten if str(tag).strip()]
             else:
                 self._tags = []
-            self._size_range = config.get("size_range")
+            self._size_range = str(config.get("size_range") or "").strip()
+
+        if self._clear:
+            # 保存配置时立即清理历史记录，符合配置项"保存后生效"语义
+            self.save_data("history", [])
+            logger.info("已清理 AutoSports 历史记录")
+            self._clearflag = True
+            self._clear = False
 
         if (self._enabled or self._onlyonce) and not self._football_apikey:
             logger.error("无法对比赛进行刮削，请填入有效的 football-data.org API key，插件已停止运行")
@@ -340,47 +343,57 @@ class AutoSports(Recognition, Search, Monitor, Ui, _PluginBase):
 
         # 启用目录监控
         if self._enabled:
-            # 检查媒体库目录是不是下载目录的子目录
-            try:
-                if self._dest_path and Path(self._dest_path).is_relative_to(Path(self._save_path)):
-                    logger.warn(f"{self._dest_path} 是下载目录 {self._save_path} 的子目录，无法监控")
-                    self.systemmessage.put(f"{self._dest_path} 是下载目录 {self._save_path} 的子目录，无法监控")
-            except Exception as e:
-                logger.debug(str(e))
-                pass
+            should_watch = True
+            if not self._save_path:
+                logger.info("未配置下载目录，跳过启动目录监控服务")
+                should_watch = False
+            elif not Path(self._save_path).exists():
+                logger.warning(f"下载目录 {self._save_path} 不存在，跳过启动目录监控服务")
+                self.systemmessage.put(f"下载目录 {self._save_path} 不存在，跳过启动目录监控服务")
+                should_watch = False
+            elif self._dest_path:
+                # 检查媒体库目录是不是下载目录的子目录
+                try:
+                    if Path(self._dest_path).resolve().is_relative_to(Path(self._save_path).resolve()):
+                        logger.warning(f"{self._dest_path} 是下载目录 {self._save_path} 的子目录，无法监控")
+                        self.systemmessage.put(f"{self._dest_path} 是下载目录 {self._save_path} 的子目录，无法监控")
+                        should_watch = False
+                except Exception as e:
+                    logger.debug(str(e))
 
-            try:
-                if self._monitor_mode == "compatibility":
-                    # 兼容模式，目录同步性能降低且NAS不能休眠，但可以兼容挂载的远程共享目录如SMB
-                    observer = PollingObserver(timeout=10)
-                else:
-                    # 内部处理系统操作类型选择最优解
-                    observer = Observer(timeout=10)
-                self._observer.append(observer)
-                observer.schedule(FileMonitorHandler(self._save_path, self), path=self._save_path, recursive=True)
-                observer.daemon = True
-                observer.start()
-                logger.info(f"{self._save_path} 的目录监控服务启动")
-            except Exception as e:
-                err_msg = str(e)
-                if "inotify" in err_msg and "reached" in err_msg:
-                    logger.warn(
-                        f"目录监控服务启动出现异常：{err_msg}，请在宿主机上（不是docker容器内）执行以下命令并重启："
-                        + """
-                                     echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf
-                                     echo fs.inotify.max_user_instances=524288 | sudo tee -a /etc/sysctl.conf
-                                     sudo sysctl -p
-                                     """)
-                else:
-                    logger.error(f"{self._save_path} 启动目录监控失败：{err_msg}")
-                self.systemmessage.put(f"{self._save_path} 启动目录监控失败：{err_msg}")
+            if should_watch:
+                try:
+                    if self._monitor_mode == "compatibility":
+                        # 兼容模式，目录同步性能降低且NAS不能休眠，但可以兼容挂载的远程共享目录如SMB
+                        observer = PollingObserver(timeout=10)
+                    else:
+                        # 内部处理系统操作类型选择最优解
+                        observer = Observer(timeout=10)
+                    self._observer.append(observer)
+                    observer.schedule(FileMonitorHandler(self._save_path, self), path=self._save_path, recursive=True)
+                    observer.daemon = True
+                    observer.start()
+                    logger.info(f"{self._save_path} 的目录监控服务启动")
+                except Exception as e:
+                    err_msg = str(e)
+                    if "inotify" in err_msg and "reached" in err_msg:
+                        logger.warning(
+                            f"目录监控服务启动出现异常：{err_msg}，请在宿主机上（不是docker容器内）执行以下命令并重启："
+                            + """
+                                         echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf
+                                         echo fs.inotify.max_user_instances=524288 | sudo tee -a /etc/sysctl.conf
+                                         sudo sysctl -p
+                                         """)
+                    else:
+                        logger.error(f"{self._save_path} 启动目录监控失败：{err_msg}")
+                    self.systemmessage.put(f"{self._save_path} 启动目录监控失败：{err_msg}")
         else:
             # 未启用插件，关闭目录监控服务
             self.stop_service()
 
         if self._onlyonce:
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-            logger.info(f"自定义订阅服务启动，立即运行一次")
+            logger.info("自定义订阅服务启动，立即运行一次")
             self._scheduler.add_job(func=self.check, trigger='date',
                                      run_date=datetime.datetime.now(
                                          tz=pytz.timezone(settings.TZ)) + datetime.timedelta(seconds=3)
@@ -390,14 +403,7 @@ class AutoSports(Recognition, Search, Monitor, Ui, _PluginBase):
             if self._scheduler.get_jobs():
                 self._scheduler.print_jobs()
                 self._scheduler.start()
-
-        if self._onlyonce or self._clear:
-            # 关闭一次性开关
             self._onlyonce = False
-            # 记录清理缓存设置
-            self._clearflag = self._clear
-            # 关闭清理缓存开关
-            self._clear = False
 
         # 保存设置
         self._update_config()
@@ -450,14 +456,17 @@ class AutoSports(Recognition, Search, Monitor, Ui, _PluginBase):
         }]
         """
         if self._enabled and self._cron:
-            return [{
-                "id": "AutoSports",
-                "name": "自动下载体育比赛服务",
-                "trigger": CronTrigger.from_crontab(self._cron),
-                "func": self.check,
-                "kwargs": {}
-            }]
-        elif self._enabled:
+            try:
+                return [{
+                    "id": "AutoSports",
+                    "name": "自动下载体育比赛服务",
+                    "trigger": CronTrigger.from_crontab(self._cron),
+                    "func": self.check,
+                    "kwargs": {}
+                }]
+            except ValueError as err:
+                logger.error(f"Cron 表达式无效（{self._cron}）：{err}，已回退为每 12 小时执行一次")
+        if self._enabled:
             return [{
                 "id": "AutoSports",
                 "name": "自动下载体育比赛服务",
@@ -556,9 +565,18 @@ class AutoSports(Recognition, Search, Monitor, Ui, _PluginBase):
     @staticmethod
     def _is_number_or_range(value):
         """
-        检查字符串是否表示单个数字或数字范围（如'5', '5.5', '5-10' 或 '5.5-10.2'）
+        检查字符串是否表示单个数字或升序数字范围（如 '5'、'5.5'、'5-10' 或 '5.5-10.2'）。
+
+        :param value: 待校验的配置值
+        :return: 合法时返回 True
         """
-        return bool(re.match(r"^\d+(\.\d+)?(-\d+(\.\d+)?)?$", value))
+        text = str(value).strip()
+        if not re.match(r"^\d+(\.\d+)?(-\d+(\.\d+)?)?$", text):
+            return False
+        if "-" in text:
+            low, high = (float(part) for part in text.split("-", 1))
+            return low <= high
+        return True
 
     @staticmethod
     def _to_int(value, default: int = 0) -> int:
