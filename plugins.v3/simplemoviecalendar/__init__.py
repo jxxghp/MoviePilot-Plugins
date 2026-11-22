@@ -23,9 +23,9 @@ class SimpleMovieCalendar(_PluginBase):
     """Use the public calendar without collecting metadata or writing subscriptions."""
 
     plugin_name = '简单观影日历'
-    plugin_desc = '查看电影数字发行、流媒体上线与蓝光排期；默认探索来源，可手动添加仪表板。'
-    plugin_icon = 'Moviepilot_A.png'
-    plugin_version = "0.1.5"
+    plugin_desc = '查看电影数字版、蓝光和国内电影流媒体上线时间，可手动添加到MP首页仪表盘方便查看。'
+    plugin_icon = 'https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/SimpleMovieCalendar.png'
+    plugin_version = "0.1.6"
     plugin_author = '随风飞翔'
     author_url = 'https://ys.chenhao.net/'
     plugin_config_prefix = 'simplemoviecalendar_'
@@ -234,11 +234,8 @@ class SimpleMovieCalendar(_PluginBase):
                 dashboard_nodes(view, items, today))
 
     def get_page(self) -> list[dict]:
-        """Provide full cached schedules and an explicit refresh in plugin details."""
+        """在插件内按即将发行和最近发行分区展示，并提供手动更新。"""
         view, today = self._view(), beijing_today()
-        items = records(view['snapshot'], today, group='all')[:100] if view.get('snapshot') else []
-        nodes = calendar_nodes(view, items, today, '发行排期（最多显示 100 部，更多请到探索页查看）')
-        if self.get_state():
-            nodes.insert(0, {'component': 'VBtn', 'text': '立即更新日历', 'props': {'variant': 'tonal', 'class': 'mb-3'},
-                             'events': {'click': {'api': f'plugin/{self.__class__.__name__}/refresh', 'method': 'post', 'params': {}}}})
-        return nodes
+        items = records(view['snapshot'], today, group='all') if view.get('snapshot') else []
+        refresh_api = f'plugin/{self.__class__.__name__}/refresh' if self.get_state() else None
+        return calendar_nodes(view, items, today, refresh_api=refresh_api)

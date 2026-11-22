@@ -1,4 +1,6 @@
 """Small Vuetify JSON views shared by plugin details and optional dashboard."""
+from datetime import date
+
 from .calendar import BASE_URL, KINDS, beijing_timestamp, media_payload, rating_rows, release_line, release_timing
 
 
@@ -33,33 +35,131 @@ def status_nodes(view: dict, *, show_timestamp: bool = True) -> list[dict]:
     return result
 
 
+PAGE_CSS = """
+.smc-page { container-type: inline-size; min-width: 0; }
+.smc-page .smc-toolbar { display: flex; flex-wrap: wrap; align-items: center;
+    justify-content: space-between; gap: 8px 16px; margin-bottom: 20px; }
+.smc-page .smc-updated { margin-inline-start: auto; color: rgba(var(--v-theme-on-surface), .65);
+    font-size: 12px; overflow-wrap: anywhere; text-align: end; }
+.smc-page .smc-section + .smc-section { margin-top: 26px; padding-top: 22px;
+    border-top: 1px solid rgba(var(--v-theme-on-surface), .12); }
+.smc-page .smc-heading { display: flex; align-items: center; gap: 9px;
+    font-size: 17px; font-weight: 600; margin: 0 0 12px; }
+.smc-page .smc-heading::before { content: ''; width: 4px; height: 17px;
+    border-radius: 3px; background: rgb(var(--v-theme-primary)); flex-shrink: 0; }
+.smc-page .smc-recent .smc-heading::before { background: rgba(var(--v-theme-on-surface), .5); }
+.smc-page .smc-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start; gap: 12px; }
+.smc-page .smc-film { display: grid; grid-template-columns: 88px minmax(0, 1fr);
+    gap: 15px; min-width: 0; padding: 13px; border-radius: 11px;
+    border: 1px solid rgba(var(--v-theme-on-surface), .12); background: rgb(var(--v-theme-surface)); }
+.smc-page .smc-poster { aspect-ratio: 2 / 3; width: 88px; min-width: 0;
+    display: grid; place-items: center; border-radius: 6px; overflow: hidden;
+    background: rgba(var(--v-theme-on-surface), .06); }
+.smc-page .smc-film-info, .smc-page .smc-film-summary { min-width: 0; }
+.smc-page .smc-film-title { font-size: 15px; line-height: 1.5; font-weight: 600;
+    margin-bottom: 5px; overflow-wrap: anywhere; }
+.smc-page .smc-timing { color: rgb(var(--v-theme-primary)); font-size: 13px;
+    line-height: 1.6; margin-bottom: 6px; overflow-wrap: anywhere; }
+.smc-page .smc-recent .smc-timing { color: rgba(var(--v-theme-on-surface), .65); }
+.smc-page .smc-date { font-size: 12px; color: rgba(var(--v-theme-on-surface), .65);
+    font-variant-numeric: tabular-nums; }
+.smc-page .smc-details { margin-top: 10px; min-width: 0; }
+.smc-page .smc-details summary { color: rgb(var(--v-theme-primary)); cursor: pointer;
+    width: fit-content; min-height: 32px; display: flex; align-items: center;
+    gap: 5px; list-style: none; font-size: 12px; }
+.smc-page .smc-details summary::-webkit-details-marker { display: none; }
+.smc-page .smc-details .smc-expand-icon { font-size: 16px; }
+.smc-page .smc-details[open] .smc-expand-icon { transform: rotate(180deg); }
+.smc-page .smc-versions { border-top: 1px solid rgba(var(--v-theme-on-surface), .12);
+    margin-top: 8px; padding-top: 8px; color: rgba(var(--v-theme-on-surface), .7); }
+.smc-page .smc-version { font-size: 12px; line-height: 1.8;
+    white-space: pre-line; overflow-wrap: anywhere; }
+.smc-page .smc-version + .smc-version { margin-top: 5px; }
+.smc-page .smc-footer { display: flex; flex-wrap: wrap; align-items: center;
+    justify-content: flex-end; gap: 8px; margin-top: 18px; }
+@container (min-width: 1280px) {
+    .smc-page .smc-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@container (max-width: 640px) {
+    .smc-page .smc-grid { grid-template-columns: minmax(0, 1fr); }
+    .smc-page .smc-film { grid-template-columns: 76px minmax(0, 1fr); gap: 11px; padding: 11px; }
+    .smc-page .smc-poster { width: 76px; }
+    .smc-page .smc-updated { text-align: start; }
+}
+@media (pointer: coarse) {
+    .smc-page .smc-details summary { min-height: 44px; }
+}
+"""
+
+
 def movie_card(record: dict, view: dict, today: str) -> dict:
-    """Show every release version, and link to the maintained public film page."""
+    """用单次摘要展示下一次发行，全部版本保留在可键盘展开的排期中。"""
     item = media_payload(record, view['snapshot'], today, stale=view['stale'])
-    text = [
-        _node('div', item['title_year'], {'class': 'text-subtitle-1 font-weight-bold'}),
-        _node('div', item['tagline'], {'class': 'text-caption mb-2', 'style': 'white-space:pre-line;overflow-wrap:anywhere'}),
-    ]
-    for release in record['releases']:
-        text.append(_node('div', release_line(release), {'class': 'text-body-2 mb-1', 'style': 'white-space:pre-line;overflow-wrap:anywhere'}))
-    text.append(_node('VBtn', '查看完整排期', {'href': item['homepage'], 'target': '_blank', 'rel': 'noopener noreferrer', 'variant': 'text', 'size': 'small', 'class': 'mt-1'}))
-    columns = []
-    if item['poster_path']:
-        columns.append(_node('VCol', props={'cols': 3, 'sm': 2}, content=[_node('VImg', props={'src': item['poster_path'], 'aspect-ratio': 2 / 3, 'cover': True, 'max-width': 96, 'alt': item['title']})]))
-    columns.append(_node('VCol', props={'cols': 9 if item['poster_path'] else 12, 'sm': 10 if item['poster_path'] else 12}, content=text))
-    return _node('VCard', props={'variant': 'outlined', 'class': 'mb-3'}, content=[_node('VCardText', content=[_node('VRow', props={'dense': True}, content=columns)])])
+    release_date = record['primary']['date']
+    same_day_kinds = {release.get('kind') for release in record['releases'] if release['date'] == release_date}
+    kinds = ' · '.join(KINDS[kind] for kind in ('digital', 'physical', 'streaming') if kind in same_day_kinds)
+    timing = release_timing(release_date, today)
+    if not record['upcoming']:
+        timing = f'已发行 {(date.fromisoformat(today) - date.fromisoformat(release_date)).days} 天'
+    summary = _node('div', props={'class': 'smc-film-summary'}, content=[
+        _node('div', item['title_year'], {'class': 'smc-film-title'}),
+        _node('div', f'{kinds or "发行"} · {timing}', {'class': 'smc-timing'}),
+        _node('time', release_date, {'datetime': release_date, 'class': 'smc-date'}),
+    ])
+    poster = _node('VImg', props={
+        'src': item['poster_path'], 'width': '100%', 'aspect-ratio': 2 / 3, 'cover': True, 'alt': item['title'],
+    }) if item['poster_path'] else _node('VIcon', props={'icon': 'mdi-movie-outline', 'aria-hidden': 'true'})
+    details = _node('details', props={'class': 'smc-details'}, content=[
+        _node('summary', '完整排期', content=[
+            _node('VIcon', props={'icon': 'mdi-chevron-down', 'class': 'smc-expand-icon', 'aria-hidden': 'true'}),
+        ]),
+        _node('div', props={'class': 'smc-versions'}, content=[
+            _node('div', release_line(release), {'class': 'smc-version'}) for release in record['releases']
+        ]),
+    ])
+    # 摘要和折叠入口共用信息列，展开时完整版本可自然换行。
+    return _node('article', props={'class': 'smc-film', 'aria-label': item['title']}, content=[
+        _node('div', props={'class': 'smc-poster'}, content=[poster]),
+        _node('div', props={'class': 'smc-film-info'}, content=[summary, details]),
+    ])
 
 
-def calendar_nodes(view: dict, items: list[dict], today: str, title: str) -> list[dict]:
-    """Render cached records without triggering per-film requests."""
-    result = status_nodes(view)
-    if view.get('snapshot') is not None:
-        result.append(_node('div', title, {'class': 'text-subtitle-1 mb-3'}))
-        if not items:
-            result.append(_node('div', '暂无符合条件的发行排期。', {'class': 'text-body-2 mb-3'}))
-        result.extend(movie_card(item, view, today) for item in items)
-    result.append(_node('VBtn', '打开完整观影日历', {'href': BASE_URL, 'target': '_blank', 'rel': 'noopener noreferrer', 'variant': 'text'}))
-    return result
+def calendar_nodes(view: dict, items: list[dict], today: str, *, refresh_api: str | None = None) -> list[dict]:
+    """生成按容器宽度重排的详情页，分区内按既有日期顺序显示。"""
+    toolbar = []
+    if refresh_api:
+        refresh = _node('VBtn', '立即更新日历', {
+            'variant': 'tonal', 'color': 'primary', 'size': 'small', 'prepend-icon': 'mdi-refresh',
+        })
+        refresh['events'] = {'click': {'api': refresh_api, 'method': 'post', 'params': {}}}
+        toolbar.append(refresh)
+    snapshot = view.get('snapshot')
+    if snapshot is not None:
+        timestamp = snapshot['generated_at']
+        state = '缓存 · ' if view.get('stale') else ''
+        toolbar.append(_node('time', state + '更新于 ' + beijing_timestamp(timestamp) + ' · 北京时间', {
+            'datetime': timestamp, 'class': 'smc-updated',
+        }))
+    content = [_node('div', props={'class': 'smc-toolbar'}, content=toolbar)] if toolbar else []
+    content.extend(status_nodes(view, show_timestamp=False))
+    if snapshot is not None:
+        for upcoming, label in ((True, '即将发行'), (False, '最近发行')):
+            group = [item for item in items if item['upcoming'] is upcoming]
+            grid = _node('div', props={'class': 'smc-grid'}, content=[
+                movie_card(item, view, today) for item in group[:100]
+            ]) if group else _node('div', '暂无' + label + '的电影', {'class': 'text-body-2 text-medium-emphasis'})
+            content.append(_node('section', props={
+                'class': 'smc-section' if upcoming else 'smc-section smc-recent', 'aria-label': label,
+            }, content=[_node('h3', label, {'class': 'smc-heading'}), grid]))
+        footer = []
+        if any(sum(item['upcoming'] is upcoming for item in items) > 100 for upcoming in (True, False)):
+            footer.append(_node('span', '每个区域最多显示 100 部，更多请到探索页查看。', {'class': 'text-caption text-medium-emphasis'}))
+        footer.append(_node('VBtn', '查看完整观影日历', {
+            'href': BASE_URL, 'target': '_blank', 'rel': 'noopener noreferrer', 'variant': 'text', 'size': 'small',
+        }))
+        content.append(_node('div', props={'class': 'smc-footer'}, content=footer))
+    return [_node('style', PAGE_CSS), _node('div', props={'class': 'smc-page'}, content=content)]
 
 
 def _dashboard_ratings(movie: dict) -> list[dict]:
@@ -90,7 +190,7 @@ def _dashboard_ratings(movie: dict) -> list[dict]:
 
 
 def _dashboard_card(record: dict, snapshot: dict, today: str) -> dict:
-    """Link one poster and its compact release summary to the full schedule."""
+    """居中展示海报、评分和发行信息，影片卡片保持纯展示。"""
     item = media_payload(record, snapshot, today)
     release_date = record['primary']['date']
     timing = release_timing(release_date, today).replace(' ', '')
@@ -113,9 +213,8 @@ def _dashboard_card(record: dict, snapshot: dict, today: str) -> dict:
         'display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;'
         'overflow:hidden;overflow-wrap:anywhere;line-height:1.35'
     )
-    return _node('a', props={
-        'href': item['homepage'], 'target': '_blank', 'rel': 'noopener noreferrer',
-        'title': item['title'],
+    return _node('div', props={
+        'class': 'smc-dashboard-film', 'aria-label': item['title'],
         'style': 'display:block;min-width:0;scroll-snap-align:start;color:inherit;text-decoration:none;text-align:center',
     }, content=[
         _node('div', props={
