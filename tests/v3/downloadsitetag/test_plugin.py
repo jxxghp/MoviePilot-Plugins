@@ -23,6 +23,7 @@ def _make_plugin() -> DownloadSiteTag:
     plugin._enabled = True
     plugin._enabled_tag = True
     plugin._enabled_media_tag = False
+    plugin._enabled_media_recognize = False
     plugin._enabled_category = False
     plugin._enabled_del_tags = False
     plugin._category_movie = "电影"
@@ -48,7 +49,7 @@ def test_v3_metadata_and_host_floor_are_declared() -> None:
     legacy_package = json.loads((ROOT / "package.v2.json").read_text(encoding="utf-8"))
     metadata = package["DownloadSiteTag"]
 
-    assert DownloadSiteTag.plugin_version == "3.2.0"
+    assert DownloadSiteTag.plugin_version == "3.3.1"
     assert metadata["version"] == DownloadSiteTag.plugin_version
     assert metadata["system_version"] == ">=3.0.0"
     assert metadata["history"]["v3.2.0"]
@@ -267,3 +268,186 @@ def test_stop_service_is_idempotent_and_shuts_down_scheduler() -> None:
     scheduler.remove_all_jobs.assert_called_once_with()
     scheduler.shutdown.assert_called_once_with()
     assert plugin._scheduler is None
+
+
+def _make_recognize_plugin(cache: dict | None = None) -> DownloadSiteTag:
+    """构造开启剧名识别兜底的最小插件实例。"""
+    plugin = _make_plugin()
+    plugin._enabled_media_tag = True
+    plugin._enabled_media_recognize = True
+    plugin.chain = MagicMock()
+    plugin.get_data = MagicMock(return_value=cache if cache is not None else {})
+    plugin.save_data = MagicMock()
+    return plugin
+
+
+def _make_recognize_torrent() -> dict:
+    """已打站点标签但无下载历史的种子，识别兜底的目标形态。"""
+    return {
+        "hash": "nohist",
+        "size": 200,
+        "name": "小气鬼.The.Thrifty.Angel.2026.2160p.WEB-DL",
+        "added_on": 2,
+        "tags": "站点",
+        "category": "",
+        "trackers": [],
+    }
+
+
+def _run_complemented_history(plugin: DownloadSiteTag, torrent: dict) -> None:
+    """在屏蔽宿主服务与识别解析的条件下执行一次补全任务。"""
+    downloader = MagicMock()
+    downloader.get_torrents.return_value = ([torrent], None)
+    service = _make_service(downloader)
+    plugin._set_torrent_info = MagicMock()
+
+    with patch.object(
+        type(plugin),
+        "service_infos",
+        new_callable=PropertyMock,
+        return_value={"qb": service},
+    ), patch("app.plugins.downloadsitetag.SitesHelper") as sites_helper, patch(
+        "app.plugins.downloadsitetag.DownloadHistoryOper"
+    ) as history_oper, patch("app.plugins.downloadsitetag.MetaInfo") as meta_cls:
+        sites_helper.return_value.get_indexers.return_value = [{"name": "站点"}]
+        history_oper.return_value.get_by_hash.return_value = None
+        meta_cls.return_value = SimpleNamespace(name="小气鬼", year=None, type=None)
+        plugin._complemented_history()
+
+
+def test_recognize_fallback_tags_torrent_without_history() -> None:
+    """无下载历史的种子应通过资源名识别剧名并打标签。"""
+    plugin = _make_recognize_plugin()
+    plugin.chain.recognize_media.return_value = SimpleNamespace(title="小气鬼")
+
+    _run_complemented_history(plugin, _make_recognize_torrent())
+
+    plugin.chain.recognize_media.assert_called_once()
+    assert plugin._set_torrent_info.call_args.kwargs["_tags"] == ["小气鬼"]
+    plugin.save_data.assert_called_once_with('MediaTitleCacheV2', {'["小气鬼", "", ""]': {"title": "小气鬼", "names": []}})
+
+
+def test_recognize_fallback_is_disabled_without_switch() -> None:
+    """识别开关关闭时不得触发识别，也不产生剧名标签。"""
+    plugin = _make_recognize_plugin()
+    plugin._enabled_media_recognize = False
+
+    _run_complemented_history(plugin, _make_recognize_torrent())
+
+    plugin.chain.recognize_media.assert_not_called()
+    plugin._set_torrent_info.assert_not_called()
+
+
+def test_recognize_fallback_skipped_when_history_has_title() -> None:
+    """历史已有标题的种子走原路径，不触发识别。"""
+    plugin = _make_recognize_plugin()
+
+    torrent = _make_recognize_torrent()
+    downloader = MagicMock()
+    downloader.get_torrents.return_value = ([torrent], None)
+    service = _make_service(downloader)
+    plugin._set_torrent_info = MagicMock()
+
+    with patch.object(
+        type(plugin),
+        "service_infos",
+        new_callable=PropertyMock,
+        return_value={"qb": service},
+    ), patch("app.plugins.downloadsitetag.SitesHelper") as sites_helper, patch(
+        "app.plugins.downloadsitetag.DownloadHistoryOper"
+    ) as history_oper, patch("app.plugins.downloadsitetag.MetaInfo") as meta_cls:
+        sites_helper.return_value.get_indexers.return_value = [{"name": "站点"}]
+        history_oper.return_value.get_by_hash.return_value = SimpleNamespace(
+            torrent_site="站点",
+            media_id="123",
+            media_source="themoviedb",
+            type="电视剧",
+            title="历史剧名",
+        )
+        plugin._complemented_history()
+
+    plugin.chain.recognize_media.assert_not_called()
+    # 种子已有站点标签时原逻辑不会重复添加, 只断言剧名标签来自历史标题
+    assert plugin._set_torrent_info.call_args.kwargs["_tags"] == ["历史剧名"]
+
+
+def test_recognize_fallback_uses_cached_title_without_api_call() -> None:
+    """缓存命中的解析名不再调用识别接口。"""
+    plugin = _make_recognize_plugin(cache={'["小气鬼", "", ""]': {"title": "缓存剧名", "names": []}})
+
+    _run_complemented_history(plugin, _make_recognize_torrent())
+
+    plugin.chain.recognize_media.assert_not_called()
+    assert plugin._set_torrent_info.call_args.kwargs["_tags"] == ["缓存剧名"]
+
+
+def test_recognize_fallback_caches_failure_and_skips_tagging() -> None:
+    """识别失败应缓存空结果，且不打剧名标签。"""
+    plugin = _make_recognize_plugin()
+    plugin.chain.recognize_media.return_value = None
+
+    _run_complemented_history(plugin, _make_recognize_torrent())
+
+    plugin.chain.recognize_media.assert_called_once()
+    plugin.save_data.assert_called_once_with('MediaTitleCacheV2', {'["小气鬼", "", ""]': {}})
+    plugin._set_torrent_info.assert_not_called()
+
+
+def test_recognize_fallback_reuses_existing_alias_tag() -> None:
+    """种子已有该媒体别名标签时应沿用既有标签，不新增其它语言的重复标签。"""
+    plugin = _make_recognize_plugin()
+    plugin.chain.recognize_media.return_value = SimpleNamespace(
+        title="外语标题", names=["外语标题", "既有剧名"]
+    )
+    torrent = _make_recognize_torrent()
+    torrent["tags"] = "站点,既有剧名"
+
+    _run_complemented_history(plugin, torrent)
+
+    plugin.chain.recognize_media.assert_called_once()
+    # 沿用的既有标签已在种子上, 差集后无标签可写, 缓存记录解析后的标签值
+    plugin._set_torrent_info.assert_not_called()
+    plugin.save_data.assert_called_once_with('MediaTitleCacheV2', {'["小气鬼", "", ""]': {"title": "外语标题", "names": ["外语标题", "既有剧名"]}})
+
+
+def test_recognize_fallback_adds_new_title_when_no_alias_matched() -> None:
+    """种子标签与识别媒体别名无交集时正常新增识别标题。"""
+    plugin = _make_recognize_plugin()
+    plugin.chain.recognize_media.return_value = SimpleNamespace(
+        title="新剧名", names=["新剧名", "别名"]
+    )
+
+    _run_complemented_history(plugin, _make_recognize_torrent())
+
+    plugin.chain.recognize_media.assert_called_once()
+    assert plugin._set_torrent_info.call_args.kwargs["_tags"] == ["新剧名"]
+    plugin.save_data.assert_called_once_with('MediaTitleCacheV2', {'["小气鬼", "", ""]': {"title": "新剧名", "names": ["新剧名", "别名"]}})
+
+
+def test_recognition_cache_separates_year_and_keeps_aliases_per_torrent() -> None:
+    """同名不同年份分别识别，缓存命中仍可沿用每颗种子的既有别名。"""
+    plugin = _make_recognize_plugin()
+    cache = {}
+    plugin.get_data.side_effect = lambda key: cache
+    plugin.save_data.side_effect = lambda key, value: cache.update(value)
+    plugin.chain.recognize_media.side_effect = [
+        SimpleNamespace(title="新版", names=["New", "新版"]),
+        SimpleNamespace(title="旧版", names=["Old", "旧版"]),
+    ]
+    with patch("app.plugins.downloadsitetag.MetaInfo") as meta_cls:
+        meta_cls.return_value = SimpleNamespace(name="Example", year="2026", type=None)
+        assert plugin._recognize_media_title("new release", ["New"]) == "New"
+        assert plugin._recognize_media_title("new release", ["新版"]) == "新版"
+        meta_cls.return_value = SimpleNamespace(name="Example", year="1999", type=None)
+        assert plugin._recognize_media_title("old release") == "旧版"
+    assert plugin.chain.recognize_media.call_count == 2
+
+
+def test_recognition_exception_is_retried_without_poisoning_cache() -> None:
+    """暂时性识别异常不写入永久空缓存。"""
+    plugin = _make_recognize_plugin()
+    plugin.chain.recognize_media.side_effect = [RuntimeError("offline"), SimpleNamespace(title="恢复后标题", names=[])]
+    with patch("app.plugins.downloadsitetag.MetaInfo", return_value=SimpleNamespace(name="Example", year="2026", type=None)):
+        assert plugin._recognize_media_title("release") is None
+        plugin.save_data.assert_not_called()
+        assert plugin._recognize_media_title("release") == "恢复后标题"

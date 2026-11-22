@@ -1,6 +1,6 @@
 """AgentTokens 插件单测（pytest 原生）。
 
-覆盖侧栏入口受 show_sidebar_nav 配置控制的逻辑。依赖 MoviePilot 后端（app.*）与
+覆盖供应商选择与用量、插件配置和侧栏入口。依赖 MoviePilot 后端（app.*）与
 插件包：根 conftest 会先隔离 CONFIG_DIR，再通过生产命名空间暴露对应插件源码。
 """
 from copy import deepcopy
@@ -10,6 +10,7 @@ from unittest.mock import patch
 import pytest
 
 from app.plugins.agenttokens import AgentTokens  # noqa: E402
+from app.schemas.event import AgentLLMProviderEventData
 
 
 def _plugin() -> AgentTokens:
@@ -140,6 +141,37 @@ def test_select_llm_provider_accepts_direct_requested_provider_field():
     assert event.event_data["metadata"]["requested_provider_id"] == "requested"
 
 
+@pytest.mark.parametrize(
+    ("provider_type", "protocol_config", "system_protocol", "saved_protocol", "effective_protocol"),
+    [
+        ("openai", {"api_protocol": " Responses "}, "chat_completions", "responses", "responses"),
+        ("openai", {"api_protocol": "chat_completions"}, "responses", "chat_completions", "chat_completions"),
+        ("chatgpt", {"api_protocol": "auto"}, "responses", "auto", "auto"),
+        ("openai", {}, "responses", "", "responses"),
+        ("openai", {"api_protocol": "invalid"}, "chat_completions", "", "chat_completions"),
+        ("google", {"api_protocol": "responses"}, "chat_completions", "", "chat_completions"),
+    ],
+    ids=["responses", "chat-completions", "auto", "legacy", "invalid", "native-provider"],
+)
+def test_saved_provider_api_protocol_is_applied_after_reload(
+    provider_type, protocol_config, system_protocol, saved_protocol, effective_protocol
+):
+    """验证保存、重载和真实宿主事件上的协议优先级。"""
+    plugin = _plugin()
+    provider = _provider("primary", 1, provider=provider_type, **protocol_config)
+    event_data = AgentLLMProviderEventData(api_protocol=system_protocol)
+
+    with patch.object(plugin, "update_config") as update_config, patch.object(plugin, "get_data", return_value={}):
+        response = plugin.save_config_api({"enabled": True, "providers": [provider]})
+        assert response.success
+        assert response.data["config"]["providers"][0]["api_protocol"] == saved_protocol
+        plugin.init_plugin(deepcopy(update_config.call_args.args[0]))
+        plugin.select_llm_provider(SimpleNamespace(event_data=event_data))
+
+    assert event_data.selected_provider_id == "primary"
+    assert event_data.api_protocol == effective_protocol
+
+
 def test_requested_provider_unavailable_does_not_fallback_by_default():
     """指定供应商不可用且未授权回退时，应保持未选择状态并写回失败原因。"""
     plugin = _initialized_plugin([
@@ -161,10 +193,11 @@ def test_requested_provider_unavailable_does_not_fallback_by_default():
 def test_requested_provider_can_explicitly_fallback():
     """调用方显式允许回退时，应在指定项不可用后选择优先级最高的可用供应商。"""
     plugin = _initialized_plugin([
-        _provider("primary", 1),
-        _provider("requested", 2, token_limit=100),
+        _provider("primary", 1, api_protocol="responses"),
+        _provider("requested", 2, token_limit=100, api_protocol="chat_completions"),
     ])
     event = SimpleNamespace(event_data={
+        "api_protocol": "chat_completions",
         "metadata": {
             "requested_provider_id": "requested",
             "allow_failover": True,
@@ -179,6 +212,7 @@ def test_requested_provider_can_explicitly_fallback():
         plugin.select_llm_provider(event)
 
     assert event.event_data["selected_provider_id"] == "primary"
+    assert event.event_data["api_protocol"] == "responses"
     assert event.event_data["metadata"]["provider_selection_status"] == "fallback"
     assert event.event_data["metadata"]["requested_provider_error"] == "供应商 Token 额度已耗尽"
 

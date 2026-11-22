@@ -24,13 +24,45 @@ from app.modules.transmission import Transmission
 from app.plugins import _PluginBase
 from app.schemas import NotificationType
 from app.schemas.types import EventType
+from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
 from app.utils.timer import TimerUtils
+
+
+# FluxTorrent 架构站点在 MoviePilot 站点列表里的**精确名称**。
+# 站点名是上游主要的分派依据（上游对「憨憨」也是这么做的），
+# 所以这些名字必须与站点列表里填的一致，大小写敏感。
+#   - "FluxTorrent"：自建的 FluxTorrent 站
+#   - "好学"：好学（hxpt.org）已由 NexusPHP 整体迁移到 FluxTorrent 架构，
+#     对外契约与 FluxTorrent 完全一致，故复用同一条适配路径
+FLUX_SITE_NAMES = ("FluxTorrent", "好学")
+
+# FluxTorrent 开放 API 令牌前缀（站点【开放API】页签签发，形如 fxo_<uuid>）。
+# 该前缀只有 FluxTorrent 架构的站点会签发，故也能用来判别架构：自定义站点
+# 的名字可以任意填，只靠站点名会漏判，凭据形态则不会。
+FLUX_TOKEN_PREFIX = "fxo_"
 
 
 class CSSiteConfig(object):
     """
     站点辅种配置类
+
+    FluxTorrent 适配说明（本仓库改动）：
+    上游对所有站点只有一套方言 —— 查询 `POST {url}api/pieces-hash`
+    （body `{passkey, pieces_hash}`，resp `{"data":{sha1:torrent_id}}`）、
+    下载 `GET {url}download.php?id=&passkey=`。FluxTorrent 走的是**站点
+    原生开放 API**，形状不同，故此处按站点名分派：
+
+    | | 上游方言 | FluxTorrent |
+    |---|---|---|
+    | 查询 | `POST {url}api/pieces-hash` | `POST {url}api/v1/crossseed/lookup` |
+    | 凭据 | body 里的 `passkey` | 头 `Authorization: Token <fxo_>` |
+    | 请求体 | `{passkey, pieces_hash:[...]}` | `{pieces_sha1:[...]}` |
+    | 响应 | `{"data":{sha1:id}}` | `{"data":{"results":[...]}}` |
+    | 下载 | `GET {url}download.php?id=&passkey=` | `GET {url}api/v1/crossseed/dl/{id}` |
+
+    关键点：**FluxTorrent 侧不需要新增任何端点**，它用的是站点本来就
+    提供的开放 API（`/api/v1/crossseed/*`，需 `crossseed` scope）。
     """
 
     def __init__(
@@ -53,12 +85,30 @@ class CSSiteConfig(object):
         self.proxy = proxy
         self.query_gap = query_gap
 
+    @property
+    def is_flux(self) -> bool:
+        """是否 FluxTorrent 架构站点。
+
+        两条判据任一成立即认为是：
+
+        1. 站点名精确命中白名单（``FLUX_SITE_NAMES``）；
+        2. 凭据是 FluxTorrent 开放 API 令牌（``fxo_`` 前缀）——自定义站点名
+           可任意填写，只靠站点名会漏判，凭据形态则不会。
+        """
+        if (self.name or "").strip() in FLUX_SITE_NAMES:
+            return True
+        return (self.passkey or "").strip().startswith(FLUX_TOKEN_PREFIX)
+
     def get_api_url(self):
+        if self.is_flux:
+            return f"{self.url.rstrip('/')}/api/v1/crossseed/lookup"
         if self.name == "憨憨":
             return f"{self.url}nexusapi/pieces-hash"
         return f"{self.url}api/pieces-hash"
 
     def get_torrent_url(self, torrent_id: str):
+        if self.is_flux:
+            return f"{self.url.rstrip('/')}/api/v1/crossseed/dl/{torrent_id}"
         return f"{self.url}download.php?id={torrent_id}&passkey={self.passkey}"
 
 
@@ -151,6 +201,11 @@ class CrossSeedHelper(object):
         }
         data = {"passkey": site.passkey, "pieces_hash": pieces_hash_set}
         remote_torrent_infos = []
+        if site.is_flux:
+            # FluxTorrent：凭据走请求头（Token 形态），指纹字段名是
+            # pieces_sha1，passkey 不进 body。
+            headers["Authorization"] = f"Token {site.passkey}"
+            data = {"pieces_sha1": pieces_hash_set}
         try:
             response = requests.post(
                 site.get_api_url(),
@@ -161,7 +216,10 @@ class CrossSeedHelper(object):
             )
             response.raise_for_status()
             rsp_body = response.json()
-            if isinstance(rsp_body["data"], dict):
+            if site.is_flux:
+                remote_torrent_infos = CrossSeedHelper._parse_flux_results(
+                    rsp_body, site.name)
+            elif isinstance(rsp_body["data"], dict):
                 for pieces_hash, torrent_id in rsp_body["data"].items():
                     remote_torrent_infos.append(
                         TorInfo.remote(site.name, pieces_hash, torrent_id)
@@ -170,6 +228,50 @@ class CrossSeedHelper(object):
         except requests.exceptions.RequestException as e:
             return None, f"站点{site.name}请求失败：{e}"
         return remote_torrent_infos, None
+
+    @staticmethod
+    def _parse_flux_results(rsp_body: Any, site_name: str) -> List[TorInfo]:
+        """解析 FluxTorrent 辅种查询响应。
+
+        站点信封：`{"code":0,"message":"ok","data":{"results":[...]}}`。
+        每条 result 含：`torrent_id` / `name` / `size` / `match` / `query`
+        / `download_url`。
+
+        `query` 是站点回标的**原指纹**（本次只发 `pieces_sha1`，故恒为
+        pieces 的 sha1），用它当 pieces_hash —— 上游后续拿它跟本地指纹
+        集合比对去重、并反查本地种子的保存路径。
+
+        ⚠️ `match` 是**命中的是哪一类**（`"info_hash_v1"`/`"pieces_sha1"`），
+        不是指纹本身，拿它当 pieces_hash 会得到一个查不到保存路径的假指纹。
+
+        ⚠️ 也不能套用上游的 `data.items()`：FluxTorrent 的 `data` 里是
+        `results` 数组，`items()` 会把 `"results"` 当成**指纹名**，产出
+        一条 `pieces_hash="results"` 的假命中。
+
+        站点未命中的指纹不会出现在 results 里（客户端按差集判未命中），
+        与上游方言的语义一致。
+        """
+        if not isinstance(rsp_body, dict):
+            return []
+        data = rsp_body.get("data")
+        if not isinstance(data, dict):
+            return []
+        results = data.get("results")
+        if not isinstance(results, list):
+            return []
+        infos: List[TorInfo] = []
+        for row in results:
+            if not isinstance(row, dict):
+                continue
+            torrent_id = row.get("torrent_id")
+            if torrent_id is None:
+                continue
+            # 只认 query（指纹值）；match 是命中类别，不能顶替
+            pieces_hash = row.get("query") or ""
+            infos.append(
+                TorInfo.remote(site_name, pieces_hash, str(torrent_id))
+            )
+        return infos
 
 
 class CrossSeed(_PluginBase):
@@ -180,7 +282,7 @@ class CrossSeed(_PluginBase):
     # 插件图标
     plugin_icon = "qingwa.png"
     # 插件版本
-    plugin_version = "2.4.1"
+    plugin_version = "2.4.3"
     # 插件作者
     plugin_author = "233@qingwa"
     # 作者主页
@@ -688,7 +790,9 @@ class CrossSeed(_PluginBase):
                                             'text': '1. 定时任务周期建议每次辅种间隔时间大于1天，不填写每天上午2点到7点随机辅种一次； '
                                                     '2. 支持辅种站点列表：青蛙、AGSVPT、红豆饭、麒麟、UBits、聆音等，配置passkey时，站点名称需严格和上面选项一致，只有选中的站点会辅种，passkey可保存多个； '
                                                     '3. 请勿与IYUU辅种插件同时添加相同站点，可能会有冲突，且意义不大；'
-                                                    '4. 测试站点是否支持的方法：【站点域名/api/pieces-hash】接口访问返回405则大概率支持 '
+                                                    '4. 测试站点是否支持的方法：【站点域名/api/pieces-hash】接口访问返回405则大概率支持；'
+                                                    '5. FluxTorrent 架构站点（FluxTorrent / 好学）：配置格式 站点名:fxo_开头的开放API令牌，'
+                                                    '令牌需在站点【开放API】页签签发并勾选 crossseed 权限，注意这里填的不是 Tracker passkey； '
                                         }
                                     }
                                 ]
@@ -1061,7 +1165,44 @@ class CrossSeed(_PluginBase):
 
         logger.info(f"下载器 {downloader} 辅种完成")
 
-    def __download(self, downloader: str, content: Union[bytes, str],
+    @staticmethod
+    def __download_flux_torrent(
+            torrent_url: str,
+            site_config: CSSiteConfig,
+    ) -> Tuple[Optional[Union[str, bytes]], str]:
+        """
+        从 FluxTorrent 站点下载种子文件（FluxTorrent 适配，本仓库改动）
+
+        与上游 `TorrentHelper.download_torrent` 的区别：
+        - 凭据走 `Authorization: Token <fxo_>` 头，不是 cookie；
+        - **必须跟随重定向**：站点口 `/api/v1/crossseed/dl/{id}` 会 302 到
+          带 30 分钟临时凭证（fxk_）的下载端点，凭证在 Location 的 query
+          里，不跟随就拿不到 .torrent。
+
+        :return: (种子内容, 错误信息)；成功时错误信息为空串。
+        """
+        headers = {
+            "Authorization": f"Token {site_config.passkey}",
+            "User-Agent": site_config.ua or settings.USER_AGENT,
+        }
+        try:
+            resp = RequestUtils(
+                headers=headers,
+                ua=site_config.ua or settings.USER_AGENT,
+                proxies=settings.PROXY if site_config.proxy else None,
+            ).get_res(url=torrent_url, allow_redirects=True)
+        except Exception as err:
+            return None, f"下载请求异常：{err}"
+        if not resp:
+            return None, "无法打开链接"
+        if resp.status_code != 200:
+            return None, f"站点返回 HTTP {resp.status_code}"
+        content = resp.content
+        if not content:
+            return None, "站点返回空内容"
+        return content, ""
+
+    def __download(self, downloader: str, content: Union[str, bytes],
                    save_path: str) -> Optional[str]:
         """
         添加下载任务
@@ -1113,12 +1254,20 @@ class CrossSeed(_PluginBase):
         # 下载种子
         torrent_url = site_config.get_torrent_url(tor.torrent_id)
 
-        # 下载种子文件
-        _, content, _, _, error_msg = self.torrent.download_torrent(
-            url=torrent_url,
-            cookie=site_config.cookie,
-            ua=site_config.ua or settings.USER_AGENT,
-            proxy=True if site_config.proxy else False)
+        if site_config.is_flux:
+            # FluxTorrent：凭据是开放 API Token，走 Authorization 头，
+            # 不是 cookie。上游的 download_torrent 只支持 cookie，故此处
+            # 直接用 RequestUtils。站点口 /crossseed/dl/{id} 会 302 到
+            # 带 30 分钟临时凭证的下载端点，**必须跟随重定向**。
+            content, error_msg = self.__download_flux_torrent(
+                torrent_url, site_config)
+        else:
+            # 下载种子文件
+            _, content, _, _, error_msg = self.torrent.download_torrent(
+                url=torrent_url,
+                cookie=site_config.cookie,
+                ua=site_config.ua or settings.USER_AGENT,
+                proxy=True if site_config.proxy else False)
 
         # 兼容种子无法访问的情况
         if not content or (isinstance(content, bytes) and "你没有该权限".encode(encoding="utf-8") in content):

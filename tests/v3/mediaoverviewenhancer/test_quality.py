@@ -10,6 +10,7 @@ from app.plugins.mediaoverviewenhancer.quality import (
     extract_person_names,
     jaccard_similarity,
     near_duplicate,
+    stray_english_words,
     suspicious_names,
     summarize_failure_kinds,
 )
@@ -68,6 +69,49 @@ def test_extract_and_suspicious_names() -> None:
 def test_suspicious_names_without_known_list() -> None:
     """没有演职员名单时不做幻觉判定，避免误伤。"""
     assert suspicious_names("由张三饰演父亲。", []) == []
+
+
+def test_suspicious_names_ignores_plain_phrases() -> None:
+    """普通短语不能被当成编造人名（回归「路西法 S5E4 围中各自」误判）。"""
+    text = (
+        "时间是1946年，世界唯有黑白两色。路西法成了黑色侦探故事的明星要角，"
+        "熟悉的人物也各自诠释起新的角色。"
+    )
+    assert extract_person_names(text) == []
+    assert suspicious_names(text, ["汤姆·埃利斯", "劳伦·日尔曼"]) == []
+
+
+def test_suspicious_names_ignores_phrase_after_you() -> None:
+    """「由围中各自，…」这类没有饰演语境的片段不应被截成人名。"""
+    text = "故事由围中各自，剧情在雨夜不断推进。"
+    assert extract_person_names(text) == []
+    assert suspicious_names(text, ["汤姆·埃利斯"]) == []
+
+
+def test_suspicious_names_accepts_source_text() -> None:
+    """素材原文里出现过的名字不算 AI 编造。"""
+    text = "该片由王五饰演警探。"
+    source = "王五 饰演 警探，张三 饰演 父亲。"
+    assert suspicious_names(text, ["张三"], source_text=source) == []
+
+
+def test_suspicious_names_tolerates_translation_variants() -> None:
+    """演职员表写全名、简介写简称时不应误判。"""
+    text = "该片由张三饰演父亲，欧阳锋饰演警探。"
+    assert suspicious_names(text, ["张三丰", "欧阳锋"]) == []
+
+
+def test_extract_person_names_skips_places() -> None:
+    """没有饰演上下文的地名不应被当成演员名。"""
+    assert extract_person_names("故事发生在 New York，警方随后封锁了街区。") == []
+
+
+def test_stray_english_words() -> None:
+    """中文简介混入英文副词应被识别，专有名词不应误判。"""
+    assert stray_english_words("幻视则 increasingly 难以容忍奥创的操控意图。") == [
+        "increasingly"
+    ]
+    assert stray_english_words("该片由 John Smith 饰演，使用 IMAX 摄影机拍摄。") == []
 
 
 @pytest.mark.parametrize(

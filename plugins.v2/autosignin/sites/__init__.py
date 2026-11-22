@@ -24,6 +24,8 @@ class _ISiteSigninHandler(metaclass=ABCMeta):
     site_url = ""
     # 签到入口若已经执行登录保号，失败后不能再调用相同接口作为登录回退。
     signin_is_login: bool = False
+    # 发言区等区域会引用含“签到失败”字样的站点公告原文，凭据明确的处理器可让当天完成提示优先。
+    positive_evidence_wins: bool = False
 
     @abstractmethod
     def match(self, url: str) -> bool:
@@ -95,19 +97,21 @@ class _ISiteSigninHandler(metaclass=ABCMeta):
                     return res.text
             return ""
 
-    @staticmethod
-    def sign_in_result(html_res: str, regexs: list) -> bool:
+    @classmethod
+    def sign_in_result(cls, html_res: str, regexs: list) -> bool:
         """
         仅匹配可见页面中的签到结果，脚本和隐藏模板里的文案不代表已执行。
         """
         html_text = re.sub(r"#\d+", "", re.sub(r"\d+px", "", visible_html(html_res)))
         document = etree.HTML(html_text)
         text = "".join(document.itertext()) if document is not None else ""
+        # 纯文案只查正文，不能命中 onclick/title 等属性里的成功提示。
+        signed = any(
+            re.search(str(regex), html_text if "<" in regex or "value=" in regex else text)
+            for regex in regexs
+        )
+        if cls.positive_evidence_wins:
+            return signed
         if re.search(r"(?:签到|簽到)(?:失败|失敗|未成功)|(?:未|没有|沒有)(?:签到|簽到)成功", text):
             return False
-        for regex in regexs:
-            # 纯文案只查正文，不能命中 onclick/title 等属性里的成功提示。
-            target = html_text if "<" in regex or "value=" in regex else text
-            if re.search(str(regex), target):
-                return True
-        return False
+        return signed

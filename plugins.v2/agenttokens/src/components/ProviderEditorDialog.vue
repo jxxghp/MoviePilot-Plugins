@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue'
-import { PROVIDER_TYPE_OPTIONS } from '../provider'
+import { API_PROTOCOL_OPTIONS, PROVIDER_TYPE_OPTIONS } from '../provider'
 
 const props = defineProps({
   modelValue: {
@@ -73,6 +73,17 @@ function commitProvider() {
               hint="填写供应商接口使用的模型标识"
               persistent-hint
               variant="outlined"
+            />
+          </VCol>
+          <VCol v-if="['openai', 'chatgpt'].includes(provider.provider?.toLowerCase())" cols="12">
+            <VSelect
+              :model-value="provider.api_protocol ?? ''"
+              :items="API_PROTOCOL_OPTIONS"
+              label="API 协议"
+              hint="选择「自动」可由 MoviePilot 根据模型和接口决定协议"
+              persistent-hint
+              variant="outlined"
+              @update:model-value="provider.api_protocol = $event"
             />
           </VCol>
           <VCol cols="12">

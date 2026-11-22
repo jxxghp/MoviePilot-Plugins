@@ -111,7 +111,12 @@ function unwrap(response) {
 
 function errorText(err) {
   if (!err) return '未知错误'
-  return err.message || String(err)
+  const response = err.response || {}
+  const data = response.data || {}
+  const detail = data.detail || data.message || err.message
+  if (typeof detail === 'string' && detail.trim()) return detail
+  if (response.status) return `HTTP ${response.status}`
+  return '未知错误（后端未返回详情，请查看 MP 日志）'
 }
 
 function kindLabel(kind) {
@@ -360,9 +365,131 @@ function stopPolling() {
   timer = null
 }
 
+const auditing = ref(false)
+const repairing = ref(false)
+const auditItems = ref([])
+const auditScanned = ref(0)
+const auditTotal = ref(0)
+const auditTime = ref('')
+const auditErrors = ref([])
+const auditType = ref('all')
+const auditLimit = ref(300)
+const auditSelected = ref([])
+
+const auditFilter = ref('all')
+const auditSelectedSet = computed(() => new Set(auditSelected.value.map(String)))
+
+function auditHas(item, kind) {
+  const text = (item.reasons || []).join('；')
+  if (kind === 'missing') return text.includes('简介缺失')
+  if (kind === 'short') return text.includes('简介过短')
+  if (kind === 'tech') return text.includes('技术信息')
+  if (kind === 'flavor') return text.includes('AI 味')
+  if (kind === 'similar') return text.includes('雷同')
+  return true
+}
+
+const filteredAuditItems = computed(() => {
+  if (auditFilter.value === 'all') return auditItems.value
+  return auditItems.value.filter(item => auditHas(item, auditFilter.value))
+})
+
+const auditAllSelected = computed(
+  () =>
+    filteredAuditItems.value.length > 0 &&
+    filteredAuditItems.value.every(item => auditSelectedSet.value.has(String(item.key))),
+)
+
+function auditReasonText(item) {
+  return (item.reasons || []).join('；') || '-'
+}
+
+function applyAudit(data) {
+  auditItems.value = data?.items || []
+  auditScanned.value = Number(data?.scanned || 0)
+  auditTotal.value = Number(data?.total || 0)
+  auditTime.value = data?.time || ''
+  auditErrors.value = data?.errors || []
+  const keys = new Set(auditItems.value.map(item => String(item.key)))
+  auditSelected.value = auditSelected.value.filter(key => keys.has(key))
+}
+
+async function loadAudit() {
+  try {
+    const data = unwrap(await props.api.get(`${base.value}/audit`))
+    applyAudit(data)
+  } catch (err) {
+    auditItems.value = []
+  }
+}
+
+async function runAudit() {
+  auditing.value = true
+  error.value = ''
+  message.value = ''
+  try {
+    const data = unwrap(
+      await props.api.post(`${base.value}/audit/scan`, {
+        media_type: auditType.value,
+        limit: Number(auditLimit.value) || 300,
+      }),
+    )
+    applyAudit(data)
+    const problems = (data?.errors || []).join('；')
+    message.value = `体检完成：扫描 ${auditScanned.value} 条，发现 ${auditTotal.value} 条低质简介${
+      data?.truncated ? `（仅显示前 ${auditItems.value.length} 条）` : ''
+    }${problems ? `（${problems}）` : ''}`
+    auditSelected.value = auditItems.value.slice(0, 50).map(item => String(item.key))
+  } catch (err) {
+    error.value = `体检失败：${errorText(err)}`
+  } finally {
+    auditing.value = false
+  }
+}
+
+function toggleAuditAll() {
+  if (auditAllSelected.value) {
+    auditSelected.value = []
+  } else {
+    auditSelected.value = filteredAuditItems.value.map(item => String(item.key))
+  }
+}
+
+function toggleAuditItem(key) {
+  const value = String(key)
+  const index = auditSelected.value.indexOf(value)
+  if (index >= 0) auditSelected.value.splice(index, 1)
+  else auditSelected.value.push(value)
+}
+
+async function repairAudit() {
+  if (!auditSelected.value.length) {
+    message.value = '请先勾选要重写的条目'
+    return
+  }
+  repairing.value = true
+  error.value = ''
+  try {
+    const data = unwrap(
+      await props.api.post(`${base.value}/audit/repair`, { keys: auditSelected.value }),
+    )
+    if (data?.started) {
+      message.value = data?.message || '已提交重写'
+      await loadStatus()
+    } else {
+      error.value = data?.message || '提交重写失败'
+    }
+  } catch (err) {
+    error.value = `提交重写失败：${errorText(err)}`
+  } finally {
+    repairing.value = false
+  }
+}
+
 onMounted(() => {
   loadStatus()
   loadServers()
+  loadAudit()
 })
 
 onUnmounted(() => {
@@ -539,6 +666,136 @@ onUnmounted(() => {
           </VBtn>
           <VBtn variant="text" prepend-icon="mdi-cog-outline" @click="emit('switch')">插件设置</VBtn>
         </div>
+      </VCardText>
+    </VCard>
+
+    <VCard variant="outlined" class="mb-3">
+      <VCardTitle class="text-subtitle-1 d-flex align-center flex-wrap ga-2">
+        存量简介体检
+        <VChip v-if="auditTime" size="x-small" variant="tonal">{{ auditTime }}</VChip>
+        <VSpacer />
+        <VSelect
+          v-model="auditFilter"
+          :items="[
+            { title: '全部问题', value: 'all' },
+            { title: '简介缺失', value: 'missing' },
+            { title: '简介过短', value: 'short' },
+            { title: '技术词', value: 'tech' },
+            { title: 'AI 味', value: 'flavor' },
+            { title: '同季雷同', value: 'similar' },
+          ]"
+          density="compact"
+          variant="outlined"
+          hide-details
+          style="max-width: 150px"
+        />
+        <VBtn
+          size="small"
+          variant="tonal"
+          prepend-icon="mdi-magnify-scan"
+          :loading="auditing"
+          :disabled="running || repairing"
+          @click="runAudit"
+        >
+          开始体检
+        </VBtn>
+      </VCardTitle>
+      <VCardText>
+        <VRow dense>
+          <VCol cols="12" md="4">
+            <VSelect
+              v-model="auditType"
+              :items="[
+                { title: '电影 + 剧集', value: 'all' },
+                { title: '仅电影', value: 'movie' },
+                { title: '仅剧集分集', value: 'tv' },
+                { title: '仅 MV', value: 'mv' },
+              ]"
+              label="体检范围"
+              density="comfortable"
+              hide-details
+            />
+          </VCol>
+          <VCol cols="12" md="3">
+            <VTextField
+              v-model="auditLimit"
+              type="number"
+              label="最多显示条数"
+              density="comfortable"
+              hide-details
+            />
+          </VCol>
+          <VCol cols="12" md="5" class="d-flex align-center flex-wrap ga-2">
+            <VBtn size="small" variant="text" :disabled="!auditItems.length" @click="toggleAuditAll">
+              {{ auditAllSelected ? '取消全选' : '全选' }}
+            </VBtn>
+            <VBtn
+              size="small"
+              color="primary"
+              prepend-icon="mdi-auto-fix"
+              :disabled="!auditSelected.length || running || repairing"
+              :loading="repairing"
+              @click="repairAudit"
+            >
+              重写选中（{{ auditSelected.length }}）
+            </VBtn>
+          </VCol>
+        </VRow>
+        <div class="text-caption text-medium-emphasis mt-1">
+          只读扫描已有简介（包括旧版本写入、手动修改和其他插件写入的内容），检测缺失 / 过短、技术词、
+          模板化开头、AI 味偏重与同季雷同。扫描不调用大模型、不写库；只有「重写选中」才会生成并写回，
+          且仍走质量闸门与失败重试。
+        </div>
+        <div v-if="auditErrors.length" class="text-caption text-warning mt-1">
+          {{ auditErrors.join('；') }}
+        </div>
+      </VCardText>
+      <VCardText v-if="auditItems.length" class="moe-table-wrap">
+        <VTable density="compact">
+          <thead>
+            <tr>
+              <th style="width: 40px"></th>
+              <th>类型</th>
+              <th>标题</th>
+              <th>集</th>
+              <th>字数</th>
+              <th>AI 味</th>
+              <th>问题</th>
+              <th>现简介</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="item in filteredAuditItems" :key="item.key">
+              <td>
+                <VCheckbox
+                  :model-value="auditSelectedSet.has(String(item.key))"
+                  density="compact"
+                  hide-details
+                  @update:model-value="toggleAuditItem(item.key)"
+                />
+              </td>
+              <td>{{ kindLabel(item.kind) }}</td>
+              <td>{{ item.title }}</td>
+              <td>{{ item.kind === 'episode' ? `S${item.season}E${item.episode}` : '-' }}</td>
+              <td>{{ item.chars }}</td>
+              <td>{{ item.flavor || '-' }}</td>
+              <td>
+                <div class="text-error">{{ auditReasonText(item) }}</div>
+                <div v-if="(item.hints || []).length" class="text-caption text-medium-emphasis">
+                  {{ (item.hints || []).join('；') }}
+                </div>
+              </td>
+              <td class="moe-preview">{{ item.preview }}</td>
+            </tr>
+          </tbody>
+        </VTable>
+        <div class="text-caption text-medium-emphasis mt-1">
+          共发现 {{ auditTotal }} 条；当前筛选 {{ filteredAuditItems.length }} 条（已保存 {{ auditItems.length }} 条）。
+          体检结果会保留到下次扫描。
+        </div>
+      </VCardText>
+      <VCardText v-else class="text-caption text-medium-emphasis">
+        还没有体检结果。点击「开始体检」扫描当前媒体库。
       </VCardText>
     </VCard>
 

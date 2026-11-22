@@ -86,6 +86,57 @@ def normalize_config(config: Optional[dict[str, Any]]) -> dict[str, Any]:
     return result
 
 
+_WEEKDAY_NAMES = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
+
+
+def _standard_weekdays(field: str) -> str:
+    """把标准 crontab 的星期字段（0 和 7 为周日）改写为英文缩写。
+
+    APScheduler 的 CronTrigger.from_crontab 把数字 0 当作周一，直接传入时「0 3 * * 0」会在周一执行；
+    改用缩写后与标准 crontab 一致。范围按标准含义逐日展开，避免 sun-sat 这类跨越写法被拒绝。
+    """
+    if field in ("*", "?"):
+        return field
+    names: list[str] = []
+    for item in field.split(","):
+        body, _, step_text = item.partition("/")
+        if "/" in item and not step_text:
+            raise ValueError(f"星期字段缺少步长：{field}")
+        if body == "*":
+            low, high = 0, 6
+        elif "-" in body:
+            low, high = body.split("-", 1)
+        else:
+            low = high = body
+        if not (str(low).isdigit() and str(high).isdigit()):
+            # 英文缩写（含 mon-fri 这类范围）含义没有歧义，原样交给 APScheduler 解析
+            if item not in names:
+                names.append(item)
+            continue
+        start, end = int(low), int(high)
+        if step_text and body != "*" and "-" not in body:
+            end = 6
+        step = int(step_text) if step_text.isdigit() else (1 if not step_text else 0)
+        if step < 1 or not 0 <= start <= end <= 7:
+            raise ValueError(f"星期字段无效：{field}")
+        for day in range(start, end + 1, step):
+            name = _WEEKDAY_NAMES[day % 7]
+            if name not in names:
+                names.append(name)
+    return ",".join(names)
+
+
+def build_cron_trigger(expression: str, timezone: Any = None) -> Any:
+    """按标准 crontab 含义（星期 0 和 7 为周日）创建 APScheduler 触发器；表达式无效时抛出 ValueError。"""
+    from apscheduler.triggers.cron import CronTrigger
+
+    fields = expression.split()
+    if len(fields) != 5:
+        raise ValueError(f"需要 5 个字段，实际为 {len(fields)} 个：{expression}")
+    fields[4] = _standard_weekdays(fields[4])
+    return CronTrigger.from_crontab(" ".join(fields), timezone=timezone)
+
+
 def local_dirs(config: dict[str, Any]) -> list[str]:
     """返回配置的本地扫描目录，每行一个，# 开头为注释。"""
     return [

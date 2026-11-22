@@ -1,4 +1,5 @@
 import datetime
+import re
 from pathlib import Path
 from threading import Lock
 from typing import Optional, Any, List, Dict, Tuple
@@ -27,16 +28,175 @@ from app.sdk.media import normalize_media_source, resolve_media_identity
 
 lock = Lock()
 
+# 豆瓣会把剧集的后续季建成独立条目（如「某剧 2」），而 TMDB 通常只在原剧下以季的形式
+# 存在，因此豆瓣 → TMDB 的身份转换对这类条目必然失败。以下辅助函数只在转换失败后使用，
+# 且必须同时满足「唯一精确同名原剧」「目标季存在且有集数」「该季首播年份与豆瓣年份一致」；
+# 任一条件不满足就放弃，交回原有的豆瓣身份识别回退。
+_SEQUEL_TITLE_PATTERN = re.compile(r"^(?P<base>.+?)\s*(?P<season>\d{1,2})$")
+_SEQUEL_MIN_SEASON = 2
+_SEQUEL_MAX_SEASON = 20
+_TV_TYPE_VALUES = frozenset({"电视剧", "tv", "tv_series", "tvseries", "剧集"})
+
+
+def _raw_value(value: Any) -> Any:
+    """枚举取原始值，便于离线用例注入普通字符串。"""
+    return getattr(value, "value", value)
+
+
+def _compact_title(text: Any) -> str:
+    """标题精确比较用：只保留字母数字并 casefold，不做任何模糊匹配。"""
+    if not text:
+        return ""
+    return "".join(ch for ch in str(text).casefold() if ch.isalnum())
+
+
+def _read_field(item: Any, key: str) -> Any:
+    """同时兼容 dict 与 MediaInfo 对象读取字段。"""
+    return item.get(key) if isinstance(item, dict) else getattr(item, key, None)
+
+
+def _is_tv_candidate(candidate: Any) -> bool:
+    """只接受电视剧候选：类型未知一律拒绝；来源缺省按 TMDB 处理，显式来源必须是 TMDB。"""
+    mtype = _raw_value(_read_field(candidate, "type"))
+    if mtype is None or str(mtype).strip().lower() not in _TV_TYPE_VALUES:
+        return False
+    source = _raw_value(_read_field(candidate, "media_source"))
+    if source is None:
+        return True
+    return str(source).strip().lower() == MediaSource.TMDB.value
+
+
+def _candidate_names(candidate: Any) -> set:
+    """候选的可用标题集合（含别名），统一归一化后比较。"""
+    names = set()
+    for key in ("title", "original_title", "original_name", "en_title"):
+        normalized = _compact_title(_raw_value(_read_field(candidate, key)))
+        if normalized:
+            names.add(normalized)
+    for alias in _read_field(candidate, "names") or []:
+        normalized = _compact_title(_raw_value(alias))
+        if normalized:
+            names.add(normalized)
+    return names
+
+
+def _candidate_tmdb_id(candidate: Any) -> Optional[int]:
+    """取候选的 TMDB ID；媒体 ID 缺失时退回辅助 TMDB 标识字段。"""
+    for key in ("media_id", "tmdb_id", "id"):
+        value = _raw_value(_read_field(candidate, key))
+        if value in (None, ""):
+            continue
+        try:
+            parsed = int(value)
+            return parsed if parsed > 0 and not isinstance(value, bool) else None
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def parse_sequel_title(title: Any, begin_season: Any = None,
+                       base_title: Any = None) -> Optional[Tuple[str, int]]:
+    """从豆瓣标题推导「原剧标题 + 季号」，无法安全推导时返回 None。
+
+    标题已解析出季号时原剧标题取 meta.name（已去掉季标记）；否则只认标题尾部的裸数字。
+    季号必须落在 2..20，原剧标题至少 3 个字符、不以数字结尾且含字母——标题里的其他数字
+    一律不剥离，也不做模糊匹配。
+
+    :param title: 豆瓣条目原始标题
+    :param begin_season: 元数据解析出的季号
+    :param base_title: 元数据解析出的原剧标题
+    :return: ``(原剧标题, 季号)``；无法安全推导时返回 None
+    """
+    if begin_season is not None:
+        try:
+            season = int(begin_season)
+        except (TypeError, ValueError):
+            return None
+        base = str(base_title or title or "").strip()
+    else:
+        matched = _SEQUEL_TITLE_PATTERN.match(str(title or "").strip())
+        if not matched:
+            return None
+        season = int(matched.group("season"))
+        base = matched.group("base").strip()
+    if not (_SEQUEL_MIN_SEASON <= season <= _SEQUEL_MAX_SEASON):
+        return None
+    if len(base) < 3 or base[-1].isdigit() or not any(ch.isalpha() for ch in base):
+        return None
+    return base, season
+
+
+def find_unique_exact_tv(candidates: Any, base: Any) -> Optional[int]:
+    """唯一精确同名电视剧的 TMDB ID；无候选或多条同名都返回 None（fail closed）。
+
+    :param candidates: TMDB 搜索候选（MediaInfo 或 dict）
+    :param base: 原剧标题
+    :return: 唯一候选的 TMDB ID；无法确认唯一性时返回 None
+    """
+    normalized = _compact_title(base)
+    if not normalized:
+        return None
+    ids = set()
+    for candidate in candidates or []:
+        if not _is_tv_candidate(candidate):
+            continue
+        if normalized not in _candidate_names(candidate):
+            continue
+        candidate_id = _candidate_tmdb_id(candidate)
+        if candidate_id is None:
+            return None
+        ids.add(candidate_id)
+    return ids.pop() if len(ids) == 1 else None
+
+
+def verify_sequel_season(season_info: Any, season: int,
+                         year: Any) -> Optional[Dict[str, Any]]:
+    """校验目标季存在、有集数且首播年份与豆瓣年份一致。
+
+    :param season_info: ``tmdb_info(season=...)`` 返回的季详情
+    :param season: 目标季号
+    :param year: 豆瓣条目年份
+    :return: 校验通过的季字段；任一条件不满足时返回 None
+    """
+    try:
+        target_season = int(season)
+        target_year = str(int(str(year).strip()))
+    except (TypeError, ValueError):
+        return None
+    if not season_info:
+        return None
+    payload = {key: _read_field(season_info, key)
+               for key in ("season_number", "air_date", "episode_count")}
+    season_number = payload.get("season_number")
+    if season_number not in (None, ""):
+        try:
+            if int(season_number) != target_season:
+                return None
+        except (TypeError, ValueError):
+            return None
+    try:
+        episode_count = int(payload.get("episode_count") or 0)
+    except (TypeError, ValueError):
+        episode_count = 0
+    if episode_count <= 0 and not (_read_field(season_info, "episodes") or []):
+        return None
+    if str(payload.get("air_date") or "")[:4] != target_year:
+        return None
+    payload["season_number"] = target_season
+    return payload
+
+
 
 class DoubanSync(_PluginBase):
     # 插件名称
+    """同步豆瓣想看记录，按统一媒体身份搜索下载或添加订阅。"""
     plugin_name = "豆瓣想看"
     # 插件描述
     plugin_desc = "同步豆瓣想看数据，自动添加订阅。"
     # 插件图标
     plugin_icon = "douban.png"
     # 插件版本
-    plugin_version = "3.1.1"
+    plugin_version = "3.1.3"
     # 插件作者
     plugin_author = "jxxghp,dwhmofly"
     # 作者主页
@@ -67,6 +227,7 @@ class DoubanSync(_PluginBase):
     def init_plugin(self, config: dict = None):
 
         # 停止现有任务
+        """停止旧任务并读取配置，按启用状态安排本实例任务。"""
         self.stop_service()
 
         # 配置
@@ -107,6 +268,7 @@ class DoubanSync(_PluginBase):
                 self.__update_config()
 
     def get_state(self) -> bool:
+        """返回插件启用状态，供宿主决定是否注册服务。"""
         return self._enabled
 
     def __migrate_history_identity(self) -> None:
@@ -595,6 +757,58 @@ class DoubanSync(_PluginBase):
             logger.warn(f'根据豆瓣 ID 查询用户失败：{err}')
         return None
 
+    @staticmethod
+    def __resolve_sequel_identity(chain, title: Any, year: Any, mtype: Any,
+                                  begin_season: Any = None,
+                                  base_title: Any = None) -> Optional[Dict[str, Any]]:
+        """豆瓣续集条目 → 原剧第 N 季的安全回退（仅在身份转换失败后调用）。
+
+        只有「唯一精确同名原剧」「目标季存在且有集数」「该季首播年份与豆瓣年份一致」
+        同时成立时才返回结果；任何异常都只记日志并返回 None，由调用方继续原有的
+        豆瓣身份识别回退，不影响同一轮次的其它条目。
+
+        :param chain: 插件使用的媒体链
+        :param title: 豆瓣条目标题
+        :param year: 豆瓣条目年份
+        :param mtype: 媒体类型
+        :param begin_season: 元数据解析出的季号
+        :param base_title: 元数据解析出的原剧标题
+        :return: ``{"id", "season", "air_date", "episode_count"}``；无法安全命中时返回 None
+        """
+        try:
+            if str(_raw_value(mtype)).strip().lower() not in _TV_TYPE_VALUES:
+                return None
+            year_text = str(year).strip() if year is not None else ""
+            if len(year_text) != 4 or not year_text.isdigit():
+                return None
+            target = parse_sequel_title(title, begin_season=begin_season,
+                                        base_title=base_title)
+            if not target:
+                return None
+            base, season = target
+            # 不做年份过滤：原剧首播年份属于第 1 季，年份由目标季的首播日期校验。
+            search_meta = MetaInfo(title=base)
+            search_meta.type = MediaType.TV
+            candidates = chain.search_medias(meta=search_meta,
+                                             media_source=MediaSource.TMDB)
+            tmdb_id = find_unique_exact_tv(candidates, base)
+            if not tmdb_id:
+                logger.info(f'续集回退未命中：{base} 在 TMDB 无唯一精确同名电视剧')
+                return None
+            season_info = chain.tmdb_info(tmdbid=tmdb_id, mtype=MediaType.TV,
+                                         season=season)
+            payload = verify_sequel_season(season_info, season, year_text)
+            if not payload:
+                logger.info(f'续集回退未命中：TMDB {tmdb_id} 第 {season} 季不存在'
+                            f'或首播年份不是 {year_text}')
+                return None
+            return {"id": tmdb_id, "season": season,
+                    "air_date": payload.get("air_date"),
+                    "episode_count": payload.get("episode_count")}
+        except Exception as err:
+            logger.warn(f'续集回退异常，按未命中处理：{err}')
+            return None
+
     def sync(self):
         """
         通过用户RSS同步豆瓣想看数据
@@ -667,6 +881,29 @@ class DoubanSync(_PluginBase):
                             mtype=meta.type,
                         )
                         if not tmdbinfo:
+                            # 豆瓣续集条目在 TMDB 只是原剧的某一季，身份转换必然失败；
+                            # 仅在此时尝试安全回退，未命中则保持原有的豆瓣数据识别回退。
+                            sequel = self.__resolve_sequel_identity(
+                                self.chain, title, douban_info.get("year"), meta.type,
+                                begin_season=meta.begin_season, base_title=meta.name)
+                            if sequel:
+                                meta.begin_season = sequel["season"]
+                                tmdbinfo = {"id": sequel["id"]}
+                                logger.info(
+                                    f"续集回退命中：豆瓣 {douban_id} {title} → "
+                                    f"TMDB {sequel['id']} S{sequel['season']}"
+                                    f"（{sequel.get('air_date') or '-'}，"
+                                    f"{sequel.get('episode_count') or '-'} 集）")
+                        if tmdbinfo:
+                            mediainfo = self.chain.recognize_media(
+                                meta=meta,
+                                media_source=MediaSource.TMDB,
+                                media_id=str(tmdbinfo.get("id")),
+                            )
+                            if not mediainfo:
+                                logger.warn(f'TMDBID {tmdbinfo.get("id")} 未识别到媒体信息')
+                                continue
+                        else:
                             logger.warn(f'未能通过豆瓣ID {douban_id} 获取到TMDB信息，标题：{title}，尝试使用豆瓣数据识别')
                             mediainfo = self.chain.recognize_media(
                                 meta=meta,
@@ -675,15 +912,6 @@ class DoubanSync(_PluginBase):
                             )
                             if not mediainfo:
                                 logger.warn(f'豆瓣ID {douban_id} 未识别到媒体信息')
-                                continue
-                        else:
-                            mediainfo = self.chain.recognize_media(
-                                meta=meta,
-                                media_source=MediaSource.TMDB,
-                                media_id=str(tmdbinfo.get("id")),
-                            )
-                            if not mediainfo:
-                                logger.warn(f'TMDBID {tmdbinfo.get("id")} 未识别到媒体信息')
                                 continue
                     else:
                         mediainfo = self.chain.recognize_media(
@@ -778,6 +1006,7 @@ class DoubanSync(_PluginBase):
 
     @staticmethod
     def add_subscribe(mediainfo, meta, nickname, real_name):
+        """把已识别作品及指定季加入订阅，保留发起用户。"""
         return SubscribeChain().add(
             title=mediainfo.title,
             year=mediainfo.year,

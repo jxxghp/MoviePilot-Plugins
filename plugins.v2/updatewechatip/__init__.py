@@ -40,7 +40,7 @@ class UpdateWeChatIp(_PluginBase):
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本，必须和 package.v2.json 中保持一致
-    plugin_version = "1.0.12"
+    plugin_version = "1.0.13"
     # 作者信息
     plugin_author = "书小白"
     author_url = "https://github.com/thshu/MoviePilot-Plugins"
@@ -86,13 +86,13 @@ class UpdateWeChatIp(_PluginBase):
     # 降频后的重试与提醒间隔（分钟）
     _fail_backoff_minutes = 30
     _fail_state_key = 'FailState'
-    _notify_channels_once = ('Web',)
-    _notify_channels_repeat = ('Telegram', 'Feishu', 'Slack', 'Discord', 'DingTalk',
-                               'SynologyChat', 'VoceChat', 'WebPush', 'AppPush', 'QQ')
+    # 不维护渠道名单，只排除站内：站内仅在首次提醒，其余渠道按间隔重复
+    _notify_silent_channels = ('Web', 'WebAgent')
 
     # IPv4 查询地址（均为实测可用接口，已移除失效域名）
     _ip_urls = ["https://myip.ipip.net", "https://ddns.oray.com/checkip",
-                "https://ip.3322.net", "https://ipv4.ddnspod.com"]
+                "https://ip.3322.net", "https://ipv4.ddnspod.com",
+                "https://ipv4.ip.mir6.com"]
     _ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
 
     _headers = {
@@ -845,20 +845,24 @@ class UpdateWeChatIp(_PluginBase):
         return notify, first
 
     def _notify_login_invalid(self, first: bool):
-        """登录失效提醒不依赖企微渠道：站内只在首次提醒，其它渠道按间隔重复。"""
-        names = (self._notify_channels_once + self._notify_channels_repeat) if first else self._notify_channels_repeat
-        for name in names:
-            channel = getattr(NotificationChannel, name, None)
-            if not channel:
+        """登录失效提醒交由宿主路由：站内只在首次提醒，其它渠道按间隔重复。"""
+        title = "企业微信登录状态失效"
+        text = '企业微信登录状态失效，请发送 /update_wechat_ip 获取二维码重新登录'
+        if first:
+            # 不指定渠道：宿主按各渠道实例投递，NoticeMessage 事件的 channel 为空，
+            # 聚合消息通知等第三方渠道插件也能收到
+            try:
+                self.post_message(title=title, text=text)
+            except Exception as e:
+                logger.debug(f"首次登录失效提醒失败: {e}")
+            return
+        for channel in NotificationChannel:
+            if channel.name in self._notify_silent_channels:
                 continue
             try:
-                self.post_message(
-                    channel=channel,
-                    title="企业微信登录状态失效",
-                    text='企业微信登录状态失效，请发送 /update_wechat_ip 获取二维码重新登录'
-                )
+                self.post_message(channel=channel, title=title, text=text)
             except Exception as e:
-                logger.debug(f"{name} 渠道提醒失败: {e}")
+                logger.debug(f"{channel.name} 渠道提醒失败: {e}")
 
     def _clear_fail(self):
         """登录恢复正常后清除失败计数。"""

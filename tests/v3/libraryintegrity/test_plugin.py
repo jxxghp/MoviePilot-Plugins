@@ -5,13 +5,21 @@ import json
 import shutil
 import tempfile
 import threading
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
 import app.plugins.libraryintegrity as plugin_module
 from app.plugins.libraryintegrity import AdoptRequest, IgnoreRequest, LibraryIntegrity
-from app.plugins.libraryintegrity.config import DEFAULT_CONFIG, local_dirs, normalize_config, to_scan_options
+from app.plugins.libraryintegrity.config import (
+    DEFAULT_CONFIG,
+    build_cron_trigger,
+    local_dirs,
+    normalize_config,
+    to_scan_options,
+)
 from app.plugins.libraryintegrity.models import Issue, IssueType, Report
 
 
@@ -114,6 +122,36 @@ def test_get_service_requires_enabled_and_valid_cron():
     assert _plugin(enabled=True, cron="bad cron").get_service() == []
     services = _plugin(enabled=True, cron="0 3 * * 0").get_service()
     assert services[0]["id"] == "LibraryIntegrity.Scan"
+
+
+def _weekdays(expression):
+    """返回 cron 表达式从 2026-11-14（周六）起接下来 7 次触发的星期缩写。"""
+    tz = ZoneInfo("Asia/Shanghai")
+    trigger = build_cron_trigger(expression, timezone=tz)
+    moment, days = datetime(2026, 11, 14, 12, 0, tzinfo=tz), []
+    for _ in range(7):
+        moment = trigger.get_next_fire_time(None, moment)
+        days.append(moment.strftime("%a").lower())
+        moment = moment.replace(hour=4)
+    return days
+
+
+def test_cron_weekdays_follow_standard_crontab():
+    """星期按标准 crontab 解析：0 与 7 为周日，范围与步长逐日展开；英文缩写原样交给 APScheduler。"""
+    assert _weekdays("0 3 * * 0")[0] == "sun"
+    assert _weekdays("0 3 * * 7")[:2] == ["sun", "sun"]
+    assert _weekdays("0 3 * * 1-5")[:5] == ["mon", "tue", "wed", "thu", "fri"]
+    assert _weekdays("0 3 * * 5-7")[:3] == ["sun", "fri", "sat"]
+    assert set(_weekdays("0 3 * * */2")) == {"sun", "tue", "thu", "sat"}
+    assert _weekdays("0 3 * * 0,6")[:2] == ["sun", "sat"]
+    assert _weekdays("0 3 * * mon")[0] == "mon"
+    assert _weekdays("0 3 * * 1,fri")[:2] == ["mon", "fri"]
+    assert len(set(_weekdays("0 3 * * *"))) == 7
+    first = build_cron_trigger("0 3 * * 0").get_next_fire_time(None, datetime(2026, 11, 14, 12, 0).astimezone())
+    assert first.strftime("%a") == "Sun"
+    for bad in ("0 3 * * 8", "0 3 * * 5-2", "0 3 * *", "0 3 * * 1/0", "0 3 * * 1/", "0 3 * * */"):
+        with pytest.raises(ValueError):
+            build_cron_trigger(bad)
 
 
 # ---------------- 接口 ----------------
@@ -247,6 +285,69 @@ def test_run_scan_saves_report_and_notifies(scan_plugin):
     assert scan_plugin.messages and "扫描错误：2 个" in scan_plugin.messages[0]["text"]
     assert not scan_plugin._scan_lock.locked()
     assert scan_plugin._progress == ""
+
+
+def test_run_scan_logs_errors(scan_plugin, monkeypatch):
+    """报告中的错误同时写入日志，报告被下次扫描覆盖后仍可从日志排查。"""
+    warnings = []
+    monkeypatch.setattr(plugin_module.logger, "warning", lambda message, *args, **kwargs: warnings.append(message))
+    scan_plugin.run_scan()
+    assert "影视库完整性检查：Emby 服务器 备用 未连接" in warnings
+    assert "影视库完整性检查：Emby 没有匹配的影视媒体库" in warnings
+
+
+def test_run_scan_annotates_missing_with_subscriptions(scan_plugin, monkeypatch):
+    """有缺集问题时读取订阅并标注到报告与通知中；没有缺集时不读取订阅。"""
+    calls = []
+
+    def fake_scan(self, sources):
+        """返回一条带 TMDB 身份的缺集问题。"""
+        issue = _missing_issue().model_copy(update={"media_source": "themoviedb", "media_id": "1"})
+        return Report(finished_at="2026-11-15 03:00:00", issues=[issue])
+
+    class _Sub:
+        """提供订阅分页查询需要的最小只读字段。"""
+        media_source, media_id, season, state, lack_episode = "themoviedb", "1", 1, "R", 2
+
+    monkeypatch.setattr(plugin_module.LibraryScanner, "scan", fake_scan)
+    monkeypatch.setattr(LibraryIntegrity, "_load_subscriptions", staticmethod(lambda: calls.append(1) or [_Sub()]))
+    scan_plugin.run_scan()
+    assert _read_report(scan_plugin).issues[0].subscription == "订阅中，缺 2 集"
+    assert "缺集：1 部剧共 2 集（其中 1 部在 MP 订阅中）" in scan_plugin.messages[0]["text"]
+    page = scan_plugin.get_page()
+    assert any(node.get("text") == "MP 订阅中，缺 2 集" for node in _walk(page))
+
+    monkeypatch.setattr(plugin_module.LibraryScanner, "scan", lambda self, sources: Report(finished_at="x"))
+    scan_plugin.run_scan()
+    assert calls == [1]
+
+
+def test_load_subscriptions_reads_all_pages_and_tolerates_failure(monkeypatch):
+    """订阅按页读完；宿主查询失败时返回空列表，不影响扫描。"""
+    from app.sdk import queries
+
+    class _Page:
+        """提供订阅分页查询需要的最小只读字段。"""
+        def __init__(self, items, has_next):
+            """初始化隔离的测试字段与预设响应。"""
+            self.items, self.has_next = items, has_next
+
+    pages = []
+
+    def fake_list(filters=None, page=None):
+        """第 1 页还有下一页，第 2 页结束。"""
+        pages.append(page["page"])
+        return _Page([page["page"]], page["page"] < 2)
+
+    monkeypatch.setattr(queries, "list_subscriptions", fake_list)
+    assert LibraryIntegrity._load_subscriptions() == [1, 2] and pages == [1, 2]
+
+    def broken(filters=None, page=None):
+        """模拟数据库不可用。"""
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(queries, "list_subscriptions", broken)
+    assert LibraryIntegrity._load_subscriptions() == []
 
 
 def test_run_scan_cancelled_keeps_previous_report(scan_plugin):

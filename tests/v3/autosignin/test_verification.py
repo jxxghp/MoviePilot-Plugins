@@ -58,6 +58,12 @@ def response(text="", status=200, payload=None):
     '<html><head><title>签到成功</title></head><body>' + _LOGIN + '</body></html>',
     _LOGIN + '<textarea>签到成功</textarea>',
     _LOGIN + '<input type="text" value="签到成功">',
+    _LOGIN + '<div class="att-legend"><span class="att-signed">已签到</span><span>漏签</span></div>',
+    _LOGIN + '<div><span>已签到</span><span>补签</span><span>漏签</span></div>',
+    _LOGIN + '<table><tr><td class="att-signed">已签到</td><td class="att-today">17</td></tr></table>',
+    _LOGIN + '<p>昨天已签到</p><span>已签到</span>',
+    _LOGIN + '<b>今日已签到 ✓</b><button>立即签到</button>',
+    _LOGIN + '<span hidden>今日已签到 ✓</span>',
     _LOGIN + '<p>未签到</p><span>今日已签到</span>',
     _LOGIN + '<p>签到成功后可获得奖励</p>',
     _LOGIN + '<p>未签到成功</p>',
@@ -89,6 +95,12 @@ def test_generic_requires_signin_evidence(monkeypatch, render, page):
     _LOGIN + '<p>本次签到获得 <b>20</b> 个魔力值。</p>',
     _LOGIN + '<p>今天签到您获得 <b>90</b> 点魔力值</p>',
     _LOGIN + '<span>今日已簽到</span>',
+    _LOGIN + '<b>今日已签到 ✓</b>（连续 3 天，今日获得 10 魔力值）',
+    _LOGIN + '<p>今日已签到 <span>✓</span>（连续 3 天，今日获得 10 魔力值）</p>',
+    _LOGIN + '<b>今天已簽到 ✔</b><div class="att-legend"><span>已签到</span><span>漏签</span></div>',
+    _LOGIN + '<input type="button" value="已签到" disabled>',
+    _LOGIN + '<button disabled>已签到</button>',
+    _LOGIN + '<a href="attendance.php">已签到</a>',
     _LOGIN + '<span>签到已得20魔力</span>',
     _LOGIN + '<p>You have already attend, no refresh please.</p>',
     _LOGIN + '<p>You have already attended <b>20</b> days, Continuous <b>2</b> days, this time you will get <b>10</b> bonus.</p>',
@@ -100,6 +112,17 @@ def test_generic_preserves_confirmed_results(monkeypatch, render, page):
     monkeypatch.setattr("app.plugins.autosignin.PlaywrightHelper", Mock(return_value=SimpleNamespace(
         get_page_source=Mock(return_value=page))))
     assert AutoSignIn._AutoSignIn__signin_base(site_info(render=render)) == SiteResult("测试站", "签到成功", True, True)
+
+
+@pytest.mark.parametrize("message", ["已签到", "已簽到", "已经签到", "已經簽到"])
+def test_standalone_api_status_remains_confirmed(message):
+    """独立业务回执保留裸已签到状态，不能与网页里的日历图例混为一谈。"""
+    assert has_signin_evidence(message)
+
+
+def test_isolated_calendar_legend_is_not_api_status():
+    """只含裸状态的日历图例 HTML 也不能被当成独立接口回执。"""
+    assert not has_signin_evidence('<div class="att-legend"><span>已签到</span></div>')
 
 
 @pytest.mark.parametrize("status", [302, 403, 404, 500])
@@ -432,23 +455,40 @@ def test_business_errors_are_not_duplicate_signins(monkeypatch, handler, module,
 
 
 @pytest.mark.parametrize("state, success", [("success", True), ("error", False), ("false", False), (False, False), (True, False)])
-@pytest.mark.parametrize("handler, module", [(HDChina, "hdchina"), (Opencd, "opencd")])
-def test_state_string_must_equal_success(monkeypatch, handler, module, state, success):
+def test_state_string_must_equal_success(monkeypatch, state, success):
     """非空 error/false 字符串和非约定布尔值都不能作为 state=success 使用。"""
     request = SimpleNamespace(
         get_res=Mock(return_value=response(_LOGIN + '<meta name="x-csrf" content="test">')),
         post_res=Mock(return_value=response(payload={"state": state})),
     )
-    monkeypatch.setattr(f"app.plugins.autosignin.sites.{module}.RequestUtils", Mock(return_value=request))
-    if handler is Opencd:
-        form = '<form id="frmSignin"><img src="code.png"><input name="imagehash" value="test"></form>'
-        # 签到日志链接可能始终存在，不能仅凭该链接跳过真正签到请求。
-        monkeypatch.setattr(handler, "get_page_source", Mock(side_effect=[
-            _LOGIN + '<a href="/plugin_sign-in.php?cmd=show-log">签到日志</a>', form,
-        ]))
-        monkeypatch.setattr("app.plugins.autosignin.sites.opencd.OcrHelper", Mock(return_value=SimpleNamespace(
-            get_captcha_text=Mock(return_value="ABCDEF"))))
-    assert handler().signin(site_info(cookie="hdchina=test"))[0] is success
+    monkeypatch.setattr("app.plugins.autosignin.sites.hdchina.RequestUtils", Mock(return_value=request))
+    assert HDChina().signin(site_info(cookie="hdchina=test"))[0] is success
+    request.post_res.assert_called_once()
+
+
+@pytest.mark.parametrize("payload, expected", [
+    ({"state": "success"}, (True, "签到成功")),
+    ({"state": False}, (True, "今日已签到（接口未返回原因）")),
+    ({"state": "false"}, (True, "今日已签到（接口未返回原因）")),
+    ({"state": "false", "msg": "验证码错误"}, (False, "签到失败，签到接口返回 HTTP 200：验证码错误")),
+    ({"state": "error"}, (False, "签到失败，签到接口返回 HTTP 200：未返回成功状态")),
+    ({"state": True}, (False, "签到失败，签到接口返回 HTTP 200：未返回成功状态")),
+])
+def test_opencd_state_false_without_reason_is_duplicate_signin(monkeypatch, payload, expected):
+    """实测：验证码错误带 msg，当日已签到只回不带原因的 state=false；其余状态仍不算成功。"""
+    form = ('<form id="frmSignin"><img src="code.png"><input name="imagehash" value="test">'
+            '<input name="csrf_token" value="test-csrf"></form>')
+    request = SimpleNamespace(
+        get_res=Mock(return_value=response(form)),
+        post_res=Mock(return_value=response(payload=payload)),
+    )
+    monkeypatch.setattr("app.plugins.autosignin.sites.opencd.RequestUtils", Mock(return_value=request))
+    # 签到日志链接可能始终存在，不能仅凭该链接跳过真正签到请求。
+    monkeypatch.setattr(Opencd, "get_page_source", Mock(return_value=
+        _LOGIN + '<a href="/plugin_sign-in.php?cmd=show-log">签到日志</a>'))
+    monkeypatch.setattr("app.plugins.autosignin.sites.opencd.OcrHelper", Mock(return_value=SimpleNamespace(
+        get_captcha_text=Mock(return_value="ABCDEF"))))
+    assert Opencd().signin(site_info(cookie="opencd=test")) == expected
     request.post_res.assert_called_once()
 
 

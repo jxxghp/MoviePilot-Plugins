@@ -70,17 +70,55 @@ _CLOSING_CLICHES = (
     "能否",
 )
 
-# 拉丁人名：Two Word 形式的首字母大写组合
-_LATIN_NAME_RE = re.compile(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})\b")
-# 中文人名提示：「由 X 饰演 / 演员 X / 主演 X」与「X 饰演 / X 扮演」两种语序。
-# 名字后面必须紧跟「饰演/扮演」或标点，避免把「饰演警探」里的角色名当成演员。
+# 拉丁人名：只抓带「饰演/扮演/主演」上下文的双词姓名。
+# 裸的双词大写组合会把 New York、Los Angeles 这类地名当成演员名，误杀正常简介。
+_LATIN_NAME_AFTER_RE = re.compile(
+    r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})\s*(?:饰演|扮演|主演)"
+)
+_LATIN_NAME_BEFORE_RE = re.compile(
+    r"(?:由|主演|演员|领衔主演|配音)[:：\s]*"
+    r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})"
+)
+# 中文人名提示：「由 X 饰演」与「X 饰演」两种语序。
+# 名字后面必须紧跟「饰演/扮演」，不能再用标点做断言：否则「自由。」「围中，」
+# 这类普通短语会被截成 2~4 字候选并误判成编造人名。
 _CJK_NAME_AFTER_RE = re.compile(
     r"([\u4e00-\u9fff]{2,4})(?:饰演|扮演|主演)"
 )
 _CJK_NAME_BEFORE_RE = re.compile(
-    r"(?:由|主演|演员|领衔主演)[:：\s]*"
-    r"([\u4e00-\u9fff]{2,4}?)(?=饰演|扮演|主演|饰|，|。|、|；|,|;|\s|$)"
+    r"(?:由|主演|演员|领衔主演|配音)[:：\s]*"
+    r"([\u4e00-\u9fff]{2,4}?)(?=饰演|扮演|主演|饰)"
 )
+
+# 常见中文姓氏（单姓），用于过滤并非人名的候选片段。
+# 不追求完整：宁可漏判也不误杀——误杀会让正常简介永远进失败清单。
+_CJK_SURNAMES = set(
+    "赵钱孙李周吴郑王冯陈褚卫蒋沈韩杨朱秦尤许何吕施张孔曹严华金魏陶姜"
+    "戚谢邹喻柏水窦章云苏潘葛奚范彭郎鲁韦昌马苗凤花方俞任袁柳酆鲍史唐"
+    "费廉岑薛雷贺倪汤滕殷罗毕郝邬安常乐于时傅皮卞齐康伍余元卜顾孟平黄"
+    "和穆萧尹姚邵湛汪祁毛禹狄米贝明臧计伏成戴谈宋茅庞熊纪舒屈项祝董梁"
+    "杜阮蓝闵席季麻强贾路娄危江童颜郭梅盛林刁钟徐邱骆高夏蔡田樊胡凌霍"
+    "虞万支柯昝管卢莫经房裘缪干解应宗丁宣贲邓郁单杭洪包诸左石崔吉钮龚"
+    "程嵇邢滑裴陆荣翁荀羊於惠甄曲家封芮羿储靳汲邴糜松井段富巫乌焦巴弓"
+    "牧隗山谷车侯宓蓬全郗班仰秋仲伊宫宁仇栾暴甘钭厉戎祖武符刘景詹束龙"
+    "叶幸司韶郜黎蓟薄印宿白怀蒲邰从鄂索咸籍赖卓蔺屠蒙池乔阴胥能苍双"
+    "闻莘党翟谭贡劳逄姬申扶堵冉宰郦雍卻璩桑桂濮牛寿通边扈燕冀郏浦尚农"
+    "温别庄晏柴瞿阎充慕连茹习宦艾鱼容向古易慎戈廖庾终暨居衡步都耿满弘"
+    "匡国文寇广禄阙东欧殳沃利蔚越夔隆师巩厍聂晁勾敖融冷訾辛阚那简饶空"
+    "曾毋沙乜养鞠须丰巢关蒯相查后荆红游竺权逯盖益桓公"
+)
+# 常见复姓：命中时姓氏占两个字，避免把「欧阳锋」截成「阳锋」。
+_CJK_COMPOUND_SURNAMES = {
+    "欧阳", "太史", "端木", "上官", "司马", "东方", "独孤", "南宫", "万俟",
+    "闻人", "夏侯", "诸葛", "尉迟", "公羊", "赫连", "澹台", "皇甫", "宗政",
+    "濮阳", "公冶", "太叔", "申屠", "公孙", "慕容", "仲孙", "钟离", "长孙",
+    "宇文", "司徒", "鲜于", "司空", "闾丘", "子车", "亓官", "司寇", "巫马",
+    "公西", "颛孙", "壤驷", "公良", "漆雕", "乐正", "宰父", "谷梁", "拓跋",
+    "夹谷", "轩辕", "令狐", "段干", "百里", "呼延", "东郭", "南门", "羊舌",
+    "微生", "公户", "公玉", "公仪", "梁丘", "公仲", "公上", "公门", "公山",
+    "公坚", "左丘", "公伯", "西门", "公祖", "第五", "公乘", "贯丘", "公皙",
+    "南荣", "东里", "东宫", "仲长", "子书", "子桑", "即墨", "达奚", "褚师",
+}
 # 中文姓名里不会出现的动词/角色词，命中即丢弃，降低误判
 _CJK_NAME_STOPWORDS = {
     "主演",
@@ -126,6 +164,72 @@ def normalize_name(name: Any) -> str:
     text = unicodedata.normalize("NFKC", str(name or "")).strip()
     text = re.sub(r"[\s·•・.\-_]+", "", text)
     return text.casefold()
+
+
+# 中文简介里混入英文时最常见的高频副词/连接词。
+# 只收录这类词，避免把片名、品牌、人名等专有名词误判成「中英混杂」。
+_STRAY_ENGLISH_WORDS = {
+    "increasingly",
+    "meanwhile",
+    "however",
+    "actually",
+    "finally",
+    "basically",
+    "literally",
+    "arguably",
+    "eventually",
+    "apparently",
+    "unfortunately",
+    "surprisingly",
+    "particularly",
+    "especially",
+    "essentially",
+    "relatively",
+    "gradually",
+    "constantly",
+    "ultimately",
+    "obviously",
+    "simultaneously",
+    "consequently",
+    "furthermore",
+    "moreover",
+    "nevertheless",
+    "therefore",
+    "otherwise",
+    "somewhat",
+    "somehow",
+    "anyway",
+}
+
+
+def stray_english_words(text: Any) -> List[str]:
+    """找出中文简介里混入的英文高频副词/连接词，返回原文片段。
+
+    只匹配固定词表，避免把片名、品牌、人名等专有名词当成中英混杂。
+    """
+    body = str(text or "")
+    found: List[str] = []
+    for match in re.finditer(r"[A-Za-z]{3,}", body):
+        word = match.group()
+        if word.casefold() in _STRAY_ENGLISH_WORDS and word not in found:
+            found.append(word)
+    return found
+
+
+def common_prefix_length(left: Any, right: Any) -> int:
+    """返回两段文本从开头起连续相同的字符数（忽略空白）。
+
+    用于识别「同一部剧每集都用同一个开头」的模板化写法：字符级相似度对
+    语序调整很敏感，而公共前缀对这种结构重复更稳定。
+    """
+    first = re.sub(r"\s+", "", str(left or ""))
+    second = re.sub(r"\s+", "", str(right or ""))
+    length = 0
+    for char_left, char_right in zip(first, second):
+        if char_left != char_right:
+            break
+        length += 1
+    return length
 
 
 def _visible_len(text: str) -> int:
@@ -243,20 +347,101 @@ def max_similarity(text: Any, others: Iterable[Any]) -> Tuple[float, str]:
     return best, best_text
 
 
+def _cjk_surname_prefix(name: str) -> int:
+    """返回中文名开头的姓氏长度：2 表示复姓、1 表示单姓、0 表示不像人名。"""
+    text = str(name or "").strip()
+    if len(text) >= 2 and text[:2] in _CJK_COMPOUND_SURNAMES:
+        return 2
+    if text[:1] and text[:1] in _CJK_SURNAMES:
+        return 1
+    return 0
+
+
+def _plausible_cjk_name(raw: str) -> str:
+    """从 2~4 字候选串里截出最像人名的片段，要求以常见姓氏开头。
+
+    正则在「由/演员」后可能连带动词或称谓（如「由父亲张三饰演」会先匹配到
+    「亲张三」），这里从候选串内找一个以姓氏开头的后缀，既保留正确姓名，
+    也丢弃「围中各自」这类普通短语。
+    """
+    text = str(raw or "").strip()
+    if len(text) < 2:
+        return ""
+    for start in range(0, len(text) - 1):
+        tail = text[start:]
+        if len(tail) > 4:
+            continue
+        if _cjk_surname_prefix(tail):
+            return tail
+    return ""
+
+
+def _edit_distance(left: str, right: str) -> int:
+    """计算两个短字符串的编辑距离，用于容忍译名里的一字差异。"""
+    if left == right:
+        return 0
+    if not left:
+        return len(right)
+    if not right:
+        return len(left)
+    previous = list(range(len(right) + 1))
+    for i, ch_left in enumerate(left, start=1):
+        current = [i]
+        for j, ch_right in enumerate(right, start=1):
+            current.append(
+                min(
+                    previous[j] + 1,
+                    current[j - 1] + 1,
+                    previous[j - 1] + (ch_left != ch_right),
+                )
+            )
+        previous = current
+    return previous[-1]
+
+
+def _names_related(candidate: str, known: str) -> bool:
+    """判断中文候选名与已知演职员名是否可能指同一人。
+
+    允许「张三 / 张三丰」这类包含关系、共享两个字，以及只差一个字的译名，
+    避免因为演职员表写全名、简介写简称而误判成编造人名。
+    """
+    if not candidate or not known:
+        return False
+    if candidate == known or candidate in known or known in candidate:
+        return True
+    if abs(len(candidate) - len(known)) <= 1 and len(set(candidate) & set(known)) >= 2:
+        return True
+    if len(candidate) >= 2 and len(known) >= 2 and _edit_distance(candidate, known) <= 1:
+        return True
+    return False
+
+
+def _latin_names_related(candidate: str, known: str) -> bool:
+    """判断拉丁名是否可能指同一人（允许只写姓或只写名）。"""
+    left = str(candidate or "").strip().casefold()
+    right = str(known or "").strip().casefold()
+    if not left or not right:
+        return False
+    if left == right or left in right or right in left:
+        return True
+    return bool(set(left.split()) & set(right.split()))
+
+
 def extract_person_names(text: Any) -> List[str]:
-    """从简介文本中抽取疑似人名（拉丁双词名 + 中文「由 X 饰演」结构）。"""
+    """从简介文本中抽取疑似人名（带饰演上下文的拉丁名与中文名）。"""
     body = str(text or "")
     found: List[str] = []
-    for match in _LATIN_NAME_RE.findall(body):
-        candidate = match.strip()
-        head = candidate.split(" ")[0]
-        if head in _LATIN_STOPWORDS:
-            continue
-        found.append(candidate)
-    for pattern in (_CJK_NAME_AFTER_RE, _CJK_NAME_BEFORE_RE):
+    for pattern in (_LATIN_NAME_AFTER_RE, _LATIN_NAME_BEFORE_RE):
         for match in pattern.findall(body):
             candidate = match.strip()
-            if len(candidate) < 2 or candidate in _CJK_NAME_STOPWORDS:
+            head = candidate.split(" ")[0]
+            if head in _LATIN_STOPWORDS:
+                continue
+            found.append(candidate)
+    for pattern in (_CJK_NAME_AFTER_RE, _CJK_NAME_BEFORE_RE):
+        for match in pattern.findall(body):
+            candidate = _plausible_cjk_name(match)
+            if not candidate or candidate in _CJK_NAME_STOPWORDS:
                 continue
             found.append(candidate)
     result: List[str] = []
@@ -266,21 +451,34 @@ def extract_person_names(text: Any) -> List[str]:
     return result
 
 
-def suspicious_names(text: Any, known_names: Sequence[Any]) -> List[str]:
+def suspicious_names(
+    text: Any, known_names: Sequence[Any], source_text: Any = ""
+) -> List[str]:
     """返回简介中出现、但不在已知演职员名单里的疑似人名。
 
     仅当已知名单非空时才判定，避免没有素材时把所有专有名词都当成幻觉。
+    为降低误杀，额外加三道保险：
+
+    1. 中文候选必须以常见姓氏开头（过滤「围中各自」这类普通短语）；
+    2. 与已知名单存在包含、共享两个字或编辑距离 1 时视为同一译名；
+    3. 出现在素材原文里的名字不算 AI 编造，直接放行。
     """
     known = {normalize_name(name) for name in (known_names or []) if str(name or "").strip()}
     if not known:
         return []
+    source_blob = normalize_name(source_text)
     suspects: List[str] = []
     for name in extract_person_names(text):
         key = normalize_name(name)
         if not key or key in known:
             continue
-        # 中文名可能是「魏娆」这类两字名，若已知名单里存在包含关系则视为同一人
-        if any(key in item or item in key for item in known):
+        if source_blob and key in source_blob:
+            continue
+        if re.search(r"[A-Za-z]", name):
+            related = any(_latin_names_related(key, item) for item in known)
+        else:
+            related = any(_names_related(key, item) for item in known)
+        if related:
             continue
         suspects.append(name)
     return suspects

@@ -78,4 +78,25 @@ def build_api_routes(owner: Any) -> List[Dict[str, Any]]:
             "auth": "bear",
             "summary": "回滚简介到写入前版本",
         },
+        {
+            "path": "/audit",
+            "endpoint": owner.engine_audit_result,
+            "methods": ["GET"],
+            "auth": "bear",
+            "summary": "读取最近一次存量简介体检结果",
+        },
+        {
+            "path": "/audit/scan",
+            "endpoint": owner.engine_audit_quality,
+            "methods": ["POST"],
+            "auth": "bear",
+            "summary": "扫描存量简介质量（只读，不调用大模型）",
+        },
+        {
+            "path": "/audit/repair",
+            "endpoint": owner.engine_audit_repair,
+            "methods": ["POST"],
+            "auth": "bear",
+            "summary": "批量重写体检选中的低质简介",
+        },
     ]

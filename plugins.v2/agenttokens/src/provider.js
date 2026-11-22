@@ -6,6 +6,13 @@ export const PROVIDER_TYPE_OPTIONS = [
   { title: 'ChatGPT', value: 'chatgpt' },
 ]
 
+export const API_PROTOCOL_OPTIONS = [
+  { title: '跟随系统设置', value: '' },
+  { title: '自动', value: 'auto' },
+  { title: 'Chat Completions', value: 'chat_completions' },
+  { title: 'Responses', value: 'responses' },
+]
+
 // 构建一个新的供应商默认配置。
 export function createProvider() {
   return {
@@ -13,6 +20,7 @@ export function createProvider() {
     enabled: true,
     name: '',
     provider: 'openai',
+    api_protocol: '',
     base_url: '',
     api_key: '',
     user_agent: '',

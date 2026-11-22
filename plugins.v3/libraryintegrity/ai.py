@@ -7,16 +7,20 @@ AI 只提出假设，不直接判定缺集或完整；每条假设都必须通�
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
 import threading
 from dataclasses import dataclass, field
+from datetime import date, timedelta
+from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from app.sdk.logging import logger
 
+from .checks import DATE_TOLERANCE_DAYS, parse_air_date
 from .models import LibrarySeries, TmdbSeries
 
 SYSTEM_PROMPT = (
@@ -199,9 +203,124 @@ class IdentityTask:
     candidates: list[dict] = field(default_factory=list)
 
 
+# 未通过验证的回答沿用的天数：期间库内情况不变就不再请求，到期后重新请求一次（TMDB 数据可能已更新）
+FAILED_RETRY_DAYS = 30
+
+
+def task_fingerprint(task: NumberingTask | IdentityTask) -> str:
+    """AI 任务的输入指纹：库内需要 AI 判断的部分不变时，上次的回答可以沿用。
+
+    编号任务看无法对应的库内集号，身份任务看剧集位置、标题年份与候选；
+    TMDB 侧数据（如连载剧每周新增的单集）不计入，沿用的回答每次仍按当前数据重新验证。
+    """
+    series = task.series
+    if isinstance(task, NumberingTask):
+        payload: list[Any] = ["numbering", series.server, task.base, sorted(task.unmatched)]
+    else:
+        ids = [str(candidate.get("id")) for candidate in task.candidates]
+        payload = ["identity", series.server, series.item_id, series.title, series.year, ids]
+    return hashlib.sha256(json.dumps(payload, ensure_ascii=False).encode("utf-8")).hexdigest()[:32]
+
+
+@dataclass
+class CachedAnswer:
+    """一条缓存的 AI 回答及其上次的验证结论。"""
+
+    answer: dict
+    passed: bool
+    reason: str = ""
+    asked: str = ""
+
+    def retry_on(self) -> Optional[date]:
+        """未通过验证的回答到期后重新请求的日期；通过验证的回答没有到期日。"""
+        if self.passed:
+            return None
+        try:
+            return date.fromisoformat(self.asked) + timedelta(days=FAILED_RETRY_DAYS)
+        except ValueError:
+            return date.min
+
+
+class AiAnswerCache:
+    """按任务指纹缓存 AI 回答，避免每次扫描都为同样的输入重新请求，也让建议在多次扫描间保持稳定。
+
+    保存时只保留本轮用到的条目，已采纳或已不存在的任务自然淘汰。
+    """
+
+    def __init__(self, path: Path) -> None:
+        """读取缓存文件；不存在或损坏时从空缓存开始。"""
+        self.path = path
+        self._entries: dict[str, CachedAnswer] = {}
+        self._used: set[str] = set()
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            for key, value in (data if isinstance(data, dict) else {}).items():
+                if isinstance(value, dict) and isinstance(value.get("answer"), dict):
+                    self._entries[key] = CachedAnswer(
+                        answer=value["answer"],
+                        passed=bool(value.get("passed")),
+                        reason=str(value.get("reason") or ""),
+                        asked=str(value.get("asked") or ""),
+                    )
+        except FileNotFoundError:
+            pass
+        except (OSError, ValueError) as err:
+            logger.warning(f"影视库完整性检查：AI 结果缓存无法读取，已重建：{err}")
+
+    def get(self, key: str) -> Optional[CachedAnswer]:
+        """取出缓存的回答，并标记为本轮用到。"""
+        entry = self._entries.get(key)
+        if entry is not None:
+            self._used.add(key)
+        return entry
+
+    def put(self, key: str, answer: BaseModel, passed: bool, reason: str, asked: date) -> None:
+        """记录一条新的回答与验证结论。"""
+        self._entries[key] = CachedAnswer(answer.model_dump(), passed, reason, asked.isoformat())
+        self._used.add(key)
+
+    def drop(self, key: str) -> None:
+        """丢弃一条回答，下次扫描重新请求。"""
+        self._entries.pop(key, None)
+        self._used.discard(key)
+
+    def save(self) -> None:
+        """只保存本轮用到的条目；先写临时文件再替换。"""
+        data = {
+            key: {"answer": e.answer, "passed": e.passed, "reason": e.reason, "asked": e.asked}
+            for key, e in self._entries.items() if key in self._used
+        }
+        try:
+            tmp = self.path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            tmp.replace(self.path)
+        except OSError as err:
+            logger.warning(f"影视库完整性检查：AI 结果缓存保存失败：{err}")
+
+
 def _data(text: str) -> str:
     """把未受信任的数据包进 data 标签。"""
     return f"<data>\n{text}\n</data>"
+
+
+def _date_anchors(task: NumberingTask) -> list[str]:
+    """为含无法对应单集的每个库内季，找出与该季首个有日期单集播出日期最接近的 TMDB 单集，作为起始集参考。"""
+    seasons = {int(m.group(1)) for m in (re.match(r"S(\d+)E", label) for label in task.unmatched) if m}
+    refs = [ref for refs in task.tmdb.seasons.values() for ref in refs if parse_air_date(ref.air_date)]
+    anchors = []
+    for season in sorted(seasons):
+        first = next((
+            e for e in sorted(task.series.episodes, key=lambda e: e.episode or 0)
+            if e.season == season and parse_air_date(e.air_date)
+        ), None)
+        if first is None or not refs:
+            continue
+        local = parse_air_date(first.air_date)
+        best = min(refs, key=lambda r: (abs((parse_air_date(r.air_date) - local).days), r.season == 0, r.season, r.episode))
+        gap = abs((parse_air_date(best.air_date) - local).days)
+        if gap <= DATE_TOLERANCE_DAYS:
+            anchors.append(f"库内 {first.label}（{local}）≈ TMDB S{best.season}E{best.episode}（{best.air_date}）")
+    return anchors
 
 
 def numbering_prompt(task: NumberingTask) -> str:
@@ -214,15 +333,18 @@ def numbering_prompt(task: NumberingTask) -> str:
     lines = []
     for episode in sorted(task.series.episodes, key=lambda e: (e.season or 0, e.episode or 0))[:MAX_EPISODE_LINES]:
         name = episode.path.replace("\\", "/").rsplit("/", 1)[-1]
-        lines.append(f"{episode.label} | {name}")
+        lines.append(f"{episode.label} | {episode.air_date or '未知'} | {name}")
+    anchors = _date_anchors(task)
     return (
         f"剧集 TMDB ID {task.tmdb.tmdb_id}，TMDB 名称：{task.tmdb.name}\n"
         f"TMDB 季结构：\n" + "\n".join(seasons) + "\n\n"
-        f"库内单集（季集号 | 文件名）：\n{_data(chr(10).join(lines))}\n\n"
+        f"库内单集（季集号 | 首播日期 | 文件名）：\n{_data(chr(10).join(lines))}\n\n"
         f"按季集号无法在 TMDB 中找到的库内单集：{'、'.join(task.unmatched)}\n\n"
-        "请给出把这些库内编号对应到 TMDB 季集号的映射规则。每条规则把库内某一季中连续的一段集号"
+        + (f"按播出日期最接近的 TMDB 单集（供确定起始集参考）：\n{chr(10).join(anchors)}\n\n" if anchors else "")
+        + "请给出把这些库内编号对应到 TMDB 季集号的映射规则。每条规则把库内某一季中连续的一段集号"
         "整体平移到 TMDB 某一季的某集起，例如库内 S1 第 13 到 24 集对应 TMDB S2 第 1 集起。"
-        "常见原因是动画按绝对集数编号、季被拆分或合并。无法判断时返回空 mappings。"
+        "常见原因是动画按绝对集数编号、季被拆分或合并。有首播日期时按日期确定起始集，"
+        "映射到的 TMDB 单集播出日期应与库内首播日期一致，建议会按日期核对。无法判断时返回空 mappings。"
     )
 
 
@@ -313,13 +435,24 @@ def ai_available() -> bool:
     return True
 
 
+# 单次请求超时（秒）；推理型模型处理一部剧的全部单集清单常需一两分钟
+DEFAULT_TIMEOUT = 180
+
+
+def _job_label(key: Any, schema: Optional[type[BaseModel]]) -> str:
+    """错误提示中标明是哪一项请求，如「编号映射：长安诺」。"""
+    label = SCHEMA_LABELS.get(schema, "摘要" if schema is None else "AI")
+    series = getattr(key, "series", None)
+    return f"{label}：{series.title}" if series is not None and series.title else label
+
+
 class AiAdvisor:
     """批量请求 AI；同一轮请求共用一个模型实例，并在同一事件循环内释放。默认不限制调用次数。"""
 
     def __init__(
         self,
         max_calls: Optional[int] = None,
-        timeout: float = 60,
+        timeout: float = DEFAULT_TIMEOUT,
         llm_factory: Callable[[], Awaitable[Any]] = _default_llm,
         llm_closer: Callable[[Any], Awaitable[Any]] = _default_close,
     ) -> None:
@@ -392,12 +525,15 @@ class AiAdvisor:
                 try:
                     results.append((key, await self._ask(llm, schema, prompt)))
                 except AiFormatError as err:
-                    label = SCHEMA_LABELS.get(schema, "AI")
+                    label = _job_label(key, schema)
                     self.errors.append(f"AI 返回内容不符合约定格式，已跳过该项（{label}）")
                     logger.debug(f"影视库完整性检查：AI {label}回复无法解析：{err}")
+                except (asyncio.TimeoutError, TimeoutError):
+                    self.errors.append(f"AI 请求超时（超过 {self.timeout:g} 秒未返回），已跳过该项（{_job_label(key, schema)}）")
                 except Exception as err:  # noqa: BLE001 - 模型或网络异常不应中断扫描
                     detail = str(err).splitlines()[0][:120] if str(err) else ""
-                    self.errors.append(f"AI 请求失败：{err.__class__.__name__} {detail}".strip())
+                    reason = f"{err.__class__.__name__} {detail}".strip()
+                    self.errors.append(f"AI 请求失败：{reason}（{_job_label(key, schema)}）")
         finally:
             try:
                 await self._llm_closer(llm)

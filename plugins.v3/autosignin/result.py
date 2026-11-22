@@ -107,7 +107,15 @@ def has_signin_evidence(source: str) -> bool:
         if node.tag == "input" and node.get("type", "").lower() not in {"button", "submit"}:
             continue
         label = re.sub(r"\s+", "", node.get("value") or "".join(node.itertext()))
-        if re.fullmatch(r"(?:签到成功|簽到成功|(?:今日|今天)?(?:已签到|已簽到|已经签到|已經簽到)|已经打卡)[！!。.]?", label):
+        if re.fullmatch(
+                r"(?:签到成功|簽到成功|(?:今日|今天)(?:已签到|已簽到|已经签到|已經簽到)|已经打卡)[✓✔✅]?[！!。.]?"
+                r"(?:[（(]连续\d+天[，,]今日获得\d+魔力值[）)])?",
+                label):
+            return True
+        # 裸状态仅接受独立接口回执或签到状态控件，日历图例和历史单元格不是当天证据。
+        if re.fullmatch(r"(?:已签到|已簽到|已经签到|已經簽到)[！!。.]?", label) and (
+                re.sub(r"\s+", "", source or "") == label or node.tag in {"input", "button"} or
+                (node.tag == "a" and "attendance.php" in node.get("href", ""))):
             return True
     # NexusPHP 的当前用户签到结果；普通奖励说明或累计天数不是当天签到凭据。
     # 学校（btschool）的到账提示是一次性文案“今天签到您获得X点魔力值”，只在签到响应里出现。
