@@ -89,7 +89,9 @@ def test_dashboard_has_no_film_links_and_retains_ratings_pin_and_dates():
     snapshot = copy.deepcopy(sample())
     snapshot['movies'][1].update(imdb_id='tt123', imdb_rating=8, imdb_votes=29842)
     nodes = flatten(ui.dashboard_nodes(view(snapshot), calendar.records(snapshot, '2026-11-01'), '2026-11-01'))
-    assert all(node['component'] != 'a' and not node.get('props', {}).get('href') and not node.get('events') for node in nodes)
+    films = [node for node in nodes if node.get('props', {}).get('class') == 'smc-dashboard-film']
+    assert films
+    assert all(node['component'] != 'a' and not node.get('props', {}).get('href') and not node.get('events') for node in flatten(films))
     text = [node.get('text') for node in nodes]
     for expected in ('今日电影', '置顶', 'IMDb', '8.0', '（29.8K评价）', '2026-11-01 今日发行'):
         assert expected in text
@@ -132,3 +134,55 @@ def test_disabled_view_explains_state_without_refresh_or_empty_movie_sections():
     nodes = flatten(ui.calendar_nodes({'snapshot': None, 'disabled': True}, [], '2026-11-01'))
     assert any('插件已停用' in node.get('text', '') for node in nodes)
     assert not any(node['component'] == 'section' or node.get('events') for node in nodes)
+
+
+def test_dashboard_more_follows_configured_movies_and_opens_full_calendar(monkeypatch):
+    """入口位于配置海报数量之后，详情包含被数量限制隐藏的影片与历史排期。"""
+    from app.plugins.simplemoviecalendar import SimpleMovieCalendar
+    monkeypatch.setattr(SimpleMovieCalendar, '__init__', lambda self: None)
+    plugin = SimpleMovieCalendar()
+    plugin._view = lambda: view()
+    plugin.get_state = lambda: True
+    plugin._dashboard_count = 1
+    monkeypatch.setattr('app.plugins.simplemoviecalendar.beijing_today', lambda: '2026-11-01')
+    nodes = flatten(plugin.get_dashboard('upcoming')[2])
+    strip = next(node for node in nodes if node.get('props', {}).get('aria-label') == '即将发行电影')
+    assert len([node for node in strip['content'] if node.get('props', {}).get('class') == 'smc-dashboard-film']) == 1
+    button = strip['content'][-1]
+    assert button['component'] == 'button'
+    assert button['text'] == '查看更多'
+    target = button['props']['popovertarget']
+    popup = next(node for node in nodes if node.get('props', {}).get('id') == target)
+    assert popup['props']['popover'] == 'auto'
+    assert popup['props']['role'] == 'dialog'
+    detail_nodes = flatten(popup['content'])
+    for label in ('即将发行', '最近发行', '多版本 (2026)', 'Past'):
+        assert label in [node.get('text') for node in detail_nodes]
+    close = next(node for node in detail_nodes if node.get('props', {}).get('aria-label') == '关闭观影日历')
+    assert close['props']['popovertarget'] == target
+    assert close['props']['popovertargetaction'] == 'hide'
+    assert all(not node.get('events') for node in detail_nodes)
+
+
+def test_more_dialog_ids_do_not_collide_across_dashboard_instances():
+    state = view()
+    items = calendar.records(state['snapshot'], '2026-11-01')
+    first = flatten(ui.dashboard_nodes(state, items, '2026-11-01'))
+    second = flatten(ui.dashboard_nodes(state, items, '2026-11-01'))
+    targets = [next(node['props']['popovertarget'] for node in nodes if node.get('text') == '查看更多') for nodes in (first, second)]
+    assert targets[0] != targets[1]
+
+
+def test_more_is_accessible_when_all_movies_are_recent():
+    state = view()
+    state['snapshot']['releases'] = [{'id': 'c1', 'movie_id': 'c', 'date': '2026-10-31', 'kind': 'digital'}]
+    nodes = flatten(ui.dashboard_nodes(state, [], '2026-11-01'))
+    assert any(node.get('text') == '暂无即将发行的电影' for node in nodes)
+    assert any(node.get('text') == '查看更多' for node in nodes)
+    assert any(node.get('text') == 'Past' for node in nodes)
+
+
+def test_missing_snapshot_does_not_create_an_empty_more_dialog():
+    nodes = flatten(ui.dashboard_nodes({'snapshot': None, 'stale': True}, [], '2026-11-01'))
+    assert not any(node.get('text') == '查看更多' for node in nodes)
+    assert not any(node.get('props', {}).get('role') == 'dialog' for node in nodes)
