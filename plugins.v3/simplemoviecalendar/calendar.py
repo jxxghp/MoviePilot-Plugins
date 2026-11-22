@@ -66,7 +66,7 @@ def validate_snapshot(value) -> dict:
 def fetch_snapshot() -> dict:
     """Fetch only the public endpoint, limiting transfer size and socket wait."""
     request = RequestUtils(timeout=12, verify=True, headers={
-        'Accept': 'application/json', 'User-Agent': 'SimpleMovieCalendar/0.1.5',
+        'Accept': 'application/json', 'User-Agent': 'SimpleMovieCalendar/0.1.6',
     })
     with request.get_stream(DATA_URL, raise_exception=True) as response:
         if response is None:

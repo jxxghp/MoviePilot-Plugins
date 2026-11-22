@@ -1,14 +1,15 @@
 {
   "SimpleMovieCalendar": {
     "name": "简单观影日历",
-    "description": "查看电影数字发行、流媒体上线与蓝光排期；默认探索来源，可手动添加仪表板。",
+    "description": "查看电影数字版、蓝光和国内电影流媒体上线时间，可手动添加到MP首页仪表盘方便查看。",
     "labels": "影视,日历,探索,仪表盘",
-    "version": "0.1.5",
-    "icon": "Moviepilot_A.png",
+    "version": "0.1.6",
+    "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/SimpleMovieCalendar.png",
     "author": "随风飞翔",
     "level": 1,
     "system_version": ">=3.2.3,<4",
     "history": {
+      "v0.1.6": "详情页自适应多列、分区展示即将与最近发行，完整排期可页内展开；仪表板影片取消外链跳转，更新品牌图标与插件简介。",
       "v0.1.5": "通过宿主网络 SDK 限量读取公开日历，保持 TLS 校验和失败缓存回退；补充真实插件命名空间、宿主接口和网络边界测试。",
       "v0.1.4": "仪表板居中展示豆瓣和 IMDb 评分与评价人数，沿用公开网站的文案。",
       "v0.1.3": "仪表板为置顶影片的海报添加琥珀色角标和细金边。",
