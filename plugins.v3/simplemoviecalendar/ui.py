@@ -49,44 +49,83 @@ PAGE_CSS = """
 .smc-page .smc-heading::before { content: ''; width: 4px; height: 17px;
     border-radius: 3px; background: rgb(var(--v-theme-primary)); flex-shrink: 0; }
 .smc-page .smc-recent .smc-heading::before { background: rgba(var(--v-theme-on-surface), .5); }
-.smc-page .smc-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-items: start; gap: 12px; }
-.smc-page .smc-film { display: grid; grid-template-columns: 88px minmax(0, 1fr);
-    gap: 15px; min-width: 0; padding: 13px; border-radius: 11px;
+.smc-page .smc-grid { display: grid; grid-template-columns: minmax(0, 1fr);
+    align-items: start; gap: 14px; }
+.smc-page .smc-film { min-width: 0; border-radius: 11px; overflow: hidden;
     border: 1px solid rgba(var(--v-theme-on-surface), .12); background: rgb(var(--v-theme-surface)); }
-.smc-page .smc-poster { aspect-ratio: 2 / 3; width: 88px; min-width: 0;
-    display: grid; place-items: center; border-radius: 6px; overflow: hidden;
+.smc-page .smc-film.smc-pinned { border-color: #b38b3a;
+    border-color: color-mix(in srgb, #cba04b 82%, rgb(var(--v-theme-on-surface))); }
+.smc-page .smc-pin-badge { position: absolute; top: 8px; left: 8px; z-index: 1;
+    border-radius: 999px; padding: 2px 6px; background: #f8e3ac; color: #523d1c;
+    font-size: 10px; font-weight: 700; line-height: 16px; white-space: nowrap;
+    pointer-events: none; }
+.smc-page .smc-poster { position: relative; isolation: isolate; aspect-ratio: 2 / 3; width: 100%; min-width: 0;
+    display: grid; place-items: center; overflow: hidden;
     background: rgba(var(--v-theme-on-surface), .06); }
-.smc-page .smc-film-info, .smc-page .smc-film-summary { min-width: 0; }
-.smc-page .smc-film-title { font-size: 15px; line-height: 1.5; font-weight: 600;
-    margin-bottom: 5px; overflow-wrap: anywhere; }
-.smc-page .smc-timing { color: rgb(var(--v-theme-primary)); font-size: 13px;
-    line-height: 1.6; margin-bottom: 6px; overflow-wrap: anywhere; }
-.smc-page .smc-recent .smc-timing { color: rgba(var(--v-theme-on-surface), .65); }
-.smc-page .smc-date { font-size: 12px; color: rgba(var(--v-theme-on-surface), .65);
-    font-variant-numeric: tabular-nums; }
-.smc-page .smc-details { margin-top: 10px; min-width: 0; }
+.smc-page .smc-film-info { min-width: 0; padding: 12px 11px 9px; text-align: center; }
+.smc-page .smc-film-summary { min-width: 0; }
+.smc-page .smc-film-title { font-size: 15px; line-height: 22px; font-weight: 600;
+    overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2; overflow: hidden; }
+.smc-page .smc-original { color: rgba(var(--v-theme-on-surface), .6); font-size: 11px;
+    line-height: 17px; min-height: 17px; margin: 2px 0 9px; overflow: hidden;
+    white-space: nowrap; text-overflow: ellipsis; }
+.smc-page .smc-ratings { display: grid; align-content: center; gap: 3px; min-height: 43px; }
+.smc-page .smc-rating { display: flex; justify-content: center; align-items: center;
+    flex-wrap: wrap; gap: 3px 5px; font-size: 12px; line-height: 18px; }
+.smc-page .smc-brand { display: inline-flex; align-items: center; flex-shrink: 0;
+    justify-content: center; min-width: 27px; padding: 1px 3px; border-radius: 3px;
+    font-size: 10px; line-height: 14px; font-weight: 800; }
+.smc-page .smc-brand-douban { background: #12a64e; color: #fff; }
+.smc-page .smc-brand-imdb { background: #f5c518; color: #191811; letter-spacing: -.5px; }
+.smc-page .smc-score { font-weight: 600; }
+.smc-page .smc-votes, .smc-page .smc-unrated { color: rgba(var(--v-theme-on-surface), .6);
+    font-size: 11px; overflow-wrap: anywhere; }
+.smc-page .smc-release-summary { border-top: 1px solid rgba(var(--v-theme-on-surface), .12);
+    margin-top: 11px; padding-top: 10px; }
+.smc-page .smc-timing { display: inline-block; color: rgb(var(--v-theme-primary));
+    background: rgba(var(--v-theme-primary), .08); border: 1px solid rgba(var(--v-theme-primary), .15);
+    border-radius: 14px; padding: 1px 9px; font-size: 11px; line-height: 20px; }
+.smc-page .smc-recent .smc-timing { color: rgba(var(--v-theme-on-surface), .65);
+    background: rgba(var(--v-theme-on-surface), .04); border-color: rgba(var(--v-theme-on-surface), .1); }
+.smc-page .smc-date { font-size: 11px; line-height: 18px; margin-top: 6px;
+    color: rgba(var(--v-theme-on-surface), .7); font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere; text-wrap: balance; }
+.smc-page .smc-details { margin-top: 3px; min-width: 0; }
 .smc-page .smc-details summary { color: rgb(var(--v-theme-primary)); cursor: pointer;
-    width: fit-content; min-height: 32px; display: flex; align-items: center;
-    gap: 5px; list-style: none; font-size: 12px; }
+    min-height: 28px; display: flex; justify-content: center; align-items: center;
+    gap: 3px; list-style: none; font-size: 11px; }
 .smc-page .smc-details summary::-webkit-details-marker { display: none; }
-.smc-page .smc-details .smc-expand-icon { font-size: 16px; }
+.smc-page .smc-details .smc-expand-icon { font-size: 15px; }
 .smc-page .smc-details[open] .smc-expand-icon { transform: rotate(180deg); }
 .smc-page .smc-versions { border-top: 1px solid rgba(var(--v-theme-on-surface), .12);
-    margin-top: 8px; padding-top: 8px; color: rgba(var(--v-theme-on-surface), .7); }
+    margin-top: 5px; padding-top: 8px; text-align: start; color: rgba(var(--v-theme-on-surface), .7); }
 .smc-page .smc-version { font-size: 12px; line-height: 1.8;
     white-space: pre-line; overflow-wrap: anywhere; }
 .smc-page .smc-version + .smc-version { margin-top: 5px; }
 .smc-page .smc-footer { display: flex; flex-wrap: wrap; align-items: center;
     justify-content: flex-end; gap: 8px; margin-top: 18px; }
-@container (min-width: 1280px) {
+@container (min-width: 260px) {
+    .smc-page .smc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container (min-width: 560px) {
     .smc-page .smc-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
-@container (max-width: 640px) {
-    .smc-page .smc-grid { grid-template-columns: minmax(0, 1fr); }
-    .smc-page .smc-film { grid-template-columns: 76px minmax(0, 1fr); gap: 11px; padding: 11px; }
-    .smc-page .smc-poster { width: 76px; }
-    .smc-page .smc-updated { text-align: start; }
+@container (min-width: 800px) {
+    .smc-page .smc-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@container (min-width: 1060px) {
+    .smc-page .smc-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
+@container (max-width: 559px) {
+    .smc-page .smc-grid { gap: 12px; }
+    .smc-page .smc-film-info { padding: 10px 7px 8px; }
+    .smc-page .smc-pin-badge { top: 6px; left: 6px; padding: 1px 5px; font-size: 9px; }
+    .smc-page .smc-film-title { font-size: 14px; line-height: 21px; }
+    .smc-page .smc-original, .smc-page .smc-votes, .smc-page .smc-unrated { font-size: 10px; }
+    .smc-page .smc-rating { gap: 3px 4px; }
+    .smc-page .smc-brand { font-size: 9px; min-width: 24px; line-height: 13px; padding: 1px 2px; }
+    .smc-page .smc-date { font-size: 10px; }
 }
 @media (pointer: coarse) {
     .smc-page .smc-details summary { min-height: 44px; }
@@ -94,8 +133,25 @@ PAGE_CSS = """
 """
 
 
+def _page_ratings(movie: dict) -> dict:
+    """展示真实评分和原有的人数文案，缺少来源时不补造评分。"""
+    rows = []
+    for provider, score, votes in rating_rows(movie):
+        label = '豆瓣' if provider == 'douban' else 'IMDb'
+        children = [
+            _node('span', label, {'class': 'smc-brand smc-brand-' + provider}),
+            _node('span', score, {'class': 'smc-score' if score[0].isdigit() else 'smc-unrated'}),
+        ]
+        if votes:
+            children.append(_node('span', votes, {'class': 'smc-votes'}))
+        rows.append(_node('div', props={'class': 'smc-rating', 'aria-label': label + '评分'}, content=children))
+    return _node('div', props={'class': 'smc-ratings'}, content=rows or [
+        _node('span', '暂无评分', {'class': 'smc-unrated'}),
+    ])
+
+
 def movie_card(record: dict, view: dict, today: str) -> dict:
-    """用单次摘要展示下一次发行，全部版本保留在可键盘展开的排期中。"""
+    """大海报下居中展示评分和单次发行摘要，完整版本在当前卡片展开。"""
     item = media_payload(record, view['snapshot'], today, stale=view['stale'])
     release_date = record['primary']['date']
     same_day_kinds = {release.get('kind') for release in record['releases'] if release['date'] == release_date}
@@ -103,10 +159,20 @@ def movie_card(record: dict, view: dict, today: str) -> dict:
     timing = release_timing(release_date, today)
     if not record['upcoming']:
         timing = f'已发行 {(date.fromisoformat(today) - date.fromisoformat(release_date)).days} 天'
+    subtitle = ' · '.join(part for part in (
+        item['original_title'] if item['original_title'] != item['title'] else None, item['year'],
+    ) if part)
     summary = _node('div', props={'class': 'smc-film-summary'}, content=[
-        _node('div', item['title_year'], {'class': 'smc-film-title'}),
-        _node('div', f'{kinds or "发行"} · {timing}', {'class': 'smc-timing'}),
-        _node('time', release_date, {'datetime': release_date, 'class': 'smc-date'}),
+        _node('div', item['title'], {'class': 'smc-film-title', 'title': item['title']}),
+        _node('div', subtitle, {'class': 'smc-original', 'title': subtitle}),
+        _page_ratings(record['movie']),
+        _node('div', props={'class': 'smc-release-summary'}, content=[
+            _node('span', timing, {'class': 'smc-timing'}),
+            _node('div', props={'class': 'smc-date'}, content=[
+                _node('time', release_date, {'datetime': release_date}),
+                _node('span', ' · ' + (kinds or '发行')),
+            ]),
+        ]),
     ])
     poster = _node('VImg', props={
         'src': item['poster_path'], 'width': '100%', 'aspect-ratio': 2 / 3, 'cover': True, 'alt': item['title'],
@@ -119,12 +185,17 @@ def movie_card(record: dict, view: dict, today: str) -> dict:
             _node('div', release_line(release), {'class': 'smc-version'}) for release in record['releases']
         ]),
     ])
-    # 摘要和折叠入口共用信息列，展开时完整版本可自然换行。
-    return _node('article', props={'class': 'smc-film', 'aria-label': item['title']}, content=[
-        _node('div', props={'class': 'smc-poster'}, content=[poster]),
+    # 与即将发行的排序逻辑保持一致；过去影片保留标记时也不高亮。
+    pinned = record['upcoming'] and record['movie'].get('pinned')
+    poster_content = [poster]
+    if pinned:
+        poster_content.append(_node('span', '置顶推荐', {'class': 'smc-pin-badge'}))
+    return _node('article', props={
+        'class': 'smc-film smc-pinned' if pinned else 'smc-film', 'aria-label': item['title'],
+    }, content=[
+        _node('div', props={'class': 'smc-poster'}, content=poster_content),
         _node('div', props={'class': 'smc-film-info'}, content=[summary, details]),
     ])
-
 
 def calendar_nodes(view: dict, items: list[dict], today: str, *, refresh_api: str | None = None) -> list[dict]:
     """生成按容器宽度重排的详情页，分区内按既有日期顺序显示。"""
