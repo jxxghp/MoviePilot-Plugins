@@ -201,7 +201,7 @@ class EpisodeGroupMeta(_PluginBase):
             self._notify = config.get("notify", True)
             self._autorun = config.get("autorun", True)
             self._ignorelock = config.get("ignorelock")
-            self._delay = config.get("delay") or 120
+            self._delay = self.__parse_delay(config.get("delay"))
             try:
                 self._debounce_max_minutes = max(1, int(config.get("debounce_max") or 10))
             except (TypeError, ValueError):
@@ -223,6 +223,18 @@ class EpisodeGroupMeta(_PluginBase):
             self._delay,
             max(float(self._debounce_max_minutes or 10) * 60, float(self._delay or 0) * 2),
         )
+
+    @staticmethod
+    def __parse_delay(value: Any) -> int:
+        """
+        解析入库延迟秒数：未配置时使用默认 120，显式 0 表示关闭去抖。
+        """
+        if value is None or value == "":
+            return 120
+        try:
+            return max(0, int(float(value)))
+        except (TypeError, ValueError):
+            return 120
 
     def get_state(self) -> bool:
         return self._enabled
