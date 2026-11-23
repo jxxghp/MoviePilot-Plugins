@@ -32,7 +32,7 @@ def test_update_ip_returns_per_app_result() -> None:
 
     result = plugin.UpdateIp(" 1.2.3.4 ")
 
-    assert result == {
+    assert result.model_dump(mode="json") == {
         "success": False,
         "ip": "1.2.3.4",
         "updated": 2,

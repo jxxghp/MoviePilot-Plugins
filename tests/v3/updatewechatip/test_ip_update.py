@@ -50,7 +50,7 @@ def build_check_plugin(session, app_id="app1,app2", white_lists=None, ip="1.2.3.
 
 def test_save_ip_config_shares_one_timestamp_for_all_apps():
     """同一次更新的所有应用记录必须共用更新时间，避免详情页按秒拆组。"""
-    plugin = make_plugin(SimpleNamespace(post=lambda *args, **kwargs: FakeResponse()),
+    plugin = make_plugin(SimpleNamespace(post_res=lambda *args, **kwargs: FakeResponse()),
                          app_id="app1, app2")
 
     results = plugin._save_ip_config()
@@ -62,7 +62,7 @@ def test_save_ip_config_shares_one_timestamp_for_all_apps():
 
 def test_save_ip_config_writes_only_requested_apps():
     """显式指定应用时只写这些应用，不触碰其它应用。"""
-    plugin = make_plugin(SimpleNamespace(post=lambda *args, **kwargs: FakeResponse()),
+    plugin = make_plugin(SimpleNamespace(post_res=lambda *args, **kwargs: FakeResponse()),
                          app_id="app1,app2")
 
     results = plugin._save_ip_config(["app2"])
@@ -73,7 +73,7 @@ def test_save_ip_config_writes_only_requested_apps():
 def test_check_updates_only_apps_missing_current_ip():
     """应用 A 已登记当前 IP 时不应重复写入，只补写缺少 IP 的应用 B。"""
     plugin = build_check_plugin(
-        SimpleNamespace(post=lambda *args, **kwargs: FakeResponse()),
+        SimpleNamespace(post_res=lambda *args, **kwargs: FakeResponse()),
         white_lists={"app1": ["1.2.3.4"], "app2": []},
     )
     captured = {}
@@ -92,7 +92,7 @@ def test_check_updates_only_apps_missing_current_ip():
 def test_check_skips_update_when_all_apps_have_current_ip():
     """所有应用都已登记当前 IP 时不写配置也不通知。"""
     plugin = build_check_plugin(
-        SimpleNamespace(post=lambda *args, **kwargs: FakeResponse()),
+        SimpleNamespace(post_res=lambda *args, **kwargs: FakeResponse()),
         white_lists={"app1": ["1.2.3.4"], "app2": ["1.2.3.4"]},
     )
     plugin._save_ip_config = lambda app_ids=None: pytest_fail("不应写入配置")
@@ -111,7 +111,7 @@ def test_check_reports_failure_instead_of_success():
     """所有应用写入失败时通知必须报失败，不能提示触发更新成功。"""
     payload = {"errCode": -4, "errMsg": "invalid ip"}
     plugin = build_check_plugin(
-        SimpleNamespace(post=lambda *args, **kwargs: FakeResponse(
+        SimpleNamespace(post_res=lambda *args, **kwargs: FakeResponse(
             text='{"errCode":-4,"errMsg":"invalid ip"}', payload=payload
         ))
     )
@@ -128,12 +128,12 @@ def test_check_reports_partial_failure():
     """部分应用失败时通知要区分成功与失败。"""
     payloads = {"app1": {"data": {}}, "app2": {"errCode": -4, "errMsg": "invalid ip"}}
 
-    def post(url, **kwargs):
+    def fake_post(url, **kwargs):
         app_id = kwargs["data"]["app_id"]
         payload = payloads[app_id]
         return FakeResponse(text="{}", payload=payload)
 
-    plugin = build_check_plugin(SimpleNamespace(post=post))
+    plugin = build_check_plugin(SimpleNamespace(post_res=fake_post))
 
     plugin.check()
 
@@ -145,7 +145,7 @@ def test_check_reports_partial_failure():
 def test_qrcode_log_does_not_leak_image_token(caplog):
     """二维码日志只记录地址形式，不写入带令牌的完整地址。"""
     png = b"\x89PNG\r\n\x1a\n" + b"0" * 16
-    plugin = make_plugin(SimpleNamespace(get=lambda *args, **kwargs: FakeResponse(content=png)))
+    plugin = make_plugin(SimpleNamespace(get_res=lambda *args, **kwargs: FakeResponse(content=png)))
 
     with caplog.at_level("INFO"):
         url = plugin._qrcode("qrcode-key", channel=None)

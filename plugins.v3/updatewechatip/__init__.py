@@ -11,14 +11,16 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse, parse_qs
 
-import requests
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import HTTPException
 from fastapi.responses import Response
+from pydantic import BaseModel, Field
+from requests import RequestException, Response as RequestsResponse
 
 from app.schemas.notification import ChannelCapability, ChannelCapabilityManager
 from app.schemas.types import EventType, ModuleType, NotificationChannel
 from app.sdk.config import settings
+from app.sdk.network import RequestUtils
 from app.sdk.events import eventmanager, Event
 from app.sdk.logging import logger
 from app.sdk.plugin import _PluginBase
@@ -36,7 +38,7 @@ class UpdateWeChatIp(_PluginBase):
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本，必须和 package.v3.json 中保持一致
-    plugin_version = "2.0.2"
+    plugin_version = "2.0.3"
     # 作者信息
     plugin_author = "书小白,iamchq"
     author_url = "https://github.com/thshu/MoviePilot-Plugins"
@@ -130,8 +132,9 @@ class UpdateWeChatIp(_PluginBase):
             logger.warning("IPv4 查询接口配置均无效，已使用内置列表")
         self._ip_urls = parsed_ip_urls or list(self._default_ip_urls)
 
-        self._se = requests.Session()
-        self._se.cookies.set('wwrtx.sid', self._wwrtx_sid)
+        # 宿主同步 HTTP 工具自带持久会话，Cookie 由会话跨请求维护
+        self._se = RequestUtils(headers=self._headers, verify=True, use_session=True)
+        self._se.update_cookies({'wwrtx.sid': self._wwrtx_sid})
 
         if config.get("onlyonce"):
             # 立即检测一次：延迟 3 秒后单次执行，不影响 cron 周期服务
@@ -157,7 +160,7 @@ class UpdateWeChatIp(_PluginBase):
             try:
                 session.close()
             except Exception as e:
-                logger.error(f"关闭 requests.Session 失败: {e}")
+                logger.error(f"关闭网络会话失败: {e}")
             finally:
                 self._se = None
 
@@ -425,6 +428,19 @@ class UpdateWeChatIp(_PluginBase):
                 "allow_anonymous": True,
                 "summary": "获取图片",
                 "description": "获取登录二维码图片,需要传递查询参数,参数名为:t(本次登录签发的二维码访问令牌)",
+                # 原生图片响应，显式声明类型，避免 OpenAPI 按 JSON 描述
+                "response_class": Response,
+                "response_model": None,
+                "responses": {
+                    200: {
+                        "content": {
+                            "image/png": {"schema": {"type": "string", "format": "binary"}},
+                            "image/jpeg": {"schema": {"type": "string", "format": "binary"}},
+                        }
+                    },
+                    403: {"description": "二维码访问令牌无效或已过期"},
+                    404: {"description": "二维码已失效"},
+                },
             },
             {
                 "path": "/UpdateIP",
@@ -435,10 +451,12 @@ class UpdateWeChatIp(_PluginBase):
                 "auth": "apikey",
                 "summary": "更新企业微信IP白名单",
                 "description": "更新企业微信IP白名单,需要传递查询参数,参数名为:ip；返回各应用的写入结果",
+                "response_model": UpdateIpResult,
+                "responses": {400: {"description": "非法 IPv4 地址"}},
             },
         ]
 
-    def UpdateIp(self, ip: str) -> Dict[str, Any]:
+    def UpdateIp(self, ip: str) -> UpdateIpResult:
         """更新指定 IP 的企业微信可信IP配置。"""
         candidate = str(ip or "").strip()
         try:
@@ -447,12 +465,12 @@ class UpdateWeChatIp(_PluginBase):
             raise HTTPException(status_code=400, detail="非法 IPv4 地址")
         self._ip = candidate
         results = self._save_ip_config()
-        return {
-            "success": bool(results) and all(item.status for item in results),
-            "ip": candidate,
-            "updated": len(results),
-            "failed_app_ids": [item.app_id for item in results if not item.status],
-        }
+        return UpdateIpResult(
+            success=bool(results) and all(item.status for item in results),
+            ip=candidate,
+            updated=len(results),
+            failed_app_ids=[item.app_id for item in results if not item.status],
+        )
 
     def get_img(self, uuid: str, t: Optional[str] = None):
         """输出最近一次登录二维码图片，凭据为本次登录签发的令牌 t。"""
@@ -863,10 +881,7 @@ class UpdateWeChatIp(_PluginBase):
             ],
         }
 
-        # ---------- 安全获取 party 名称 ----------
-        party_cache = self._party_cache_data or {}
-        party_list = party_cache.get("party_list", {}).get("list") or [{}]
-        party_name = party_list[0].get("name", "未知")
+        party_name = self._party_name("未知")
         last_update = (
             data_list[0].UpdateTime.strftime('%Y-%m-%d %H:%M') if data_list else "暂无记录"
         )
@@ -940,7 +955,7 @@ class UpdateWeChatIp(_PluginBase):
             'crossorigin': "1"
         }
         try:
-            response = self._se.get(url, params=params, headers=self._headers, timeout=15)
+            response = self._se.get_res(url, params=params, timeout=15, raise_exception=True)
             data = response.json()
         except Exception as e:
             logger.error(f"获取登录二维码key失败: {e}")
@@ -961,7 +976,7 @@ class UpdateWeChatIp(_PluginBase):
             'login_type': "login_admin"
         }
         try:
-            response = self._se.get(url, params=params, headers=self._headers, timeout=15)
+            response = self._se.get_res(url, params=params, timeout=15, raise_exception=True)
         except Exception as e:
             logger.error(f"获取登录二维码图片失败: {e}")
             return None
@@ -1000,7 +1015,7 @@ class UpdateWeChatIp(_PluginBase):
         deadline = time.time() + timeout
         while time.time() < deadline:
             try:
-                response = self._se.get(url, params=params, headers=self._headers, timeout=10)
+                response = self._se.get_res(url, params=params, timeout=10, raise_exception=True)
                 data = response.json().get('data', {})
             except Exception as e:
                 logger.error(f"获取扫码结果异常: {e}")
@@ -1015,7 +1030,7 @@ class UpdateWeChatIp(_PluginBase):
         logger.info(f"获取扫码结果超时，{timeout} 秒内未确认")
         return None
 
-    def _loginpage_wx(self, key, code) -> requests.Response:
+    def _loginpage_wx(self, key, code) -> RequestsResponse:
         """用扫码返回的 code 完成登录页请求。"""
         logger.info("开始登录")
         url = "https://work.weixin.qq.com/wework_admin/loginpage_wx"
@@ -1033,7 +1048,7 @@ class UpdateWeChatIp(_PluginBase):
             'auth_source': "SOURCE_FROM_WEWORK",
             'confirm_type': "0"
         }
-        response = self._se.get(url, params=params, headers=self._headers, timeout=15)
+        response = self._se.get_res(url, params=params, timeout=15, raise_exception=True)
         logger.info(f"登录完成，状态码:{response.status_code}，响应长度:{len(response.text)}，"
                     f"需短信验证:{'tl_key' in response.url}")
         return response
@@ -1046,13 +1061,13 @@ class UpdateWeChatIp(_PluginBase):
             "captcha": captcha,
             "tl_key": tl_key
         }
-        res = self._se.post(_url, json=_data, headers=self._headers, timeout=15)
+        res = self._se.post_res(_url, json=_data, timeout=15, raise_exception=True)
         logger.info(f"提交验证码返回值:{self._result_brief(res.text)}")
-        res = self._se.get(
+        res = self._se.get_res(
             "https://work.weixin.qq.com/wework_admin/login/choose_corp",
             params={'tl_key': tl_key},
-            headers=self._headers,
             timeout=15,
+            raise_exception=True,
         )
         logger.info(f"choose_corp接口返回值:{self._result_brief(res.text)}")
 
@@ -1068,9 +1083,9 @@ class UpdateWeChatIp(_PluginBase):
             'ajax': "1",
             'timeZoneInfo[zone_offset]': "-8",
         }
-        self._se.cookies.set('wwrtx.sid', self._wwrtx_sid)
+        self._se.update_cookies({'wwrtx.sid': self._wwrtx_sid})
         try:
-            res = self._se.post(url, params=params, headers=self._headers, timeout=10)
+            res = self._se.post_res(url, params=params, timeout=10, raise_exception=True)
             if res.status_code == 200:
                 data = res.json()
                 if self._response_ok(res):
@@ -1085,6 +1100,22 @@ class UpdateWeChatIp(_PluginBase):
             logger.error(f"获取企业微信部门缓存异常: {e}")
         self._is_login = False
         return False
+
+    def _party_name(self, fallback: str = "") -> str:
+        """从企业信息缓存取企业名，结构异常时返回回退值。"""
+        cache = self._party_cache_data
+        party = cache.get("party_list") if isinstance(cache, dict) else None
+        items = party.get("list") if isinstance(party, dict) else None
+        first = items[0] if isinstance(items, list) and items else None
+        name = first.get("name") if isinstance(first, dict) else None
+        return str(name) if name else fallback
+
+    def _notify_quiet(self, channel, userid, title: str, text: str) -> None:
+        """发送通知；投递失败只记日志，不打断调用链。"""
+        try:
+            self.post_message(channel=channel, title=title, userid=userid, text=text)
+        except Exception as e:
+            logger.warning(f"通知发送失败: {e}")
 
     def _login(self, channel, userid, source=None, original_message_id=None, original_chat_id=None):
         """接收扫码确认并交给后台线程处理，避免在事件线程里阻塞等待。"""
@@ -1114,6 +1145,17 @@ class UpdateWeChatIp(_PluginBase):
 
     def _login_worker(self, channel, userid, qrcode_key, source=None,
                       original_message_id=None, original_chat_id=None):
+        """后台完成扫码确认与登录；异常在本层兜底，避免后台线程静默退出。"""
+        try:
+            self._login_worker_impl(channel, userid, qrcode_key, source,
+                                    original_message_id, original_chat_id)
+        except Exception as e:
+            logger.exception(f"扫码登录处理异常: {e}")
+            self._notify_quiet(channel, userid, "登录失败",
+                               "登录处理异常，请重新发送 /update_wechat_ip 扫码。")
+
+    def _login_worker_impl(self, channel, userid, qrcode_key, source=None,
+                           original_message_id=None, original_chat_id=None):
         """后台完成扫码确认与登录，需要时下发短信验证码输入交互。"""
         if not self._se:
             logger.warning("网络会话已关闭，跳过本次登录处理")
@@ -1157,7 +1199,7 @@ class UpdateWeChatIp(_PluginBase):
                     original_chat_id=original_chat_id,
                 )
             else:
-                self._wwrtx_sid = self._se.cookies.get_dict().get('wwrtx.sid')
+                self._wwrtx_sid = self._se.get_cookies().get('wwrtx.sid')
                 if self._party_cache():
                     logger.info("登录成功")
                     self._login_success()
@@ -1165,7 +1207,7 @@ class UpdateWeChatIp(_PluginBase):
                         channel=channel,
                         title="登录成功",
                         userid=userid,
-                        text=f"成功登录企业:{self._party_cache_data.get('party_list', {}).get('list', [{}])[0].get('name')}",
+                        text=f"成功登录企业:{self._party_name('未知企业')}",
                     )
                 else:
                     logger.error(f"登录失败,返回值:{self._party_cache_data}")
@@ -1308,8 +1350,8 @@ class UpdateWeChatIp(_PluginBase):
                 'ipList[]': self._ip
             }
             try:
-                res = self._se.post(url, data=data, headers=self._headers, timeout=15)
-            except requests.RequestException as e:
+                res = self._se.post_res(url, data=data, timeout=15, raise_exception=True)
+            except RequestException as e:
                 logger.error(f"{appId}更新IP白名单请求异常: {e}")
                 _update_log.append(UpdateLogDto(
                     status=False,
@@ -1580,6 +1622,9 @@ class UpdateWeChatIp(_PluginBase):
                 ),
             )
             return
+        # 有处理中状态的渠道由宿主显示等待反馈，其余渠道需要一条文字回执
+        if not self._channel_supports(channel, ChannelCapability.PROCESSING_STATUS):
+            self._notify_quiet(channel, userid, "验证码已提交", "正在向企业微信提交验证码，请稍候…")
         try:
             self._confirm_captcha(self._tl_key, captcha)
         except Exception as e:
@@ -1591,7 +1636,7 @@ class UpdateWeChatIp(_PluginBase):
                 text="验证码提交请求异常，请稍后重试；如仍失败请重新扫码。",
             )
             return
-        self._wwrtx_sid = self._se.cookies.get_dict().get('wwrtx.sid')
+        self._wwrtx_sid = self._se.get_cookies().get('wwrtx.sid')
         self._captcha.pop(qrcode_key, None)
         if self._party_cache():
             self._login_success()
@@ -1599,7 +1644,7 @@ class UpdateWeChatIp(_PluginBase):
                 channel=channel,
                 title="登录成功",
                 userid=userid,
-                text=f"成功登录企业:{self._party_cache_data.get('party_list', {}).get('list', [{}])[0].get('name')}",
+                text=f"成功登录企业:{self._party_name('未知企业')}",
             )
         else:
             self.post_message(
@@ -1676,11 +1721,8 @@ class UpdateWeChatIp(_PluginBase):
         """按候选接口依次查询当前公网 IPv4，全部失败返回 None。"""
         for url in self._ip_urls:
             try:
-                response = requests.get(
-                    url,
-                    headers={'User-Agent': self._headers['User-Agent']},
-                    timeout=3,
-                )
+                response = RequestUtils(headers={'User-Agent': self._headers['User-Agent']},
+                                        timeout=3, verify=True).get_res(url, raise_exception=True)
             except Exception as e:
                 # 网络波动只记一条，避免每个候选接口都刷屏
                 if "104" not in str(e) and 'Read timed out' not in str(e):
@@ -1719,7 +1761,7 @@ class UpdateWeChatIp(_PluginBase):
         logger.debug(f"获取企业应用配置：{target}")
         url = f'https://work.weixin.qq.com/wework_admin/apps/getCorpAppV2?lang=zh_CN&f=json&ajax=1&app_id={target}'
         try:
-            res = self._se.get(url, headers=self._headers, timeout=10)
+            res = self._se.get_res(url, timeout=10, raise_exception=True)
             if res.status_code == 200:
                 return res.json().get('data', {})
             else:
@@ -1838,3 +1880,12 @@ class UpdateLogDto:
             result=str(raw.get('result') or ''),
             UpdateTime=update_time,
         )
+
+
+class UpdateIpResult(BaseModel):
+    """UpdateIP 接口响应模型。"""
+
+    success: bool = Field(description="是否全部应用更新成功")
+    ip: ipaddress.IPv4Address = Field(description="本次写入的可信IP")
+    updated: int = Field(description="写入可信IP的应用数量")
+    failed_app_ids: List[str] = Field(default_factory=list, description="更新失败的应用ID")
