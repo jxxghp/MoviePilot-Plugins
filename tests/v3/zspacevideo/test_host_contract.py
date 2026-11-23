@@ -139,3 +139,26 @@ class TestPruneDir:
         monkeypatch.setattr(DirectoryHelper, "get_media_cleanup_root", boom)
         H.prune_dir(str(season))
         assert season.is_dir()
+
+
+class TestWatchedApi:
+    def test_preview_empty_version_list_is_not_all(self, tmp_path):
+        plugin = _plugin(tmp_path)
+        svc = MagicMock()
+        plugin._watch = svc
+        plugin.api_watched_preview({"key": "movie:1", "mode": "library", "version_ids": []})
+        assert svc.preview.call_args.args[2] == []
+        plugin.api_watched_preview({"key": "movie:1", "mode": "library"})
+        assert svc.preview.call_args.args[2] is None
+
+
+class TestHistoryFilters:
+    def test_media_type_filter_accepted_by_host(self):
+        from app.schemas.query import DownloadHistoryFilter, TransferHistoryFilter
+        from app.plugins.zspacevideo import host as H
+
+        for kind in ("movie", "season"):
+            TransferHistoryFilter.model_validate({"media_source": "themoviedb", "media_id": "1", "status": True,
+                                                  "media_types": H._media_types(kind)})
+            DownloadHistoryFilter.model_validate({"media_source": "themoviedb", "media_id": "1",
+                                                  "media_types": H._media_types(kind)})

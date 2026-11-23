@@ -648,7 +648,7 @@ def make_plan(item_key: str, title: str, versions: Sequence[Version], mode: str,
     """
     if mode not in (MODE_LIBRARY, MODE_FULL):
         raise ValueError("删除选项只能是「只从库里移除」或「真删除」")
-    chosen_ids = set(version_ids or [v.id for v in versions])
+    chosen_ids = set(v.id for v in versions) if version_ids is None else set(version_ids)  # 空列表 = 什么都没选
     chosen = [v for v in versions if v.id in chosen_ids]
     if not chosen:
         raise ValueError("没有选中任何版本")
@@ -844,7 +844,7 @@ class Host:
 
     delete_path: Callable[[str, str], bool]  # (路径, role) -> 是否删掉
     list_torrents: Callable[[Sequence[str]], List[TorrentInfo]]  # 按 hash 查当前任务
-    delete_torrents: Callable[[Sequence[str]], bool]  # 删任务并删文件
+    delete_torrents: Callable[..., bool]  # (hashes, expected={hash: content_path}) 删任务并删文件；内容路径对不上就拒删
     delete_records: Callable[[Sequence[int]], int] = lambda ids: 0
     forget_sources: Callable[[Sequence[str]], None] = lambda paths: None  # 清 MP 下载文件记录
     prune_dir: Callable[[str], None] = lambda path: None  # 删完后清理库里的空目录
@@ -919,7 +919,8 @@ def execute_plan(plan: Plan, host: Host, now: float, wait_seconds: float = 120.0
         qb_clear = True  # 计划里的 qB 任务都确认已经不在
         if hashes:
             try:
-                if not host.delete_torrents(hashes):
+                expected = {t.hash: t.content_path for t in plan.torrents}
+                if not host.delete_torrents(hashes, expected=expected):
                     result["torrents_failed"].extend(hashes)
                 deadline = time.monotonic() + wait_seconds
                 while True:
@@ -957,6 +958,10 @@ def execute_plan(plan: Plan, host: Host, now: float, wait_seconds: float = 120.0
                 host.forget_sources(gone_sources)
             except Exception as error:  # noqa: BLE001
                 result["failed"].append(f"清理下载文件记录失败：{error}")
+        # 整理记录最后删：删之前再核一次清单里的路径都已不在（中途被新整理写回的，记录要留着）
+        reappeared = [a.path for a in plan.actions if os.path.lexists(a.path)]
+        if reappeared:
+            result["failed"].extend(f"{p} 删除后又出现了（可能是新的整理），整理记录保留" for p in reappeared)
         if plan.record_ids and not result["failed"] and not result["torrents_failed"]:
             try:
                 result["records_deleted"] = host.delete_records(plan.record_ids)
@@ -966,7 +971,7 @@ def execute_plan(plan: Plan, host: Host, now: float, wait_seconds: float = 120.0
     # 5. 读回
     still = [a.path for a in plan.actions if os.path.lexists(a.path)]
     for path in still:
-        if path not in result["failed"]:
+        if not any(path in f for f in result["failed"]):
             result["failed"].append(f"{path} 删除后仍存在")
     result["deleted"] = sorted({p for p in result["deleted"] if not os.path.lexists(p)})
     gone = {a.path for a in plan.actions if not os.path.lexists(a.path)}

@@ -54,7 +54,7 @@ class ZSpaceVideo(_PluginBase):
     plugin_name = "极空间影视"
     plugin_desc = "极空间官方授权登录（不用 cookie），整理后只刷新对应目录；极影视已看列表，可按选项移出库或连同做种一起删除。"
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/Zspace_A.png"
-    plugin_version = "0.2.4"
+    plugin_version = "0.2.5"
     plugin_author = "xiaoyaner0201"
     author_url = "https://github.com/xiaoyaner0201/MoviePilot-ZSpaceVideo"
     plugin_config_prefix = "zspacevideo_"
@@ -319,9 +319,9 @@ class ZSpaceVideo(_PluginBase):
     def api_watched_preview(self, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         payload = payload or {}
         try:
-            ids = payload.get("version_ids") or None
+            ids = payload.get("version_ids")  # 没给 = 全部版本；给了空列表 = 什么都没选（会报错，不会变成全部）
             return self._ok(self._watch_svc().preview(str(payload.get("key") or ""), str(payload.get("mode") or ""),
-                                                     list(ids) if ids else None,
+                                                     None if ids is None else list(ids),
                                                      confirm_unknown_season=payload.get("confirm_unknown_season") is True))
         except Exception as error:  # noqa: BLE001
             return self._fail(error)

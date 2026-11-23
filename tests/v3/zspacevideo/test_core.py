@@ -471,3 +471,19 @@ class ServiceFlowTest:
         svc, cli, _ = self.make()
         svc.settings.enabled = False
         assert svc.on_transfer("/downloads/anime/x") == []
+
+
+class StopBeforeSubmitTest:
+    def test_stopped_service_does_not_submit(self):
+        cli = FakeVideoCli()
+        settings = Settings(enabled=True, quiet_seconds=0, max_wait_seconds=0,
+                            library_dirs="\n".join(f"{x.id} = {d}" for x in LIBS for d in x.dirs))
+        svc = Service(cli, settings, log=CaptureLog(), notify=lambda t, m: None,
+                      mountinfo_reader=lambda: MOUNTINFO, sleep=lambda s: None, poll_interval=0)
+        svc.on_transfer("/downloads/anime/紫川 (2021)")
+        batches = svc.batcher.pop_due(force=True)
+        record = svc._new_record(batches[0], "transfer")
+        svc.stop()
+        svc._execute(batches[0], record)
+        assert cli.calls == []
+        assert svc.history()[0]["status"] == "cancelled"

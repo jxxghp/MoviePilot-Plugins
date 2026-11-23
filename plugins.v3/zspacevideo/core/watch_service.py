@@ -68,8 +68,8 @@ class WatchSettings:
 class WatchHost:
     """MP / qB 侧能力。"""
 
-    transfers_by_tmdb: Callable[[int], List[Dict[str, Any]]]
-    downloads_by_tmdb: Callable[[int], List[Dict[str, Any]]]
+    transfers_by_tmdb: Callable[[int, str], List[Dict[str, Any]]]  # (tmdb_id, movie/season)
+    downloads_by_tmdb: Callable[[int, str], List[Dict[str, Any]]]
     torrents: Callable[[], List[W.TorrentInfo]]
     torrent_files: Callable[[W.TorrentInfo], List[str]]
     roots: Callable[[], W.Roots]
@@ -195,8 +195,8 @@ class WatchService:
             raise KeyError("这部片不在已看列表里")
         entry = _entry(item)
         roots = self.host.roots()
-        transfers = self.host.transfers_by_tmdb(entry.tmdb_id) if entry.tmdb_id else []
-        downloads = self.host.downloads_by_tmdb(entry.tmdb_id) if entry.tmdb_id else []
+        transfers = self.host.transfers_by_tmdb(entry.tmdb_id, entry.kind) if entry.tmdb_id else []
+        downloads = self.host.downloads_by_tmdb(entry.tmdb_id, entry.kind) if entry.tmdb_id else []
         if torrents is None:
             torrents = self.host.torrents()
         return W.build_versions(entry, transfers, downloads, torrents, roots, self._inode_index(roots),

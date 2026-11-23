@@ -24,7 +24,7 @@ def full_plan(fx, entry, transfers, torrents, now=0.0):
 class StuckHost(FakeHost):
     """qB 拒绝删任务（返回失败、任务还在）。"""
 
-    def _del_t(self, hashes):
+    def _del_t(self, hashes, expected=None):
         return False
 
 
@@ -67,7 +67,7 @@ class TorrentFailureTest:
         plan = full_plan(self.fx, self.entry, self.transfers, torrents)
 
         class Host(BrokenReadHost):
-            def _del_t(self, hashes):  # 请求发出了，但 qB 实际没删
+            def _del_t(self, hashes, expected=None):  # 请求发出了，但 qB 实际没删
                 return True
         host = Host(torrents)
         result = W.execute_plan(plan, host, now=1.0, wait_seconds=0, poll=0)
@@ -81,8 +81,8 @@ class TorrentFailureTest:
         plan = full_plan(self.fx, self.entry, self.transfers, torrents)
 
         class Host(FakeHost):
-            def _del_t(self, hashes):  # 报失败，但实际删掉了
-                FakeHost._del_t(self, hashes)
+            def _del_t(self, hashes, expected=None):  # 报失败，但实际删掉了
+                FakeHost._del_t(self, hashes, expected)
                 return False
         result = W.execute_plan(plan, Host(torrents), now=1.0, wait_seconds=0, poll=0)
         assert result["torrents_removed"] == ["t1"]
@@ -186,7 +186,7 @@ class StaleSeenAutoTest:
             src_dir, src, dest = fx.add_version("WEB")
             fake = FakeHost([tor("t1", src_dir)])
             transfers = [{"id": 1, "status": True, "src": str(src), "dest": str(dest), "download_hash": "t1"}]
-            host = WatchHost(transfers_by_tmdb=lambda tid: transfers, downloads_by_tmdb=lambda tid: [],
+            host = WatchHost(transfers_by_tmdb=lambda tid, kind: transfers, downloads_by_tmdb=lambda tid, kind: [],
                              torrents=lambda: list(fake.torrents.values()),
                              torrent_files=lambda t: _list_media(t.content_path), roots=lambda: fx.roots,
                              exec_host=lambda: fake, rescan=lambda p, w: [])
@@ -202,6 +202,12 @@ class StaleSeenAutoTest:
             out = svc.run_auto()
             assert out["results"] == []
             assert src.exists() and dest.exists()
+            assert not svc.state["movie:11"].get("last_error"), svc.state["movie:11"]  # 是被跳过，不是预览出错
+            # 对照：同样的条目下次读成功、确认仍是已看，过了缓冲期就会删
+            cli.fail = set()
+            now[0] = 31 * DAY
+            out = svc.run_auto()
+            assert [r["status"] for r in out["results"]] == ["done"]
         finally:
             fx.cleanup()
 
@@ -361,3 +367,68 @@ class PruneEmptyOnlyTest:
         boundary.mkdir(parents=True)
         assert W.prune_empty_dirs(str(boundary), [str(root), str(boundary)]) == []
         assert boundary.is_dir()
+
+
+class EmptySelectionTest:
+    def test_empty_version_list_is_not_all(self):
+        fx = Fixture()
+        try:
+            entry = W.watched_entries(movie_row(), dict, dict)[0]
+            src_dir, src, dest = fx.add_version("WEB")
+            versions = W.build_versions(entry, [{"id": 1, "status": True, "src": str(src), "dest": str(dest)}],
+                                        [], [], fx.roots, fx.index, lambda t: [])
+            with pytest.raises(ValueError):
+                W.make_plan(entry.key, "样片", versions, W.MODE_LIBRARY, [], fx.roots, now=0.0)
+        finally:
+            fx.cleanup()
+
+
+class RecordAfterPostconditionTest:
+    def test_record_kept_when_library_path_reappears(self):
+        fx = Fixture()
+        try:
+            entry = W.watched_entries(movie_row(), dict, dict)[0]
+            src_dir, src, dest = fx.add_version("WEB")
+            transfers = [{"id": 9, "status": True, "src": str(src), "dest": str(dest), "download_hash": "t1"}]
+            torrents = [tor("t1", src_dir)]
+            plan = full_plan(fx, entry, transfers, torrents)
+            assert plan.record_ids == [9]
+
+            class Host(FakeHost):
+                def _del_t(self, hashes, expected=None):  # 库入口删完、等 qB 时，新的整理把同一路径写回来了
+                    Path(dest).write_bytes(b"new")
+                    return FakeHost._del_t(self, hashes, expected)
+            host = Host(torrents)
+            result = W.execute_plan(plan, host, now=1.0, wait_seconds=0, poll=0)
+            assert result["status"] == "partial"
+            assert host.records_deleted == []
+        finally:
+            fx.cleanup()
+
+
+class TorrentMovedTest:
+    def test_torrent_moved_after_verify_is_not_deleted(self, monkeypatch):
+        if "app.sdk.logging" not in sys.modules:
+            for name in ("app.sdk", "app.sdk.logging"):
+                monkeypatch.setitem(sys.modules, name, types.ModuleType(name))
+            sys.modules["app.sdk.logging"].logger = Log()
+        from app.plugins.zspacevideo import host as H
+
+        class Client:
+            def __init__(self):
+                self.deleted = []
+
+            def get_torrents(self, ids=None):
+                return [{"hash": h, "content_path": "/downloads/complete/moved/X"} for h in ids], False
+
+            def delete_torrents(self, delete_file, ids):
+                self.deleted.extend(ids)
+                return True
+
+        c = Client()
+        qb = object.__new__(H.QbAdapter)
+        qb._clients = lambda: [c]
+        assert qb.delete(["h1"], expected={"h1": "/downloads/complete/X"}) is False
+        assert c.deleted == []
+        assert qb.delete(["h1"], expected={"h1": "/downloads/complete/moved/X/"}) is True
+        assert c.deleted == ["h1"]

@@ -305,6 +305,9 @@ class Service:
         try:
             self._wait_login_done()
             self._wait_idle(batch.library_id)
+            if self._stop.is_set():  # 插件已停止：不再提交，记为取消
+                self._update(record, status="cancelled", finished_at=self._clock(), message="插件已停止，未提交")
+                return
             task_id = self.cli.rescan(batch.library_id, batch.paths)
             self._update(record, task_id=task_id, status="running")
             self.log.info(f"极空间影视：已提交 {batch.library_name} 刷新 {batch.paths}，任务 {task_id}")

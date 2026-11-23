@@ -34,15 +34,23 @@ def _query_all(fn: Any, filters: Dict[str, Any], limit: int = 2000) -> List[Dict
     return rows
 
 
-def transfers_by_tmdb(tmdb_id: int) -> List[Dict[str, Any]]:
+def _media_types(kind: str) -> tuple:
+    """已看条目类型 -> MP 媒体类型；电影和剧集可能共用同一个 TMDB 数字 ID，必须带上类型。"""
+    from app.schemas.types import MediaType
+    return (MediaType.MOVIE,) if kind == "movie" else (MediaType.TV,)
+
+
+def transfers_by_tmdb(tmdb_id: int, kind: str) -> List[Dict[str, Any]]:
     from app.sdk import queries
     return _query_all(queries.list_transfer_history,
-                      {"media_source": "themoviedb", "media_id": str(tmdb_id), "status": True})
+                      {"media_source": "themoviedb", "media_id": str(tmdb_id), "status": True,
+                       "media_types": _media_types(kind)})
 
 
-def downloads_by_tmdb(tmdb_id: int) -> List[Dict[str, Any]]:
+def downloads_by_tmdb(tmdb_id: int, kind: str) -> List[Dict[str, Any]]:
     from app.sdk import queries
-    return _query_all(queries.list_download_history, {"media_source": "themoviedb", "media_id": str(tmdb_id)})
+    return _query_all(queries.list_download_history,
+                      {"media_source": "themoviedb", "media_id": str(tmdb_id), "media_types": _media_types(kind)})
 
 
 def library_roots() -> W.Roots:
@@ -133,8 +141,12 @@ class QbAdapter:
             return [os.path.normpath(os.path.join(base, str(f.get("name")))) for f in listing]
         return []
 
-    def delete(self, hashes: Sequence[str]) -> bool:
-        """删任务并删文件。同一个 hash 出现在多个下载器里时不删（分不清清单指的是哪一个），返回失败。"""
+    def delete(self, hashes: Sequence[str], expected: Optional[Dict[str, str]] = None) -> bool:
+        """删任务并删文件。
+
+        - 同一个 hash 出现在多个下载器里时不删（分不清清单指的是哪一个）；
+        - expected 给了预览时的内容路径：删之前再读一次，路径变了（任务被移动过）就整单不删。
+        """
         owners: Dict[str, List[Any]] = {}
         clients = self._clients()
         for client in clients:
@@ -142,7 +154,12 @@ class QbAdapter:
             if error:
                 return False
             for t in items:
-                owners.setdefault(str(t.get("hash")), []).append(client)
+                h = str(t.get("hash"))
+                if expected and h in expected and \
+                        str(t.get("content_path") or "").rstrip("/") != str(expected[h] or "").rstrip("/"):
+                    logger.warning(f"极空间影视：种子 {h[:8]} 的内容路径和预览时不一样了，不删")
+                    return False
+                owners.setdefault(h, []).append(client)
         if any(len(v) > 1 for v in owners.values()):
             dup = [h[:8] for h, v in owners.items() if len(v) > 1]
             logger.warning(f"极空间影视：种子 {dup} 同时在多个下载器里，不删")

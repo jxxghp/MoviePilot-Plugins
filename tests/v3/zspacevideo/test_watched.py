@@ -276,7 +276,7 @@ class FakeHost(W.Host):
     def _list(self, hashes):
         return [self.torrents[h] for h in hashes if h in self.torrents]
 
-    def _del_t(self, hashes):
+    def _del_t(self, hashes, expected=None):
         for h in hashes:
             t = self.torrents.pop(h, None)
             if t and os.path.exists(t.content_path):
@@ -353,8 +353,8 @@ class ServiceTest:
         self.notes = []
         transfers = [{"id": 1, "status": True, "src": str(self.src), "dest": str(self.dest), "download_hash": "t1"}]
         host = WatchHost(
-            transfers_by_tmdb=lambda tid: transfers if tid == 11 else [],
-            downloads_by_tmdb=lambda tid: [],
+            transfers_by_tmdb=lambda tid, kind: transfers if tid == 11 else [],
+            downloads_by_tmdb=lambda tid, kind: [],
             torrents=lambda: list(self.fake.torrents.values()),
             torrent_files=lambda t: _list_media(t.content_path),
             roots=lambda: self.fx.roots,
@@ -692,8 +692,8 @@ class UnknownSeasonServiceTest:
         self.fake = FakeHost([tor("bd1", self.content)])
         self.now = [0.0]
         host = WatchHost(
-            transfers_by_tmdb=lambda tid: transfers if tid == 76075 else [],
-            downloads_by_tmdb=lambda tid: [],
+            transfers_by_tmdb=lambda tid, kind: transfers if tid == 76075 else [],
+            downloads_by_tmdb=lambda tid, kind: [],
             torrents=lambda: list(self.fake.torrents.values()),
             torrent_files=lambda t: _list_media(t.content_path),
             roots=lambda: self.case.roots,
@@ -742,3 +742,22 @@ class UnknownSeasonServiceTest:
         results = self.svc.run_keys(["tv:76075:S1"], W.MODE_FULL)
         assert results[0]["deleted"] == []
         assert self.files() == before
+
+
+class MediaTypeFilterTest:
+    def test_history_queries_carry_media_type(self):
+        fx = Fixture()
+        try:
+            seen = []
+            host = WatchHost(transfers_by_tmdb=lambda tid, kind: seen.append(("t", tid, kind)) or [],
+                             downloads_by_tmdb=lambda tid, kind: seen.append(("d", tid, kind)) or [],
+                             torrents=lambda: [], torrent_files=lambda t: [], roots=lambda: fx.roots,
+                             exec_host=lambda: None, rescan=lambda p, w: [])
+            store = {}
+            svc = WatchService(FakeCli(), WatchSettings(enabled=True), host, mappings=lambda: [], log=Log(),
+                               notify=lambda t, x: None, load=store.get, save=store.__setitem__)
+            svc.sync()
+            svc.versions_for("movie:11")
+            assert seen == [("t", 11, "movie"), ("d", 11, "movie")]
+        finally:
+            fx.cleanup()
