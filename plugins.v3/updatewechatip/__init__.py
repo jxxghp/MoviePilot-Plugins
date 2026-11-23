@@ -1207,7 +1207,7 @@ class UpdateWeChatIp(_PluginBase):
                         channel=channel,
                         title="登录成功",
                         userid=userid,
-                        text=f"成功登录企业:{self._party_name()}",
+                        text=f"成功登录企业:{self._party_name('未知企业')}",
                     )
                 else:
                     logger.error(f"登录失败,返回值:{self._party_cache_data}")
@@ -1622,7 +1622,9 @@ class UpdateWeChatIp(_PluginBase):
                 ),
             )
             return
-        self._notify_quiet(channel, userid, "验证码已提交", "正在向企业微信提交验证码，请稍候…")
+        # 站内渠道提交后近乎即时返回，中间回执反而多一条消息
+        if not self._is_same_origin_channel(channel):
+            self._notify_quiet(channel, userid, "验证码已提交", "正在向企业微信提交验证码，请稍候…")
         try:
             self._confirm_captcha(self._tl_key, captcha)
         except Exception as e:
@@ -1642,7 +1644,7 @@ class UpdateWeChatIp(_PluginBase):
                 channel=channel,
                 title="登录成功",
                 userid=userid,
-                text=f"成功登录企业:{self._party_name()}",
+                text=f"成功登录企业:{self._party_name('未知企业')}",
             )
         else:
             self.post_message(

@@ -9,6 +9,7 @@ import requests
 from fastapi import HTTPException
 
 from app.plugins.updatewechatip import UpdateLogDto, UpdateWeChatIp
+from app.schemas.notification import NotificationChannel
 from app.sdk.network import RequestUtils
 
 
@@ -534,7 +535,7 @@ def test_login_worker_notifies_success_when_party_list_empty():
     """企业列表为空时登录成功仍要发出提示，不再因下标取值抛错。"""
     plugin = make_plugin(SimpleNamespace(get_cookies=lambda: {"wwrtx.sid": "sid"}))
     sent = []
-    plugin.post_message = lambda **kwargs: sent.append(kwargs.get("title"))
+    plugin.post_message = lambda **kwargs: sent.append((kwargs.get("title"), kwargs.get("text")))
     plugin._check = lambda *args, **kwargs: {"auth_code": "code"}
     plugin._loginpage_wx = lambda *args, **kwargs: FakeResponse(
         url="https://work.weixin.qq.com/wework_admin/frame"
@@ -545,7 +546,27 @@ def test_login_worker_notifies_success_when_party_list_empty():
 
     plugin._login_worker("wechat", "user", "qrcode")
 
-    assert sent == ["登录成功"]
+    assert [title for title, _ in sent] == ["登录成功"]
+    assert "未知企业" in sent[0][1]
+
+
+def test_submit_captcha_skips_ack_for_same_origin_channel():
+    """站内渠道提交后近乎即时返回，不再额外插入中间回执。"""
+    plugin = make_plugin(SimpleNamespace(get_cookies=lambda: {"wwrtx.sid": "sid"}))
+    sent = []
+    plugin.post_message = lambda **kwargs: sent.append(kwargs.get("title"))
+    plugin._tl_key = "tl"
+    plugin._captcha = {"qrcode": "123456"}
+    plugin._captcha_length = 6
+    plugin._confirm_captcha = lambda *args, **kwargs: sent.append("confirm")
+    plugin._party_cache = lambda: True
+    plugin._login_success = lambda: None
+    plugin._party_cache_data = {"party_list": {"list": [{"name": "企业A"}]}}
+
+    plugin._submit_captcha(NotificationChannel.Web, "user", "qrcode")
+
+    assert "验证码已提交" not in sent
+    assert sent[0] == "confirm"
 
 
 def test_submit_captcha_sends_ack_before_submitting():
@@ -561,7 +582,7 @@ def test_submit_captcha_sends_ack_before_submitting():
     plugin._login_success = lambda: None
     plugin._party_cache_data = {"party_list": {"list": [{"name": "企业A"}]}}
 
-    plugin._submit_captcha("wechat", "user", "qrcode")
+    plugin._submit_captcha(NotificationChannel.Wechat, "user", "qrcode")
 
     assert sent[0] == "验证码已提交"
     assert "confirm" in sent
