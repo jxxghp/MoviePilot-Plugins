@@ -1,7 +1,8 @@
 """Small Vuetify JSON views shared by plugin details and optional dashboard."""
 from datetime import date
+from uuid import uuid4
 
-from .calendar import BASE_URL, KINDS, beijing_timestamp, media_payload, rating_rows, release_line, release_timing
+from .calendar import BASE_URL, KINDS, beijing_timestamp, media_payload, rating_rows, records, release_line, release_timing
 
 
 def _node(component, text=None, props=None, content=None):
@@ -232,6 +233,66 @@ def _dashboard_card(record: dict, snapshot: dict, today: str) -> dict:
     ])
 
 
+MORE_CSS = """
+.smc-dashboard-more { width: 42px; padding: 12px 8px; align-self: start;
+    height: calc(clamp(min(100cqw, 118px), 26cqw, 156px) * 1.5);
+    border: 1px solid rgba(var(--v-theme-primary), .18); border-radius: 8px;
+    background: rgba(var(--v-theme-primary), .06); color: rgb(var(--v-theme-primary));
+    font: inherit; font-size: 13px; writing-mode: vertical-rl; text-orientation: upright;
+    letter-spacing: 3px; cursor: pointer; scroll-snap-align: end; }
+.smc-dashboard-more:hover { background: rgba(var(--v-theme-primary), .12); }
+.smc-calendar-popup { display: none; position: fixed; inset: 0; margin: auto;
+    width: min(80rem, calc(100vw - 32px)); max-height: calc(100dvh - 32px);
+    overflow: auto; overscroll-behavior: contain; padding: 0;
+    border: 1px solid rgba(var(--v-theme-on-surface), .12); border-radius: 14px;
+    background: rgb(var(--v-theme-surface)); color: rgb(var(--v-theme-on-surface));
+    box-shadow: 0 16px 48px rgba(0, 0, 0, .24); }
+.smc-calendar-popup:popover-open { display: block; }
+.smc-calendar-popup::backdrop { background: rgba(0, 0, 0, .4); pointer-events: auto; }
+.smc-calendar-popup .smc-popup-header { display: flex; justify-content: space-between;
+    align-items: center; gap: 12px; padding: 16px 20px; position: sticky; top: 0;
+    background: rgb(var(--v-theme-surface)); z-index: 1;
+    border-bottom: 1px solid rgba(var(--v-theme-on-surface), .12); }
+.smc-calendar-popup .smc-popup-title { font-size: 20px; font-weight: 600; margin: 0; }
+.smc-calendar-popup .smc-popup-close { font: inherit; font-size: 24px; cursor: pointer;
+    display: grid; place-items: center; width: 40px; height: 40px;
+    border: 0; border-radius: 8px; color: inherit; background: transparent; }
+.smc-calendar-popup .smc-popup-close:hover { background: rgba(var(--v-theme-on-surface), .08); }
+.smc-calendar-popup .smc-popup-body { padding: 18px 20px 24px; }
+@media (max-width: 600px) {
+    .smc-calendar-popup { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
+    .smc-calendar-popup .smc-popup-header { padding: 12px; }
+    .smc-calendar-popup .smc-popup-body { padding: 14px 12px; }
+}
+"""
+
+
+def _dashboard_more(view: dict, today: str) -> tuple[dict, dict]:
+    """用唯一原生触发器打开同一缓存的完整排期，无需仪表盘 API 事件。"""
+    popup_id = 'smc-calendar-' + uuid4().hex
+    title_id = popup_id + '-title'
+    button = _node('button', '查看更多', {
+        'type': 'button', 'class': 'smc-dashboard-more', 'aria-label': '查看更多发行排期',
+        'popovertarget': popup_id, 'popovertargetaction': 'show',
+    })
+    popup = _node('div', props={
+        'id': popup_id, 'popover': 'auto', 'role': 'dialog',
+        'aria-labelledby': title_id, 'class': 'smc-calendar-popup',
+    }, content=[
+        _node('div', props={'class': 'smc-popup-header'}, content=[
+            _node('h2', '简单观影日历', {'id': title_id, 'class': 'smc-popup-title'}),
+            _node('button', '×', {
+                'type': 'button', 'class': 'smc-popup-close', 'aria-label': '关闭观影日历',
+                'autofocus': True, 'popovertarget': popup_id, 'popovertargetaction': 'hide',
+            }),
+        ]),
+        _node('div', props={'class': 'smc-popup-body'}, content=calendar_nodes(
+            view, records(view['snapshot'], today, group='all'), today,
+        )),
+    ])
+    return button, popup
+
+
 def dashboard_nodes(view: dict, items: list[dict], today: str) -> list[dict]:
     """Fit a horizontal poster strip to the widget's own width."""
     header = [_node('div', '即将发行', {'class': 'text-subtitle-2'})]
@@ -249,17 +310,21 @@ def dashboard_nodes(view: dict, items: list[dict], today: str) -> list[dict]:
         }, content=header),
         *status_nodes(view, show_timestamp=False),
     ]
-    if items:
+    if snapshot is not None:
+        more, popup = _dashboard_more(view, today)
+        if not items:
+            nodes.append(_node('div', '暂无即将发行的电影', {'class': 'text-body-2 text-medium-emphasis mb-2'}))
+        columns = f'repeat({len(items)}, clamp(min(100%,118px),26%,156px)) 42px' if items else '42px'
+        nodes.append(_node('style', MORE_CSS))
         nodes.append(_node('div', props={
             'role': 'region', 'aria-label': '即将发行电影', 'tabindex': 0,
             'style': (
-                'display:grid;grid-auto-flow:column;grid-auto-columns:clamp(min(100%,118px),26%,156px);'
-                'gap:10px;min-width:0;max-width:100%;overflow-x:auto;'
+                f'display:grid;grid-auto-flow:column;grid-template-columns:{columns};'
+                'container-type:inline-size;gap:10px;min-width:0;max-width:100%;overflow-x:auto;'
                 'scroll-snap-type:x proximity;padding-block-end:6px'
             ),
-        }, content=[_dashboard_card(item, snapshot, today) for item in items]))
-    elif snapshot is not None:
-        nodes.append(_node('div', '暂无即将发行的电影', {'class': 'text-body-2 text-medium-emphasis'}))
+        }, content=[*(_dashboard_card(item, snapshot, today) for item in items), more]))
+        nodes.append(popup)
     return nodes
 
 
