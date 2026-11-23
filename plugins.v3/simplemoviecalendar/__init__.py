@@ -25,7 +25,7 @@ class SimpleMovieCalendar(_PluginBase):
     plugin_name = '简单观影日历'
     plugin_desc = '查看电影数字版、蓝光和国内电影流媒体上线时间，可手动添加到MP首页仪表盘方便查看。'
     plugin_icon = 'https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/SimpleMovieCalendar.png'
-    plugin_version = "0.1.7"
+    plugin_version = "0.1.10"
     plugin_author = '随风飞翔'
     author_url = 'https://ys.chenhao.net/'
     plugin_config_prefix = 'simplemoviecalendar_'
