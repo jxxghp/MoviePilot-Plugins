@@ -105,20 +105,31 @@ function openDelete(it, version) {
   preview()
 }
 
+// 每次预览一个序号：只认最后一次请求的结果，旧请求晚到时丢掉（否则按钮写的删除方式和实际清单可能不一致）
+let previewSeq = 0
+
+// 换版本或删除方式：要删的文件变了，「确认季号」必须对新清单重新勾选
+function selectionChanged() {
+  confirmUnknown.value = false
+  preview()
+}
+
 async function preview() {
-  if (!target.value || !selected.value.length) { plan.value = null; return }
+  const seq = ++previewSeq
+  plan.value = null
+  if (!target.value || !selected.value.length) { previewing.value = false; return }
   previewing.value = true
   error.value = ''
   try {
-    plan.value = unwrap(await props.api.post(`${props.base}/watched/preview`, {
+    const data = unwrap(await props.api.post(`${props.base}/watched/preview`, {
       key: target.value.key, mode: mode.value, version_ids: selected.value,
       confirm_unknown_season: confirmUnknown.value === true,
     }))
+    if (seq === previewSeq) plan.value = data
   } catch (e) {
-    plan.value = null
-    error.value = e.message || String(e)
+    if (seq === previewSeq) error.value = e.message || String(e)
   } finally {
-    previewing.value = false
+    if (seq === previewSeq) previewing.value = false
   }
 }
 
@@ -246,11 +257,11 @@ onMounted(load)
         <VCardText>
           <div class="mb-2 text-subtitle-2">选版本</div>
           <VCheckbox v-for="v in target.versions.filter(x => x.traced)" :key="v.id" v-model="selected" :value="v.id"
-                     density="compact" hide-details :disabled="!!result" @update:model-value="preview">
+                     density="compact" hide-details :disabled="!!result" @update:model-value="selectionChanged">
             <template #label>{{ v.label }}（{{ v.size_text }}{{ v.in_library ? '，库里' : '，只在下载目录' }}）</template>
           </VCheckbox>
           <div class="mt-3 mb-1 text-subtitle-2">删除方式</div>
-          <VRadioGroup v-model="mode" inline hide-details :disabled="!!result" @update:model-value="preview">
+          <VRadioGroup v-model="mode" inline hide-details :disabled="!!result" @update:model-value="selectionChanged">
             <VRadio label="只从库里移除" value="library" />
             <VRadio label="真删除（含做种）" value="full" color="error" />
           </VRadioGroup>

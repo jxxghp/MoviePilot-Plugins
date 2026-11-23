@@ -134,10 +134,22 @@ class QbAdapter:
         return []
 
     def delete(self, hashes: Sequence[str]) -> bool:
+        """删任务并删文件。同一个 hash 出现在多个下载器里时不删（分不清清单指的是哪一个），返回失败。"""
+        owners: Dict[str, List[Any]] = {}
+        clients = self._clients()
+        for client in clients:
+            items, error = client.get_torrents(ids=list(hashes))
+            if error:
+                return False
+            for t in items:
+                owners.setdefault(str(t.get("hash")), []).append(client)
+        if any(len(v) > 1 for v in owners.values()):
+            dup = [h[:8] for h, v in owners.items() if len(v) > 1]
+            logger.warning(f"极空间影视：种子 {dup} 同时在多个下载器里，不删")
+            return False
         ok = True
-        for client in self._clients():
-            items, _ = client.get_torrents(ids=list(hashes))
-            mine = [str(t.get("hash")) for t in items]
+        for client in clients:
+            mine = [h for h, v in owners.items() if v[0] is client]
             if mine:
                 ok = client.delete_torrents(delete_file=True, ids=mine) and ok
         return ok

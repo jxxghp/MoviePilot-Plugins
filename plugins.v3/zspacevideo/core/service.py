@@ -199,7 +199,15 @@ class Service:
         """整理完成：登记刷新目标，返回命中的目标（不会立刻提交）。"""
         if not self.settings.enabled:
             return []
-        info = self.resolve(container_path)
+        try:
+            info = self.resolve(container_path)
+        except CliError as error:
+            # 整理事件里第一次发现授权失效也要提醒（否则这次整理既不刷新也没人知道）
+            if error.code in AUTH_ERROR_CODES or "登录" in error.message or "授权" in error.message:
+                self._alert(f"极空间授权失效，请到插件页重新授权（{error.code}）", key="auth")
+            else:
+                self._alert(f"读取极影视分类失败，{container_path} 没有刷新：{error}", key=f"err:{error.code}")
+            return []
         targets = [Target(**t) for t in info["targets"]]
         if not targets:
             self.log.info(f"极空间影视：{container_path} 不刷新（{info['reason']}）")

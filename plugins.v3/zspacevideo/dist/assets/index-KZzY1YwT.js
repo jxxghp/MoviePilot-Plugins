@@ -1,7 +1,7 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import Page from './__federation_expose_Page-BAqUR5l7.js';
+import Page from './__federation_expose_Page-BRcP-aqB.js';
 
-true&&(function polyfill() {
+true              &&(function polyfill() {
   const relList = document.createElement("link").relList;
   if (relList && relList.supports && relList.supports("modulepreload")) {
     return;

@@ -181,20 +181,31 @@ function openDelete(it, version) {
   preview();
 }
 
+// 每次预览一个序号：只认最后一次请求的结果，旧请求晚到时丢掉（否则按钮写的删除方式和实际清单可能不一致）
+let previewSeq = 0;
+
+// 换版本或删除方式：要删的文件变了，「确认季号」必须对新清单重新勾选
+function selectionChanged() {
+  confirmUnknown.value = false;
+  preview();
+}
+
 async function preview() {
-  if (!target.value || !selected.value.length) { plan.value = null; return }
+  const seq = ++previewSeq;
+  plan.value = null;
+  if (!target.value || !selected.value.length) { previewing.value = false; return }
   previewing.value = true;
   error.value = '';
   try {
-    plan.value = unwrap(await props.api.post(`${props.base}/watched/preview`, {
+    const data = unwrap(await props.api.post(`${props.base}/watched/preview`, {
       key: target.value.key, mode: mode.value, version_ids: selected.value,
       confirm_unknown_season: confirmUnknown.value === true,
     }));
+    if (seq === previewSeq) plan.value = data;
   } catch (e) {
-    plan.value = null;
-    error.value = e.message || String(e);
+    if (seq === previewSeq) error.value = e.message || String(e);
   } finally {
-    previewing.value = false;
+    if (seq === previewSeq) previewing.value = false;
   }
 }
 
@@ -641,7 +652,7 @@ return (_ctx, _cache) => {
                         modelValue: selected.value,
                         "onUpdate:modelValue": [
                           _cache[2] || (_cache[2] = $event => ((selected).value = $event)),
-                          preview
+                          selectionChanged
                         ],
                         value: v.id,
                         density: "compact",
@@ -659,7 +670,7 @@ return (_ctx, _cache) => {
                       modelValue: mode.value,
                       "onUpdate:modelValue": [
                         _cache[3] || (_cache[3] = $event => ((mode).value = $event)),
-                        preview
+                        selectionChanged
                       ],
                       inline: "",
                       "hide-details": "",

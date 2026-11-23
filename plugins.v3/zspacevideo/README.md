@@ -21,7 +21,7 @@
 
 ## 注意
 
-- 真删除会删除做种文件和 qB 任务（含辅种），删了只能重新下载。
+- 真删除会删除做种文件和 qB 任务（含辅种），删了只能重新下载；qB 任务没删掉时做种文件一律保留。
 - 同一极空间账号再次授权，会让之前的授权失效。
 - 局域网直连是明文 HTTP；默认的官方云中转走 HTTPS。
 - 极空间的重新扫描接口对不属于该分类的路径也返回成功，所以目录归属由插件读只读数据库或手动配置判断。
@@ -54,7 +54,7 @@ Full documentation and screenshots: <https://github.com/xiaoyaner0201/MoviePilot
 
 ## Notes
 
-- Real deletion removes seeding files and qBittorrent tasks (cross-seeds included); the only way back is downloading again.
+- Real deletion removes seeding files and qBittorrent tasks (cross-seeds included); the only way back is downloading again. If a task is not removed, its seeding files are kept.
 - Authorizing the same ZSpace account again invalidates the previous authorization.
 - LAN direct mode uses plain HTTP; the default official cloud relay uses HTTPS.
 - ZSpace's rescan API reports success even for folders outside the category, so the plugin decides folder ownership from the read-only database or the manual settings.

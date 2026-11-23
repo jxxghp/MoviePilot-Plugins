@@ -151,7 +151,11 @@ class WatchService:
             # 有分类/专辑读失败时，保留原有对象，避免把读失败误判为取消已看
             keep = [_entry(v) for v in self.state.values()
                     if v.get("library_id") in failed_libs or v.get("collection_id") in failed_collections]
+            current = {e.key for e in entries}
+            keep = [e for e in keep if e.key not in current]
             state, added, removed = W.track(self.state, entries + keep, now)
+            for entry in keep:
+                state[entry.key]["stale"] = True  # 这次没能确认仍是已看：保留在列表里，但不自动删
             for key, paths in zvideo.items():
                 state[key]["zvideo_files"] = paths
             for key in state:

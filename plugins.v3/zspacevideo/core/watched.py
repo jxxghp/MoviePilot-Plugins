@@ -38,6 +38,12 @@ MEDIA_EXTS = frozenset({
     ".asf", ".m4v", ".flv", ".m2ts", ".strm", ".tp", ".f4v", ".webm",
 })
 PLAN_TTL = 900
+# 影片目录删完视频后可以一起清掉的附属文件；目录里有别的文件就整个目录不动
+SIDECAR_EXTS = frozenset({
+    ".nfo", ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tbn",
+    ".srt", ".ass", ".ssa", ".sub", ".idx", ".sup", ".vtt", ".smi",
+})
+_SAMPLE = re.compile(r"(?:^|[ ._\-\[(])sample(?:[ ._\-\])]|$)", re.I)
 
 _SEASON_DIR = re.compile(r"(?:^|/)Season\s*0*(\d{1,3})(?:/|$)", re.I)
 _SXXEYY = re.compile(r"(?<![A-Za-z0-9])S(\d{1,3})(?:[ ._-]*E\d{1,4}|(?![0-9]))", re.I)
@@ -96,6 +102,7 @@ class SeenEntry:
     tmdb_id: int
     season: int = 0
     year: int = 0
+    ambiguous: bool = False  # 季号是从文件路径推出来的且不止一季：可手动删，不自动删
 
     @property
     def key(self) -> str:
@@ -138,7 +145,8 @@ def watched_entries(row: Dict[str, Any], info_loader: Callable[[], Dict[str, Any
             found = season_of_path(str(video.get("file_path") or ""))
             if found is not None:
                 seasons.add(found)
-    return [SeenEntry(kind="season", season=s, **base) for s in sorted(seasons)]
+    ambiguous = not season and len(seasons) > 1
+    return [SeenEntry(kind="season", season=s, ambiguous=ambiguous, **base) for s in sorted(seasons)]
 
 
 # ---------------------------------------------------------------------- 跟踪（首次发现、缓冲期）
@@ -174,10 +182,13 @@ def due_keys(state: Dict[str, Dict[str, Any]], buffer_days: float, now: float, s
 
     since：打开自动删除的时间。首次发现早于它的（开自动删除之前就已经看过的）不自动删，只能手动删，
     避免一打开自动删除就把以前看过的全部清掉。
+    ambiguous：一个专辑的已看标记推不出唯一季号（文件跨多季），不自动删。
+    stale：这次没能从极影视确认它仍是已看（读失败时保留的旧条目），不自动删。
     """
     limit = max(0.0, float(buffer_days)) * 86400
     return sorted(k for k, v in state.items()
                   if not v.get("done_at") and v.get("first_seen_at") is not None
+                  and not v.get("ambiguous") and not v.get("stale")
                   and float(v["first_seen_at"]) >= since
                   and now - float(v["first_seen_at"]) >= limit)
 
@@ -196,6 +207,7 @@ class FileInfo:
     traced: bool = True  # 能从 MP 记录追溯到这部片
     links: List[str] = field(default_factory=list)  # 同 inode 的全部入口
     season_unknown: bool = False  # 剧集：这个路径认不出季号（真删除默认不删，需手动确认）
+    other_season: bool = False  # 剧集：路径明确属于别的季（同一份数据的另一个入口），永远不删
 
 
 @dataclass
@@ -277,8 +289,14 @@ def _season_certain(entry: SeenEntry, path: str, seasons_text: Optional[str] = N
 
 
 def _is_sample(path: str) -> bool:
-    name = os.path.basename(path).lower()
-    return "sample" in name or "/sample/" in path.lower()
+    """样片：在 ``Sample`` 目录里，或文件名里 ``sample`` 是一个独立的词（``xxx-sample.mkv``）。
+
+    不按子串判断：片名里含 sample（如 The.Sampler）的视频不是样片。
+    """
+    parts = path.replace("\\", "/").lower().split("/")
+    if "sample" in parts[:-1] or "samples" in parts[:-1]:
+        return True
+    return bool(_SAMPLE.search(os.path.splitext(parts[-1])[0]))
 
 
 def _walk_media(path: str) -> List[str]:
@@ -392,9 +410,14 @@ def build_versions(entry: SeenEntry, transfers: Sequence[Dict[str, Any]], downlo
         if not record.get("status"):
             continue
         src, dest = str(record.get("src") or ""), str(record.get("dest") or "")
-        for path in (src, dest):
+        matched: List[str] = []
+        # 整理记录也覆盖别的季（多季合集目录）时，删掉这一季也要留着这条记录，剩下的季还靠它追溯
+        shared = entry.kind == "season" and bool(parse_seasons(record.get("seasons")) - {entry.season})
+        for path, storage in ((src, record.get("src_storage")), (dest, record.get("dest_storage"))):
             if not path:
                 continue
+            if storage not in (None, "", "local"):
+                continue  # 网盘等非本地存储：同名本地路径不是这个文件
             is_dir = os.path.isdir(path)
             medias = _walk_media(path) if is_dir else [path]
             for media in medias:
@@ -402,8 +425,12 @@ def build_versions(entry: SeenEntry, transfers: Sequence[Dict[str, Any]], downlo
                     add(media, "transfer")
                     if _season_certain(entry, media, record.get("seasons"), record_is_file=not is_dir):
                         certain_paths.add(media)
-                    if record.get("id") is not None:
-                        record_ids_by_path.setdefault(media, []).append(int(record["id"]))
+                    matched.append(media)
+                else:
+                    shared = True
+        if record.get("id") is not None and not shared:
+            for media in matched:
+                record_ids_by_path.setdefault(media, []).append(int(record["id"]))
     for record in downloads:
         path = str(record.get("path") or "")
         if not path or not os.path.exists(path):
@@ -480,7 +507,10 @@ def build_versions(entry: SeenEntry, transfers: Sequence[Dict[str, Any]], downlo
             info = infos[path]
             info.links = sorted(paths)
             info.traced = traced
-            info.season_unknown = path not in certain_paths and not _season_certain(entry, path)
+            found = season_of_path(path) if entry.kind == "season" else None
+            info.other_season = found is not None and found != entry.season
+            info.season_unknown = (not info.other_season and path not in certain_paths
+                                   and not _season_certain(entry, path))
             version.files.append(info)
             version.record_ids.extend(record_ids_by_path.get(path, []))
             if path in notes_by_path and notes_by_path[path] not in version.notes:
@@ -557,6 +587,7 @@ class Action:
     nlink: int
     via: str = "storage"  # storage=经 MP 存储删除；torrent=随 qB 任务删除
     entries: int = 1  # 预览时找到的同一份数据的入口数（目录项），算腾出空间用
+    keep: List[str] = field(default_factory=list)  # 只从库里移除：必须还在的同 inode 入口（做种源）
 
 
 @dataclass
@@ -664,6 +695,9 @@ def make_plan(item_key: str, title: str, versions: Sequence[Version], mode: str,
         for item in version.files:
             if not item.exists:
                 continue
+            if item.other_season:
+                plan.warnings.append(f"{item.path}：和这一季是同一份数据，但在别的季目录里，不删")
+                continue
             if mode == MODE_LIBRARY:
                 if item.role != "library":
                     continue
@@ -679,9 +713,10 @@ def make_plan(item_key: str, title: str, versions: Sequence[Version], mode: str,
                 plan.warnings.append(f"{item.path} 和这部片是同一份数据（同 inode），但 MP 记录追溯不到这个入口，不删"
                                      + ("；这份空间腾不出来" if mode == MODE_FULL else ""))
                 continue
+            keep = [p for p in item.links if roots.role(p) != "library"] if mode == MODE_LIBRARY else []
             planned[item.path] = Action(path=item.path, role=item.role, size=item.size, dev=item.dev, ino=item.ino,
                                         mtime_ns=item.mtime_ns, nlink=item.nlink, via=via,
-                                        entries=max(1, len(item.links)))
+                                        entries=max(1, len(item.links)), keep=keep)
         if mode == MODE_FULL:
             for torrent in version.torrents:
                 if all(t.hash != torrent.hash for t in plan.torrents):
@@ -718,7 +753,8 @@ def make_plan(item_key: str, title: str, versions: Sequence[Version], mode: str,
 
 
 def _add_sidecars(plan: Plan, planned: Dict[str, Action], roots: Roots) -> None:
-    """库里的影片目录（或季目录）删完视频后只剩 nfo/海报/字幕时，一起清掉；还有别的视频或原盘就不动。"""
+    """库里的影片目录（或季目录）删完视频后只剩 nfo/海报/字幕（SIDECAR_EXTS）时，一起清掉；
+    还有别的视频、原盘或任何认不得的文件就整个目录不动。"""
     dirs = sorted({os.path.dirname(a.path) for a in planned.values() if a.role == "library"})
     for folder in dirs:
         if not os.path.isdir(folder) or any(os.path.normpath(folder) == os.path.normpath(r) for r in roots.library):
@@ -735,8 +771,8 @@ def _add_sidecars(plan: Plan, planned: Dict[str, Action], roots: Roots) -> None:
                 full = os.path.join(base, name)
                 if full in planned:
                     continue
-                if is_media(full):
-                    blocked = True
+                if os.path.splitext(name)[1].lower() not in SIDECAR_EXTS:
+                    blocked = True  # 视频或认不得的文件（文档、压缩包…）：整个目录不动
                     break
                 rest.append(full)
             if blocked:
@@ -803,6 +839,9 @@ def verify_frozen(plan: Plan, host: Host, now: float) -> List[str]:
         current = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
         if current != (action.dev, action.ino, action.size, action.mtime_ns):
             problems.append(f"{action.path} 和预览时不是同一个文件了")
+            continue
+        if action.keep and not any(_same_inode(p, action.dev, action.ino) for p in action.keep):
+            problems.append(f"{action.path} 的做种源已不在，只移出库会删掉唯一一份")
     if plan.torrents:
         live = {t.hash: t for t in host.list_torrents([t.hash for t in plan.torrents])}
         for torrent in plan.torrents:
@@ -812,6 +851,14 @@ def verify_frozen(plan: Plan, host: Host, now: float) -> List[str]:
             elif now_t.content_path.rstrip("/") != torrent.content_path.rstrip("/"):
                 problems.append(f"种子 {torrent.hash[:8]} 的内容路径变了")
     return problems
+
+
+def _same_inode(path: str, dev: int, ino: int) -> bool:
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return False
+    return (info.st_dev, info.st_ino) == (dev, ino)
 
 
 def execute_plan(plan: Plan, host: Host, now: float, wait_seconds: float = 120.0,
@@ -842,29 +889,40 @@ def execute_plan(plan: Plan, host: Host, now: float, wait_seconds: float = 120.0
     if plan.mode == MODE_FULL:
         # 2. qB 任务连同文件（含辅种）
         hashes = [t.hash for t in plan.torrents]
+        qb_clear = True  # 计划里的 qB 任务都确认已经不在
         if hashes:
-            if not host.delete_torrents(hashes):
-                result["torrents_failed"].extend(hashes)
-            deadline = time.monotonic() + wait_seconds
-            while True:
+            try:
+                if not host.delete_torrents(hashes):
+                    result["torrents_failed"].extend(hashes)
+                deadline = time.monotonic() + wait_seconds
+                while True:
+                    left = {t.hash for t in host.list_torrents(hashes)}
+                    files_left = [a for a in plan.actions if a.via == "torrent" and os.path.lexists(a.path)]
+                    if not left and not files_left:
+                        break
+                    if time.monotonic() >= deadline:
+                        break
+                    host.sleep(poll)
+                # 以最后一次读回为准：每个 hash 只在「已删」或「失败」其中一个列表里
                 left = {t.hash for t in host.list_torrents(hashes)}
-                files_left = [a for a in plan.actions if a.via == "torrent" and os.path.lexists(a.path)]
-                if not left and not files_left:
-                    break
-                if time.monotonic() >= deadline:
-                    break
-                host.sleep(poll)
-            left = {t.hash for t in host.list_torrents(hashes)}
-            result["torrents_removed"] = [h for h in hashes if h not in left]
-            result["torrents_failed"] = sorted(set(result["torrents_failed"]) | left)
-        # 3. qB 没带走的源文件（不在种子里，或种子已不在）经 MP 存储删除
+                result["torrents_removed"] = [h for h in hashes if h not in left]
+                result["torrents_failed"] = sorted(left)
+                qb_clear = not left
+            except Exception as error:  # noqa: BLE001
+                qb_clear = False
+                result["torrents_failed"] = sorted(set(result["torrents_failed"]) | set(hashes))
+                result["failed"].append(f"读取 qB 任务失败，种子状态不明：{error}")
+        # 3. qB 没带走的源文件（不在种子里，或种子已确认不在）经 MP 存储删除。
+        #    qB 任务还在或状态不明时，种子里的源文件一律不删：删了会让任务指向缺失的文件。
         for action in plan.actions:
             if action.role == "library":
                 continue
-            if os.path.lexists(action.path):
-                _delete(action, host, result)
-            else:
+            if not os.path.lexists(action.path):
                 result["deleted"].append(action.path)
+            elif action.via == "torrent" and not qb_clear:
+                result["failed"].append(f"{action.path}：qB 任务没有删掉，源文件保留")
+            else:
+                _delete(action, host, result)
         # 4. 文件都没了的整理记录、下载文件记录
         gone_sources = [a.path for a in plan.actions if a.role != "library" and not os.path.lexists(a.path)]
         if gone_sources:
