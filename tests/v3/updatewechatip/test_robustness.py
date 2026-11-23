@@ -550,8 +550,8 @@ def test_login_worker_notifies_success_when_party_list_empty():
     assert "未知企业" in sent[0][1]
 
 
-def test_submit_captcha_skips_ack_for_same_origin_channel():
-    """站内渠道提交后近乎即时返回，不再额外插入中间回执。"""
+def test_submit_captcha_skips_ack_when_channel_reports_processing_status():
+    """宿主能显示处理中状态的渠道不再插入中间回执。"""
     plugin = make_plugin(SimpleNamespace(get_cookies=lambda: {"wwrtx.sid": "sid"}))
     sent = []
     plugin.post_message = lambda **kwargs: sent.append(kwargs.get("title"))
@@ -563,10 +563,29 @@ def test_submit_captcha_skips_ack_for_same_origin_channel():
     plugin._login_success = lambda: None
     plugin._party_cache_data = {"party_list": {"list": [{"name": "企业A"}]}}
 
-    plugin._submit_captcha(NotificationChannel.Web, "user", "qrcode")
+    plugin._submit_captcha(NotificationChannel.Telegram, "user", "qrcode")
 
     assert "验证码已提交" not in sent
     assert sent[0] == "confirm"
+
+
+def test_submit_captcha_keeps_ack_for_interactive_channel_without_processing_status():
+    """WebAgent 可点按钮但没有处理中状态，提交等待期间仍需一条回执。"""
+    plugin = make_plugin(SimpleNamespace(get_cookies=lambda: {"wwrtx.sid": "sid"}))
+    sent = []
+    plugin.post_message = lambda **kwargs: sent.append(kwargs.get("title"))
+    plugin._tl_key = "tl"
+    plugin._captcha = {"qrcode": "123456"}
+    plugin._captcha_length = 6
+    plugin._confirm_captcha = lambda *args, **kwargs: sent.append("confirm")
+    plugin._party_cache = lambda: True
+    plugin._login_success = lambda: None
+    plugin._party_cache_data = {"party_list": {"list": [{"name": "企业A"}]}}
+
+    plugin._submit_captcha(NotificationChannel.WebAgent, "user", "qrcode")
+
+    assert sent[0] == "验证码已提交"
+    assert "登录成功" in sent
 
 
 def test_submit_captcha_sends_ack_before_submitting():

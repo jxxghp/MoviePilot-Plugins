@@ -1622,8 +1622,8 @@ class UpdateWeChatIp(_PluginBase):
                 ),
             )
             return
-        # 站内渠道提交后近乎即时返回，中间回执反而多一条消息
-        if not self._is_same_origin_channel(channel):
+        # 有处理中状态的渠道由宿主显示等待反馈，其余渠道需要一条文字回执
+        if not self._channel_supports(channel, ChannelCapability.PROCESSING_STATUS):
             self._notify_quiet(channel, userid, "验证码已提交", "正在向企业微信提交验证码，请稍候…")
         try:
             self._confirm_captcha(self._tl_key, captcha)
