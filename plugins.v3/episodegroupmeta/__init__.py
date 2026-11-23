@@ -144,7 +144,7 @@ class EpisodeGroupMeta(_PluginBase):
     # 主题色
     plugin_color = "#098663"
     # 插件版本
-    plugin_version = "3.2.4"
+    plugin_version = "3.2.5"
     # 插件作者
     plugin_author = "叮叮当"
     # 作者主页
@@ -183,6 +183,8 @@ class EpisodeGroupMeta(_PluginBase):
     _storage_chain = None
     # 同一媒体的连续事件去抖状态，随配置重建
     _debounce = None
+    # 手动模式下已提醒过的剧集组集合，避免同一批入库逐集通知
+    _manual_notified: Dict[str, str] = {}
 
     def init_plugin(self, config: dict = None):
         # 每次装配使用独立取消令牌，避免重载时清除旧实例仍在等待的停止信号。
@@ -193,12 +195,13 @@ class EpisodeGroupMeta(_PluginBase):
         # 存储链与路径映射随配置重建，避免重载后继续沿用旧实例
         self._storage_chain = None
         self._local_image_mappings = []
+        self._manual_notified = {}
         if config:
             self._enabled = config.get("enabled")
             self._notify = config.get("notify", True)
             self._autorun = config.get("autorun", True)
             self._ignorelock = config.get("ignorelock")
-            self._delay = config.get("delay") or 120
+            self._delay = self.__parse_delay(config.get("delay"))
             try:
                 self._debounce_max_minutes = max(1, int(config.get("debounce_max") or 10))
             except (TypeError, ValueError):
@@ -220,6 +223,18 @@ class EpisodeGroupMeta(_PluginBase):
             self._delay,
             max(float(self._debounce_max_minutes or 10) * 60, float(self._delay or 0) * 2),
         )
+
+    @staticmethod
+    def __parse_delay(value: Any) -> int:
+        """
+        解析入库延迟秒数：未配置时使用默认 120，显式 0 表示关闭去抖。
+        """
+        if value is None or value == "":
+            return 120
+        try:
+            return max(0, int(float(value)))
+        except (TypeError, ValueError):
+            return 120
 
     def get_state(self) -> bool:
         return self._enabled
@@ -266,6 +281,7 @@ class EpisodeGroupMeta(_PluginBase):
         if normalize_media_source(media_source) != MediaSource.TMDB or not media_key:
             return schemas.Response(success=False, message="缺少有效的 TMDB 媒体身份")
         self.del_data(media_key)
+        self._manual_notified.pop(str(media_id), None)
         return schemas.Response(success=True, message="删除成功")
 
     def go_start_rt(
@@ -296,6 +312,8 @@ class EpisodeGroupMeta(_PluginBase):
         if self.start_rt(mediainfo, episode_groups, group_id):
             self.log_info("刮削剧集组, 执行成功!")
             self.systemmessage.put("刮削剧集组, 执行成功!", title="剧集组刮削")
+            # 手动执行后重新放开该剧的待处理提醒
+            self._manual_notified.pop(str(media_id), None)
             # 处理成功时， 发送通知
             if self._notify:
                 self.post_message(
@@ -987,16 +1005,11 @@ class EpisodeGroupMeta(_PluginBase):
             }
             self.save_data(build_media_key(MediaSource.TMDB, tmdb_media_id), data)
             self.log_info("写入待处理数据 - ok")
-        # 禁止自动刮削时直接返回
+        # 禁止自动刮削时只写待处理数据，同一剧集组集合仅提醒一次
         if not self._autorun:
             self.log_warn(f"{mediainfo.title} 未勾选自动刮削, 无需处理")
-            # 发送通知
-            if self._notify and mediainfo_dict:
-                self.post_message(
-                    mtype=schemas.NotificationType.Manual,
-                    title="【待手动处理的剧集组】",
-                    text=f"媒体名称：{mediainfo.title}\n发行年份: {mediainfo.year}\n剧集组数: {len(episode_groups)}"
-                )
+            if self._notify and mediainfo_dict and self.__manual_notify_due(tmdb_media_id, episode_groups):
+                self.__notify_episode_groups("【待手动处理的剧集组】", mediainfo, episode_groups)
             return
         # 未设置延迟时直接处理
         if not self._delay or self._debounce is None:
@@ -1056,6 +1069,30 @@ class EpisodeGroupMeta(_PluginBase):
         except Exception as err:
             self.log_error(f"剧集组刮削任务异常: {str(err)}")
             self._debounce.discard(debounce_key)
+
+    def __notify_episode_groups(self, title: str, mediainfo: schemas.MediaInfo, episode_groups: Any) -> None:
+        """
+        发送剧集组提示消息，统一各分支的通知格式。
+        """
+        self.post_message(
+            mtype=schemas.NotificationType.Manual,
+            title=title,
+            text=f"媒体名称：{mediainfo.title}\n发行年份: {mediainfo.year}\n剧集组数: {len(episode_groups)}"
+        )
+
+    def __manual_notify_due(self, tmdb_media_id: str, episode_groups: Any) -> bool:
+        """
+        手动模式下按剧集组集合去重提醒：同一部剧的同一组集合只提醒一次，
+        剧集组变化或用户手动执行/删除待处理数据后重新提醒。
+        """
+        fingerprint = ",".join(
+            str(group.get("id")) for group in episode_groups or [] if isinstance(group, dict)
+        )
+        if self._manual_notified.get(tmdb_media_id) == fingerprint:
+            self.log_info(f"待处理提醒已发送, 跳过重复提醒: {tmdb_media_id}")
+            return False
+        self._manual_notified[tmdb_media_id] = fingerprint
+        return True
 
     def start_rt(self, mediainfo: schemas.MediaInfo, episode_groups: Any | None, group_id: str = None) -> bool:
         """
