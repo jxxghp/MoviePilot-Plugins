@@ -1,4 +1,4 @@
-from typing import Any, List, Dict, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from app.core.config import settings
 from app.core.event import eventmanager
@@ -16,7 +16,7 @@ class WebHook(_PluginBase):
     # 插件图标
     plugin_icon = "webhook.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -128,10 +128,95 @@ class WebHook(_PluginBase):
     def get_page(self) -> List[dict]:
         pass
 
+    @classmethod
+    def _serialize_event_data(cls, value: Any, _active: Optional[Set[int]] = None) -> Any:
+        """
+        将事件载荷只读地转换为可发送的数据结构，不改写原始事件及其嵌套对象。
+
+        广播事件在不同监听器之间共享模型实例、嵌套容器以及枚举单例；这里始终构造
+        新的容器并保留既有出站结构兼容，避免原地修改 ``dict``、``list`` 或对象
+        ``__dict__``，同时通过当前递归路径集合断开循环引用。
+        """
+        if _active is None:
+            _active = set()
+
+        if isinstance(value, dict):
+            obj_id = id(value)
+            if obj_id in _active:
+                return str(value)
+            _active.add(obj_id)
+            try:
+                return {
+                    (
+                        k
+                        if isinstance(k, (str, int, float, bool, type(None)))
+                        else str(k)
+                    ): cls._serialize_event_data(v, _active)
+                    for k, v in tuple(value.items())
+                }
+            finally:
+                _active.discard(obj_id)
+
+        if isinstance(value, list):
+            obj_id = id(value)
+            if obj_id in _active:
+                return str(value)
+            _active.add(obj_id)
+            try:
+                return [cls._serialize_event_data(item, _active) for item in tuple(value)]
+            finally:
+                _active.discard(obj_id)
+
+        if isinstance(value, tuple):
+            obj_id = id(value)
+            if obj_id in _active:
+                return str(value)
+            _active.add(obj_id)
+            try:
+                return tuple(cls._serialize_event_data(item, _active) for item in value)
+            finally:
+                _active.discard(obj_id)
+
+        if isinstance(value, set):
+            obj_id = id(value)
+            if obj_id in _active:
+                return str(value)
+            _active.add(obj_id)
+            try:
+                # JSON 不支持 set，转换为新列表以保证请求体可正常序列化
+                return [cls._serialize_event_data(item, _active) for item in tuple(value)]
+            finally:
+                _active.discard(obj_id)
+
+        if not isinstance(value, type) and callable(getattr(value, "to_dict", None)):
+            obj_id = id(value)
+            if obj_id in _active:
+                return str(value)
+            _active.add(obj_id)
+            try:
+                return cls._serialize_event_data(value.to_dict(), _active)
+            finally:
+                _active.discard(obj_id)
+
+        if hasattr(value, "__dict__"):
+            obj_id = id(value)
+            if obj_id in _active:
+                return str(value)
+            _active.add(obj_id)
+            try:
+                return cls._serialize_event_data(value.__dict__, _active)
+            finally:
+                _active.discard(obj_id)
+
+        if isinstance(value, (int, float, str, bool, type(None))):
+            return value
+
+        return str(value)
+
     @eventmanager.register(EventType)
     def send(self, event):
         """
-        向第三方Webhook发送请求
+        向第三方Webhook发送请求，将原始事件视为只读输入。
         """
         if not self._enabled or not self._webhook_url:
             return
@@ -139,37 +224,16 @@ class WebHook(_PluginBase):
         if not event or not event.event_type:
             return
 
-        def __to_dict(_event):
-            """
-            递归将对象转换为字典
-            """
-            if isinstance(_event, dict):
-                for k, v in _event.items():
-                    _event[k] = __to_dict(v)
-                return _event
-            elif isinstance(_event, list):
-                for i in range(len(_event)):
-                    _event[i] = __to_dict(_event[i])
-                return _event
-            elif isinstance(_event, tuple):
-                return tuple(__to_dict(list(_event)))
-            elif isinstance(_event, set):
-                return set(__to_dict(list(_event)))
-            elif hasattr(_event, 'to_dict'):
-                return __to_dict(_event.to_dict())
-            elif hasattr(_event, '__dict__'):
-                return __to_dict(_event.__dict__)
-            elif isinstance(_event, (int, float, str, bool, type(None))):
-                return _event
-            else:
-                return str(_event)
-
         version = getattr(settings, "VERSION_FLAG", "v1")
-        event_type = event.event_type if version == "v1" else event.event_type.value
+        event_type = (
+            event.event_type
+            if version == "v1"
+            else getattr(event.event_type, "value", event.event_type)
+        )
 
         event_info = {
             "type": event_type,
-            "data": __to_dict(event.event_data)
+            "data": self._serialize_event_data(event.event_data)
         }
 
         try:
