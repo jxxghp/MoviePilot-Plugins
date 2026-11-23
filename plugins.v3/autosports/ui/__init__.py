@@ -340,16 +340,32 @@ class Ui:
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    # 'md': 6
+                                    'md': 6
                                 },
                                 'content': [
                                     {
-                                        'component': 'VTextarea',
+                                        'component': 'VTextField',
                                         'props': {
                                             'model': 'football_apikey',
                                             'label': '比赛元数据 API key (请前往 football-data.org 自行获取)',
-                                            'rows': 3,
                                             'placeholder': '请输入 football-data.org 上有效的 API key'
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'max_download',
+                                            'label': '单次运行最大下载比赛场数',
+                                            'placeholder': '3'
                                         }
                                     }
                                 ]
@@ -363,7 +379,6 @@ class Ui:
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
                                 },
                                 'content': [
                                     {
@@ -373,24 +388,6 @@ class Ui:
                                             'label': '球队名关键词（英文），只支持单球队，一行一个',
                                             'rows': 3,
                                             'placeholder': 'Barcelona'
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 6
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextarea',
-                                        'props': {
-                                            'model': 'max_download',
-                                            'label': '单次运行最大下载比赛场数',
-                                            'rows': 3,
-                                            'placeholder': '3'
                                         }
                                     }
                                 ]
@@ -412,7 +409,7 @@ class Ui:
                                         'props': {
                                             'model': 'include',
                                             'label': '包含',
-                                            'placeholder': '支持正则表达式'
+                                            'placeholder': '支持正则表达式，多个用逗号分隔'
                                         }
                                     }
                                 ]
@@ -429,7 +426,7 @@ class Ui:
                                         'props': {
                                             'model': 'exclude',
                                             'label': '排除',
-                                            'placeholder': '支持正则表达式'
+                                            'placeholder': '支持正则表达式，多个用逗号分隔'
                                         }
                                     }
                                 ]
@@ -701,7 +698,7 @@ class Ui:
             "tags": [],
             "size_range": "",
             "force_en": False,
-            "lowest_px": "720",
+            "lowest_pix": "720",
             "transfer_type": "link",
             "need_rename": True,
             "max_download": 3,
@@ -772,6 +769,8 @@ class Ui:
                                     'params': {
                                         'key': competition_name,
                                         'roundinfo': roundinfo,
+                                        'matchmake': matchmake or '',
+                                        'torrent_title': history.get('torrent_title') or '',
                                         'apikey': settings.API_TOKEN,
                                     }
                                 }
@@ -923,9 +922,23 @@ class Ui:
             }
         ]
 
-    def delete_history(self, key: str, roundinfo: str, apikey: str):
+    def delete_history(
+        self,
+        key: str,
+        roundinfo: str,
+        apikey: str,
+        matchmake: str = "",
+        torrent_title: str = "",
+    ):
         """
-        删除同步历史记录
+        删除同步历史记录。
+
+        :param key: 赛事名称
+        :param roundinfo: 季集轮次文本（如 S2025E31）
+        :param apikey: 插件 API 密钥
+        :param matchmake: 可选对阵文本，传入后用于同轮多场比赛精确区分
+        :param torrent_title: 可选原始种子名，传入后用于精确删除单条记录
+        :return: 接口操作响应
         """
         if apikey != settings.API_TOKEN:
             return schemas.Response(success=False, message="API密钥错误")
@@ -933,9 +946,21 @@ class Ui:
         histories = self.get_data('history')
         if not histories:
             return schemas.Response(success=False, message="未找到历史记录")
+
+        def _is_target(item: dict) -> bool:
+            """
+            判断历史条目是否精确匹配待删除记录。
+            """
+            if item.get("competition_name") != key or item.get("roundinfo") != roundinfo:
+                return False
+            if torrent_title and item.get("torrent_title"):
+                return item.get("torrent_title") == torrent_title
+            if matchmake and item.get("matchmake"):
+                return item.get("matchmake") == matchmake
+            return True
+
         # 删除指定记录
-        histories = [h for h in histories if (
-            h.get("competition_name") != key or h.get("roundinfo") != roundinfo)]
+        histories = [h for h in histories if not _is_target(h)]
         self.save_data('history', histories)
         return schemas.Response(success=True, message="删除成功")
 

@@ -1,4 +1,5 @@
 import re
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -29,9 +30,13 @@ class FileMonitorHandler(FileSystemEventHandler):
         self.file_change = file_change
 
     def on_created(self, event):
+        if getattr(event, "is_directory", False):
+            return
         self.file_change.event_handler(event=event, source_dir=self._watch_path, event_path=event.src_path)
 
     def on_moved(self, event):
+        if getattr(event, "is_directory", False):
+            return
         self.file_change.event_handler(event=event, source_dir=self._watch_path, event_path=event.dest_path)
 
 class Monitor:
@@ -45,6 +50,8 @@ class Monitor:
         :param source_dir: 监控目录
         :param event_path: 事件文件路径
         """
+        if getattr(event, "is_directory", False):
+            return
 
         # 回收站及隐藏的文件不处理（统一成 / 分隔，兼容 Windows 反斜杠路径）
         event_posix = Path(event_path).as_posix()
@@ -56,11 +63,10 @@ class Monitor:
             return
 
         # 命中过滤关键字不处理
-        if self._exclude:
-            for keyword in self._exclude.split("\n"):
-                if keyword and re.findall(keyword, event_path):
-                    logger.info(f"{event_path} 命中过滤关键字 {keyword}，不处理")
-                    return
+        exclude_patterns = self._split_filter_patterns(self._exclude)
+        if exclude_patterns and self._matches_any_pattern(exclude_patterns, event_path):
+            logger.info(f"{event_path} 命中过滤关键字，不处理")
+            return
 
         # 不是媒体文件不处理
         if Path(event_path).suffix.lower() not in settings.RMT_MEDIAEXT:
@@ -115,24 +121,74 @@ class Monitor:
                     return None
 
     @staticmethod
-    def get_thumb(video_path: str, image_path: str, frames: str = None):
+    def get_thumb(video_path: str, image_path: str, frames: str = None) -> bool:
         """
-        使用ffmpeg从视频文件中截取缩略图
+        使用参数列表安全调用 ffmpeg 从视频文件中截取缩略图，避免 Shell 注入与特殊字符解析失败。
+
+        :param video_path: 源视频文件路径
+        :param image_path: 输出缩略图路径
+        :param frames: 截取时间点，默认 00:00:10
+        :return: 成功生成缩略图文件时返回 True
         """
         if not frames:
             frames = "00:00:10"
         if not video_path or not image_path:
             return False
-        cmd = 'ffmpeg -y -i "{video_path}" -ss {frames} -frames 1 "{image_path}"'.format(
-            video_path=video_path,
-            frames=frames,
-            image_path=image_path)
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-ss",
+            str(frames),
+            "-i",
+            str(video_path),
+            "-frames:v",
+            "1",
+            str(image_path),
+        ]
+        try:
+            result = subprocess.run(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                timeout=60,
+                check=False,
+            )
+            if result.returncode != 0:
+                stderr_text = (result.stderr or b"").decode("utf-8", errors="ignore").strip()
+                logger.debug(f"ffmpeg 截帧返回状态码 {result.returncode}：{stderr_text[:200]}")
+                return False
+            return Path(image_path).exists()
+        except (OSError, subprocess.SubprocessError) as err:
+            logger.warning(f"调用 ffmpeg 截帧异常（{video_path}）：{err}")
+            return False
 
-        result = SystemUtils.execute(cmd)
+    @staticmethod
+    def _read_subtitle_from_nfo(nfo_path: Path) -> str:
+        """
+        从同目录同名 ``.nfo`` 文件的 ``<title>`` 节点读取对阵信息，用于同轮多场精确查重。
 
-        if result:
-            return True
-        return False
+        :param nfo_path: 对应的单场 NFO 文件路径
+        :return: 对阵副标题（如 ``主队 vs 客队``），缺失或解析失败时返回空字符串
+        """
+        if not nfo_path.is_file():
+            return ""
+        try:
+            doc = minidom.parse(str(nfo_path))
+            title_nodes = doc.getElementsByTagName("title")
+            if not title_nodes or not title_nodes[0].hasChildNodes():
+                return ""
+            title_text = "".join(
+                node.data for node in title_nodes[0].childNodes if getattr(node, "data", None)
+            ).strip()
+            if " - " in title_text:
+                candidate = title_text.split(" - ")[-1].strip()
+                if " vs " in candidate.lower():
+                    return candidate
+            if " vs " in title_text.lower():
+                return title_text
+        except Exception as err:
+            logger.debug(f"读取 NFO 对阵信息失败（{nfo_path}）：{err}")
+        return ""
 
     def _parse_file_metadata(self, filepath: str, saved: bool = False):
         """
@@ -164,6 +220,10 @@ class Monitor:
             return None, None, None
         if saved:
             match_filemeta, match_episode_info = self.recognized_saved_match_metainfo(metainfo=match_filemeta)
+            if match_filemeta:
+                match_filemeta.title = match_mediainfo.title
+                if not match_filemeta.subtitle:
+                    match_filemeta.subtitle = self._read_subtitle_from_nfo(Path(filepath).with_suffix(".nfo"))
         else:
             match_filemeta, match_episode_info = self.recognized_match_metainfo(match_mediainfo=match_mediainfo,
                                                                               metainfo=match_filemeta)
@@ -173,7 +233,7 @@ class Monitor:
         """
         判断比赛文件是否存在于文件系统（网盘或本地文件），只支持标准媒体库结构
         :param use_cache: 是否允许复用短时缓存，目录监控高频调用时开启
-        :return: 如不存在返回None，存在时返回信息，包括每季已存在所有集{type: movie/tv, seasons: {season: [episodes]}}
+        :return: 存在时返回 {赛事名: {赛季: [集数或(集数, 对阵集合)]}}，未启用或未配置时返回空字典
         """
         if not settings.LOCAL_EXISTS_SEARCH:
             logger.info("MP 全局文件扫描设置未开启，无法进行本地比赛入库检查")
@@ -190,7 +250,7 @@ class Monitor:
                 return {name: {season: list(episodes) for season, episodes in seasons.items()}
                         for name, seasons in cached.items()}
 
-        logger.info(f"正在转移目录中查找已入库所有比赛的信息...")
+        logger.info("正在转移目录中查找已入库所有比赛的信息...")
 
         # 检索本地所有集数
         matches: Dict[str, Dict[int, list]] = dict()
@@ -202,19 +262,11 @@ class Monitor:
                 # 未识别到有效信息，跳过
                 continue
 
-            competition_name = mediainfo.title
-            season_index = file_meta.begin_season or 1
-            episode_index = file_meta.begin_episode
-            if not competition_name:
+            if not mediainfo.title or not file_meta.begin_episode:
                 continue
-            if not episode_index:
-                continue
-            matches.setdefault(competition_name, {})
-            matches[competition_name].setdefault(season_index, [])
-            if season_index not in matches[competition_name]:
-                matches[competition_name][season_index] = []
-            if episode_index not in matches[competition_name][season_index]:
-                matches[competition_name][season_index].append(episode_index)
+            file_meta.title = mediainfo.title
+            file_meta.begin_season = file_meta.begin_season or 1
+            self.add_match_to_vault(exist_matches=matches, gotten_match_metainfo=file_meta)
 
         # 返回已入库比赛情况
         if matches:
@@ -225,11 +277,12 @@ class Monitor:
                 }
                 # 比赛轮次排序
                 for season in matches[competition_name].keys():
-                    # 比赛轮次排序
-                    matches[competition_name][season].sort()
+                    matches[competition_name][season].sort(
+                        key=lambda item: item[0] if isinstance(item, tuple) else item
+                    )
                 logger.info(f"{competition_name} 在转移目录中找到了这些赛季/轮次：{matches[competition_name]}")
         else:
-            logger.info(f"转移目录中未找到任何比赛的任何赛季/轮次")
+            logger.info("转移目录中未找到任何比赛的任何赛季/轮次")
 
         # 缓存扫描结果，供目录监控的后续文件事件复用
         with self._vault_cache_lock:
@@ -284,12 +337,13 @@ class Monitor:
                         target_dir = TransferDirectoryConf()
                         target_dir.library_path = dest_dir
                         target_dir.transfer_type = self._transfer_type
-                        target_dir.renaming = True
+                        target_dir.renaming = bool(rename_conf)
                         target_dir.notify = False
                         target_dir.overwrite_mode = 'never'
                         target_dir.library_storage = "local"
                     else:
                         target_dir.transfer_type = self._transfer_type
+                        target_dir.renaming = bool(rename_conf)
 
                     if not target_dir.library_path:
                         logger.error(f"未配置监控目录 {dest_dir} 的目的目录")
@@ -346,8 +400,7 @@ class Monitor:
                 # 生成刮削信息
                 # 生成 tvshow.nfo
                 target_file = Path(target_path_str)
-                target_file_name = target_file.name
-                title = str.split(target_file_name, ".")[0]
+                title = target_file.stem
                 # 生成赛事的NFO文件
                 if not (target_file.parent.parent / "tvshow.nfo").exists():
                     self._gen_competition_nfo_file(dir_path=target_file.parent.parent, mediainfo=mediainfo)
@@ -356,46 +409,27 @@ class Monitor:
                     self._gen_match_nfo_file(dir_path=target_file.parent, title=title,
                                               file_meta=file_meta, episode_meta=episode_info)
 
-                # 生成缩略图
-                if not (target_file.parent / f"{title}_poster.jpg").exists():
+                # 生成缩略图（独立于自动重命名开关）
+                poster_path = target_file.parent / f"{title}_poster.jpg"
+                if not poster_path.exists():
                     thumb_path = self.gen_file_thumb(title=title,
-                                                     rename_conf=rename_conf,
+                                                     rename_conf=True,
                                                      file_path=target_file)
                     if thumb_path and Path(thumb_path).exists():
                         self._save_poster(input_path=thumb_path,
-                                           poster_path=target_file.parent / f"{title}_poster.jpg",
-                                           cover_conf="16:9")
-                        if (target_file.parent / f"{title}_poster.jpg").exists():
+                                          poster_path=poster_path,
+                                          cover_conf="16:9")
+                        if poster_path.exists():
                             logger.debug(f"{target_file.parent} / {title}_poster.jpg 缩略图已生成")
-                        thumb_path.unlink()
-                    else:
-                        # 检查是否有缩略图
-                        thumb_files = SystemUtils.list_files(directory=target_file.parent,
-                                                             extensions=[".jpg"])
-                        if thumb_files:
-                            # 生成poster
-                            for thumb in thumb_files:
-                                self._save_poster(input_path=thumb,
-                                                   poster_path=target_file.parent / f"{title}_poster.jpg",
-                                                   cover_conf="16:9")
-                                break
-                            if (target_file.parent / f"{title}_poster.jpg").exists():
-                                logger.debug(f"{target_file.parent} / {title}_poster.jpg 缩略图已生成")
-                            # 删除多余jpg
-                            for thumb in thumb_files:
-                                Path(thumb).unlink()
+                        Path(thumb_path).unlink(missing_ok=True)
 
                 if self._notify:
-                    # 发送消息
-                    # TODO: 发送消息添加缓存机制
-                    # if title not in self._cached_messages:
                     # 发送消息
                     self.post_message(mtype=MessageType.Organize,
                                       title=f"体育比赛【{title}】已入库",
                                       text=f"赛事：{file_meta.title}\n"
-                                           f"轮次: {file_meta.cn_name.split(' - ')[0] + file_meta.cn_name.split(' - ')[1]}\n"
+                                           f"轮次: {self._format_round_display(file_meta.cn_name)}\n"
                                            f"对阵: {file_meta.subtitle}")
-                        # self._cached_messages.append(title)
         except Exception as e:
             logger.error(f"文件整理/重命名模块运行错误，详细信息: {e}")
 
@@ -441,7 +475,8 @@ class Monitor:
         DomUtils.add_node(doc, root, "originaltitle", file_meta.en_name or '')
         DomUtils.add_node(doc, root, "season", file_meta.begin_season or '')
         DomUtils.add_node(doc, root, "episode", file_meta.begin_episode or '')
-        DomUtils.add_node(doc, root, "aired", str(episode_meta.air_date).split(' ')[0] or '')
+        aired_str = str(episode_meta.air_date).split(' ')[0] if episode_meta and episode_meta.air_date else ''
+        DomUtils.add_node(doc, root, "aired", aired_str)
         # 保存
         self._save_nfo(doc, dir_path.joinpath(f"{title}.nfo"))
 
@@ -460,36 +495,35 @@ class Monitor:
         截取图片做封面
         """
         try:
-            image = Image.open(input_path)
+            with Image.open(input_path) as image:
+                # 需要截取的长宽比（比如 16:9）
+                if not cover_conf:
+                    target_ratio = 2 / 3
+                else:
+                    covers = cover_conf.split(":")
+                    target_ratio = int(covers[0]) / int(covers[1])
 
-            # 需要截取的长宽比（比如 16:9）
-            if not cover_conf:
-                target_ratio = 2 / 3
-            else:
-                covers = cover_conf.split(":")
-                target_ratio = int(covers[0]) / int(covers[1])
+                # 获取原始图片的长宽比
+                original_ratio = image.width / image.height
 
-            # 获取原始图片的长宽比
-            original_ratio = image.width / image.height
+                # 计算截取后的大小
+                if original_ratio > target_ratio:
+                    new_height = image.height
+                    new_width = int(new_height * target_ratio)
+                else:
+                    new_width = image.width
+                    new_height = int(new_width / target_ratio)
 
-            # 计算截取后的大小
-            if original_ratio > target_ratio:
-                new_height = image.height
-                new_width = int(new_height * target_ratio)
-            else:
-                new_width = image.width
-                new_height = int(new_width / target_ratio)
+                # 计算截取的位置
+                left = (image.width - new_width) // 2
+                top = (image.height - new_height) // 2
+                right = left + new_width
+                bottom = top + new_height
 
-            # 计算截取的位置
-            left = (image.width - new_width) // 2
-            top = (image.height - new_height) // 2
-            right = left + new_width
-            bottom = top + new_height
+                # 截取图片
+                cropped_image = image.crop((left, top, right, bottom))
 
-            # 截取图片
-            cropped_image = image.crop((left, top, right, bottom))
-
-            # 保存截取后的图片
-            cropped_image.save(poster_path)
+                # 保存截取后的图片
+                cropped_image.save(poster_path)
         except Exception as e:
             logger.error(f"生成海报失败：{str(e)}")

@@ -20,13 +20,13 @@ def build_sportscult_indexer() -> dict:
         "search": {
             "paths": [
                 {
-                    "path": "index.php?page=torrents&active=1&gold=0&search={keyword}&&order=3&by=2",
+                    "path": "index.php?page=torrents&active=1&gold=0&search={keyword}&order=3&by=2",
                     "method": "get"
                 }
             ]
         },
         "browse": {
-            "path": "?p={page}",
+            "path": "index.php?page=torrents&active=1&gold=0&order=3&by=2&pages={page}",
             "start": 1
         },
         "category": {
