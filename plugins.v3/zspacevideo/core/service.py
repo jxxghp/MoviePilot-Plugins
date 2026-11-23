@@ -317,6 +317,10 @@ class Service:
                              message="完成")
                 self.log.info(f"极空间影视：{batch.library_name} 刷新完成（任务 {task_id}）")
                 self._alerted = None
+            elif status is None and self._stop.is_set():
+                # 插件停止（例如保存配置重新初始化）打断了轮询：任务可能仍在极空间里跑完，不算失败、不提醒
+                self._update(record, status="cancelled", finished_at=self._clock(),
+                             message=f"插件已停止，未等到结果（任务 {task_id}）")
             else:
                 msg = "查询超时，任务未到终态" if status is None else f"任务状态 {status}"
                 self._update(record, status="failed", task_status=status, finished_at=self._clock(),

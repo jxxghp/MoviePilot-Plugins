@@ -487,3 +487,18 @@ class StopBeforeSubmitTest:
         svc._execute(batches[0], record)
         assert cli.calls == []
         assert svc.history()[0]["status"] == "cancelled"
+
+    def test_stop_while_polling_is_not_a_failure(self):
+        notes = []
+        cli = FakeVideoCli(statuses=(1, 1, 1, 1))
+        settings = Settings(enabled=True, quiet_seconds=0, max_wait_seconds=0,
+                            library_dirs="\n".join(f"{x.id} = {d}" for x in LIBS for d in x.dirs))
+        svc = Service(cli, settings, log=CaptureLog(), notify=lambda t, m: notes.append(m),
+                      mountinfo_reader=lambda: MOUNTINFO, poll_interval=0)
+        svc._sleep = lambda s: svc._stop.set()  # 第一次轮询后插件被停止（例如保存配置重新初始化）
+        svc.on_transfer("/downloads/anime/紫川 (2021)")
+        batch = svc.batcher.pop_due(force=True)[0]
+        svc._execute(batch, svc._new_record(batch, "transfer"))
+        assert len(cli.calls) == 1
+        assert svc.history()[0]["status"] == "cancelled"
+        assert notes == []
