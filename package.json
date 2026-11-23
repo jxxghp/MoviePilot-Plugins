@@ -280,12 +280,14 @@
   "WebHook": {
     "name": "Webhook",
     "description": "事件发生时向第三方地址发送请求。",
-    "version": "1.1",
+    "version": "1.2",
     "icon": "webhook.png",
     "author": "jxxghp",
     "level": 1,
     "v2": true,
+    "release": true,
     "history": {
+      "v1.2": "修复序列化事件数据时原地改写共享事件对象及枚举属性的问题，保持原有出站格式兼容",
       "v1.1": "兼容MoviePilot V2 版本",
       "v1.0": "新增Webhook插件，支持事件发生时向第三方地址发送请求"
     }
