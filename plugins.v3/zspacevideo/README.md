@@ -1,3 +1,5 @@
+![极空间影视](https://raw.githubusercontent.com/xiaoyaner0201/MoviePilot-ZSpaceVideo/main/docs/images/banner.jpg)
+
 # 极空间影视（ZSpaceVideo）
 
 用极空间官方 OAuth 授权（`zspace-cli`，不用 cookie）连接极影视：MoviePilot 整理完成后只刷新包含该目录的分类；极影视里看完的片子集中列出，可按选项移出库或连同做种一起删除。
@@ -27,6 +29,8 @@
 - 极空间的重新扫描接口对不属于该分类的路径也返回成功，所以目录归属由插件读只读数据库或手动配置判断。
 
 第三方组件：zspace-nas-agent-toolkit（MIT）。
+
+本项目非极空间官方出品，极空间及其产品外观为其所有者的商标。
 
 <details>
 <summary>English</summary>
@@ -60,5 +64,7 @@ Full documentation and screenshots: <https://github.com/xiaoyaner0201/MoviePilot
 - ZSpace's rescan API reports success even for folders outside the category, so the plugin decides folder ownership from the read-only database or the manual settings.
 
 Third-party component: zspace-nas-agent-toolkit (MIT).
+
+This project is not made by or affiliated with ZSpace. ZSpace and the look of its products are trademarks of their respective owners.
 
 </details>
