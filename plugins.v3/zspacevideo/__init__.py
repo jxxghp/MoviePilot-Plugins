@@ -54,7 +54,7 @@ class ZSpaceVideo(_PluginBase):
     plugin_name = "极空间影视"
     plugin_desc = "极空间官方授权登录（不用 cookie），整理后只刷新对应目录；极影视已看列表，可按选项移出库或连同做种一起删除。"
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/Zspace_A.png"
-    plugin_version = "0.2.3"
+    plugin_version = "0.2.4"
     plugin_author = "xiaoyaner0201"
     author_url = "https://github.com/xiaoyaner0201/MoviePilot-ZSpaceVideo"
     plugin_config_prefix = "zspacevideo_"

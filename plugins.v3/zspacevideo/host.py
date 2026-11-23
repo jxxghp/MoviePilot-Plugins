@@ -166,19 +166,25 @@ def delete_path(path: str, role: str) -> bool:
 
 
 def prune_dir(path: str) -> None:
-    """库里删完后，向上清理空目录（MP 的 delete_media_file 逻辑：止于媒体库分类目录）。"""
+    """库里删完后，向上清理空目录：每一层都只删真正空的目录，止于 MP 的媒体库类型/分类目录。
+
+    不用 StorageChain.delete_media_file：它往上走时只看「还有没有媒体文件」，
+    上级目录里有别的文件（如 pdf）也会整个删掉。
+    """
     from app import schemas
-    from app.chain.storage import StorageChain
-    folder = Path(path)
-    if not folder.exists():
-        return
+    from app.application.directory import DirectoryHelper
+    item = schemas.FileItem(storage="local", type="dir", path=str(Path(path)), name=Path(path).name)
+    boundaries = [str(p) for p in library_roots().library]
     try:
-        if any(folder.iterdir()):
-            return
-    except OSError:
+        root = DirectoryHelper().get_media_cleanup_root(item)
+    except Exception as error:  # noqa: BLE001
+        # 读不到分类边界就不清理：宁可留几个空目录，也不能删掉分类目录
+        logger.warning(f"极空间影视：读取媒体库清理边界失败，不清理空目录：{error}")
         return
-    item = schemas.FileItem(storage="local", type="dir", path=str(folder), name=folder.name)
-    StorageChain().delete_media_file(item, delete_self=True)
+    if root:
+        boundaries.append(str(root))
+    for removed in W.prune_empty_dirs(path, boundaries):
+        logger.info(f"极空间影视：删除空目录 {removed}")
 
 
 def delete_records(ids: Sequence[int]) -> int:

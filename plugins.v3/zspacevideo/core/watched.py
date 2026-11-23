@@ -787,6 +787,33 @@ def _add_sidecars(plan: Plan, planned: Dict[str, Action], roots: Roots) -> None:
         plan.warnings.append(f"{folder} 里不再有视频，剩下的 {len(rest)} 个附属文件（nfo/海报/字幕等）一起清掉")
 
 
+def prune_empty_dirs(path: str, boundaries: Sequence[str],
+                     rmdir: Callable[[str], None] = os.rmdir) -> List[str]:
+    """从 path 往上逐层删除空目录，返回删掉的目录。
+
+    - 每一层都必须真的为空（``os.rmdir`` 本身只删空目录，有任何文件或子目录都会失败并停下）；
+    - 只在某个边界目录（媒体库根、MP 的类型/分类目录）之下工作，边界目录本身和它的祖先永远不删；
+    - 不在任何边界之下的路径一律不动。
+    """
+    bounds = [os.path.normpath(b) for b in boundaries if b]
+    current = os.path.normpath(path)
+    inside = [b for b in bounds if within(current, b)]
+    if not inside:
+        return []
+    stop = max(inside, key=len)  # 最深的边界
+    removed: List[str] = []
+    while current != stop and within(current, stop) and os.path.isdir(current):
+        try:
+            if os.listdir(current):
+                break
+            rmdir(current)
+        except OSError:
+            break
+        removed.append(current)
+        current = os.path.dirname(current)
+    return removed
+
+
 def leftover(versions: Sequence[Version], mode: str) -> List[str]:
     """按删除选项还剩哪些能删的文件（用来判断这部片是否处理完）。"""
     left: List[str] = []

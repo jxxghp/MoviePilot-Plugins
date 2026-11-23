@@ -327,3 +327,37 @@ class QbDuplicateHashTest:
         qb._clients = lambda: [a, b]
         assert qb.delete(["h1"]) is False
         assert a.deleted == [] and b.deleted == []
+
+
+class PruneEmptyOnlyTest:
+    """删完后往上清空目录：每一层都只删真正空的目录，遇到任何文件就停，永远不删边界目录本身。"""
+
+    def test_parent_with_unknown_file_kept(self, tmp_path):
+        root = tmp_path / "tv"
+        season = root / "样剧" / "Season 1"
+        season.mkdir(parents=True)
+        (root / "样剧" / "notes.pdf").write_bytes(b"p")
+        removed = W.prune_empty_dirs(str(season), [str(root)])
+        assert removed == [str(season)]
+        assert (root / "样剧" / "notes.pdf").exists()
+
+    def test_empty_chain_stops_at_root(self, tmp_path):
+        root = tmp_path / "tv"
+        season = root / "样剧" / "Season 1"
+        season.mkdir(parents=True)
+        removed = W.prune_empty_dirs(str(season), [str(root)])
+        assert removed == [str(season), str(root / "样剧")]
+        assert root.is_dir()
+
+    def test_outside_roots_untouched(self, tmp_path):
+        other = tmp_path / "elsewhere" / "empty"
+        other.mkdir(parents=True)
+        assert W.prune_empty_dirs(str(other), [str(tmp_path / "tv")]) == []
+        assert other.is_dir()
+
+    def test_boundary_itself_never_removed(self, tmp_path):
+        root = tmp_path / "tv"
+        boundary = root / "国产剧"
+        boundary.mkdir(parents=True)
+        assert W.prune_empty_dirs(str(boundary), [str(root), str(boundary)]) == []
+        assert boundary.is_dir()
