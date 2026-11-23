@@ -501,3 +501,68 @@ def test_update_ip_accepts_valid_ipv4_and_trims():
     assert called
     assert result.success is True
     assert result.updated == 1
+
+
+def test_party_name_falls_back_on_malformed_cache():
+    """企业信息缓存结构异常时取企业名不应抛异常。"""
+    plugin = make_plugin(SimpleNamespace())
+
+    for payload in ({"party_list": {"list": []}}, {"party_list": "oops"},
+                    {"party_list": {"list": ["not-dict"]}}, "oops", None):
+        plugin._party_cache_data = payload
+        assert plugin._party_name("未知") == "未知"
+
+    plugin._party_cache_data = {"party_list": {"list": [{"name": "企业A"}]}}
+    assert plugin._party_name("未知") == "企业A"
+
+
+def test_login_worker_swallows_unexpected_error_and_notifies():
+    """后台登录线程内部异常不应冒泡，且要给出失败提示。"""
+    plugin = make_plugin(SimpleNamespace())
+    sent = []
+    plugin.post_message = lambda **kwargs: sent.append(kwargs.get("title"))
+    plugin._login_worker_impl = lambda *args, **kwargs: (_ for _ in ()).throw(
+        RuntimeError("boom")
+    )
+
+    plugin._login_worker("wechat", "user", "qrcode")
+
+    assert sent == ["登录失败"]
+
+
+def test_login_worker_notifies_success_when_party_list_empty():
+    """企业列表为空时登录成功仍要发出提示，不再因下标取值抛错。"""
+    plugin = make_plugin(SimpleNamespace(get_cookies=lambda: {"wwrtx.sid": "sid"}))
+    sent = []
+    plugin.post_message = lambda **kwargs: sent.append(kwargs.get("title"))
+    plugin._check = lambda *args, **kwargs: {"auth_code": "code"}
+    plugin._loginpage_wx = lambda *args, **kwargs: FakeResponse(
+        url="https://work.weixin.qq.com/wework_admin/frame"
+    )
+    plugin._party_cache = lambda: True
+    plugin._login_success = lambda: None
+    plugin._party_cache_data = {"party_list": {"list": []}}
+
+    plugin._login_worker("wechat", "user", "qrcode")
+
+    assert sent == ["登录成功"]
+
+
+def test_submit_captcha_sends_ack_before_submitting():
+    """提交验证码前先回执，避免用户等待期间看不到任何响应。"""
+    plugin = make_plugin(SimpleNamespace(get_cookies=lambda: {"wwrtx.sid": "sid"}))
+    sent = []
+    plugin.post_message = lambda **kwargs: sent.append(kwargs.get("title"))
+    plugin._tl_key = "tl"
+    plugin._captcha = {"qrcode": "123456"}
+    plugin._captcha_length = 6
+    plugin._confirm_captcha = lambda *args, **kwargs: sent.append("confirm")
+    plugin._party_cache = lambda: True
+    plugin._login_success = lambda: None
+    plugin._party_cache_data = {"party_list": {"list": [{"name": "企业A"}]}}
+
+    plugin._submit_captcha("wechat", "user", "qrcode")
+
+    assert sent[0] == "验证码已提交"
+    assert "confirm" in sent
+

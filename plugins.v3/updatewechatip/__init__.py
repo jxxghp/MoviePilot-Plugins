@@ -881,10 +881,7 @@ class UpdateWeChatIp(_PluginBase):
             ],
         }
 
-        # ---------- 安全获取 party 名称 ----------
-        party_cache = self._party_cache_data or {}
-        party_list = party_cache.get("party_list", {}).get("list") or [{}]
-        party_name = party_list[0].get("name", "未知")
+        party_name = self._party_name("未知")
         last_update = (
             data_list[0].UpdateTime.strftime('%Y-%m-%d %H:%M') if data_list else "暂无记录"
         )
@@ -1104,6 +1101,22 @@ class UpdateWeChatIp(_PluginBase):
         self._is_login = False
         return False
 
+    def _party_name(self, fallback: str = "") -> str:
+        """从企业信息缓存取企业名，结构异常时返回回退值。"""
+        cache = self._party_cache_data
+        party = cache.get("party_list") if isinstance(cache, dict) else None
+        items = party.get("list") if isinstance(party, dict) else None
+        first = items[0] if isinstance(items, list) and items else None
+        name = first.get("name") if isinstance(first, dict) else None
+        return str(name) if name else fallback
+
+    def _notify_quiet(self, channel, userid, title: str, text: str) -> None:
+        """发送通知；投递失败只记日志，不打断调用链。"""
+        try:
+            self.post_message(channel=channel, title=title, userid=userid, text=text)
+        except Exception as e:
+            logger.warning(f"通知发送失败: {e}")
+
     def _login(self, channel, userid, source=None, original_message_id=None, original_chat_id=None):
         """接收扫码确认并交给后台线程处理，避免在事件线程里阻塞等待。"""
         logger.info("触发登录回调，开始执行登录步骤")
@@ -1132,6 +1145,17 @@ class UpdateWeChatIp(_PluginBase):
 
     def _login_worker(self, channel, userid, qrcode_key, source=None,
                       original_message_id=None, original_chat_id=None):
+        """后台完成扫码确认与登录；异常在本层兜底，避免后台线程静默退出。"""
+        try:
+            self._login_worker_impl(channel, userid, qrcode_key, source,
+                                    original_message_id, original_chat_id)
+        except Exception as e:
+            logger.exception(f"扫码登录处理异常: {e}")
+            self._notify_quiet(channel, userid, "登录失败",
+                               "登录处理异常，请重新发送 /update_wechat_ip 扫码。")
+
+    def _login_worker_impl(self, channel, userid, qrcode_key, source=None,
+                           original_message_id=None, original_chat_id=None):
         """后台完成扫码确认与登录，需要时下发短信验证码输入交互。"""
         if not self._se:
             logger.warning("网络会话已关闭，跳过本次登录处理")
@@ -1183,7 +1207,7 @@ class UpdateWeChatIp(_PluginBase):
                         channel=channel,
                         title="登录成功",
                         userid=userid,
-                        text=f"成功登录企业:{self._party_cache_data.get('party_list', {}).get('list', [{}])[0].get('name')}",
+                        text=f"成功登录企业:{self._party_name()}",
                     )
                 else:
                     logger.error(f"登录失败,返回值:{self._party_cache_data}")
@@ -1598,6 +1622,7 @@ class UpdateWeChatIp(_PluginBase):
                 ),
             )
             return
+        self._notify_quiet(channel, userid, "验证码已提交", "正在向企业微信提交验证码，请稍候…")
         try:
             self._confirm_captcha(self._tl_key, captcha)
         except Exception as e:
@@ -1617,7 +1642,7 @@ class UpdateWeChatIp(_PluginBase):
                 channel=channel,
                 title="登录成功",
                 userid=userid,
-                text=f"成功登录企业:{self._party_cache_data.get('party_list', {}).get('list', [{}])[0].get('name')}",
+                text=f"成功登录企业:{self._party_name()}",
             )
         else:
             self.post_message(
