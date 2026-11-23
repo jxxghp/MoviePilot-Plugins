@@ -9,6 +9,7 @@ import requests
 from fastapi import HTTPException
 
 from app.plugins.updatewechatip import UpdateLogDto, UpdateWeChatIp
+from app.sdk.network import RequestUtils
 
 
 class FakeResponse:
@@ -61,7 +62,7 @@ def find_model(node, model):
 def test_save_ip_success_payload_is_recorded_as_success():
     """真实成功响应 {"data": ...} 不含 err，应记录为成功。"""
     plugin = make_plugin(SimpleNamespace(
-        post=lambda *args, **kwargs: FakeResponse(
+        post_res=lambda *args, **kwargs: FakeResponse(
             text='{"data":{"reject_subadmin_ids":[]}}',
             payload={"data": {"reject_subadmin_ids": []}},
         )
@@ -75,7 +76,7 @@ def test_save_ip_success_payload_is_recorded_as_success():
 def test_save_ip_error_payload_is_recorded_as_failure():
     """errCode 失败响应应记录为失败。"""
     plugin = make_plugin(SimpleNamespace(
-        post=lambda *args, **kwargs: FakeResponse(
+        post_res=lambda *args, **kwargs: FakeResponse(
             text='{"errCode":-4,"errMsg":"invalid ip"}',
             payload={"errCode": -4, "errMsg": "invalid ip"},
         )
@@ -90,7 +91,7 @@ def test_save_ip_nested_result_error_is_recorded_as_failure():
     """真实接口把 errCode 放在 result 内，也必须判定为失败。"""
     payload = {"statusCode": 200, "result": {"errCode": -80037, "humanMessage": "应用不存在"}}
     plugin = make_plugin(SimpleNamespace(
-        post=lambda *args, **kwargs: FakeResponse(text=json.dumps(payload), payload=payload)
+        post_res=lambda *args, **kwargs: FakeResponse(text=json.dumps(payload), payload=payload)
     ))
 
     plugin._save_ip_config()
@@ -102,8 +103,8 @@ def test_party_cache_accepts_zero_err_code():
     """成功响应即使带 errCode=0 也应判定为已登录。"""
     payload = {"errCode": 0, "data": {"party_list": {"list": [{"name": "corp"}]}}}
     session = SimpleNamespace(
-        cookies=SimpleNamespace(set=lambda *args: None),
-        post=lambda *args, **kwargs: FakeResponse(text=json.dumps(payload), payload=payload),
+        update_cookies=lambda *args: None,
+        post_res=lambda *args, **kwargs: FakeResponse(text=json.dumps(payload), payload=payload),
     )
     plugin = make_plugin(session)
     plugin._wwrtx_sid = "sid"
@@ -122,7 +123,7 @@ def test_update_log_accepts_legacy_record_without_time():
 
 def test_save_ip_without_app_id_does_not_crash():
     """未配置应用 ID 时不应抛 AttributeError。"""
-    plugin = make_plugin(SimpleNamespace(post=lambda *args, **kwargs: FakeResponse()))
+    plugin = make_plugin(SimpleNamespace(post_res=lambda *args, **kwargs: FakeResponse()))
     plugin._app_id = None
 
     plugin._save_ip_config()
@@ -134,7 +135,7 @@ def test_get_key_returns_none_on_network_error():
     def boom(*args, **kwargs):
         raise requests.ConnectionError("offline")
 
-    plugin = make_plugin(SimpleNamespace(get=boom))
+    plugin = make_plugin(SimpleNamespace(get_res=boom))
 
     assert plugin._get_key() is None
 
@@ -142,7 +143,7 @@ def test_get_key_returns_none_on_network_error():
 def test_qrcode_rejects_error_page():
     """二维码接口返回错误页时不应把它当作图片缓存。"""
     plugin = make_plugin(SimpleNamespace(
-        get=lambda *args, **kwargs: FakeResponse(status_code=403, content=b"<html>403</html>")
+        get_res=lambda *args, **kwargs: FakeResponse(status_code=403, content=b"<html>403</html>")
     ))
 
     assert plugin._qrcode("key", channel=None) is None
@@ -228,15 +229,15 @@ def test_get_buttons_use_passed_qrcode_key():
 
 
 def test_confirm_captcha_passes_tl_key_as_params():
-    """tl_key 应作为查询参数交给 requests 编码，避免特殊字符破坏 URL。"""
+    """tl_key 应作为查询参数交给请求层编码，避免特殊字符破坏 URL。"""
     calls = {}
 
-    def get(url, **kwargs):
+    def fake_get(url, **kwargs):
         calls["url"] = url
         calls["kwargs"] = kwargs
         return FakeResponse()
 
-    plugin = make_plugin(SimpleNamespace(post=lambda *args, **kwargs: FakeResponse(), get=get))
+    plugin = make_plugin(SimpleNamespace(post_res=lambda *args, **kwargs: FakeResponse(), get_res=fake_get))
 
     plugin._confirm_captcha("a+b&c", "123456")
 
@@ -259,10 +260,10 @@ def test_get_ip_from_url_returns_none_when_all_candidates_fail(monkeypatch):
     plugin = make_plugin(SimpleNamespace())
     plugin._ip_urls = ["https://one.example/ip"]
 
-    def boom(*args, **kwargs):
+    def boom(_self, *args, **kwargs):
         raise requests.ConnectionError("offline")
 
-    monkeypatch.setattr(requests, "get", boom)
+    monkeypatch.setattr(RequestUtils, "get_res", boom)
 
     assert plugin.get_ip_from_url() is None
 
@@ -273,11 +274,11 @@ def test_get_ip_from_url_skips_invalid_ipv4(monkeypatch):
     plugin._ip_urls = ["https://bad.example/ip", "https://good.example/ip"]
     plugin._headers = {"User-Agent": "test"}
 
-    def fake_get(url, **kwargs):
+    def fake_get(_self, url, **kwargs):
         text = "999.999.999.999" if "bad" in url else "当前 IP：1.2.3.4"
         return FakeResponse(text=text)
 
-    monkeypatch.setattr(requests, "get", fake_get)
+    monkeypatch.setattr(RequestUtils, "get_res", fake_get)
 
     assert plugin.get_ip_from_url() == "1.2.3.4"
 
@@ -460,7 +461,7 @@ def test_log_result_text_truncates_long_error_message():
 def test_save_ip_records_http_status_for_empty_error_response():
     """空响应的 HTTP 错误应记录状态码，而不是留下空结果。"""
     plugin = make_plugin(SimpleNamespace(
-        post=lambda *args, **kwargs: FakeResponse(status_code=403, text="")
+        post_res=lambda *args, **kwargs: FakeResponse(status_code=403, text="")
     ))
 
     plugin._save_ip_config()
@@ -498,5 +499,5 @@ def test_update_ip_accepts_valid_ipv4_and_trims():
 
     assert plugin._ip == "1.2.3.4"
     assert called
-    assert result["success"] is True
-    assert result["updated"] == 1
+    assert result.success is True
+    assert result.updated == 1
