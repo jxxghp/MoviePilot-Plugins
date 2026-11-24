@@ -55,3 +55,24 @@ def test_get_seed_info_preserves_valid_json_response():
 
     assert result == {"hash-b": {"torrent": []}}
     assert message == ""
+
+def test_reset_sites_refetches_site_list():
+    """重拉站点清单：清空缓存后再取站点会重新请求 IYUU。"""
+    response = _Response({"code": 0, "data": {"sites": [
+        {"id": 3, "site": "m-team", "nickname": "馒头", "base_url": "api.m-team.cc",
+         "download_page": "api/torrent/genDlToken", "is_https": 2},
+    ]}})
+    helper = IyuuHelper("test-token")
+    helper._sites = {3: {"base_url": "old.example", "download_page": "old"}}
+    helper._sid_sha1 = "sid-sha1"
+
+    with patch("app.plugins.iyuuautoseed.iyuu_helper.RequestUtils") as request_utils:
+        request_utils.return_value.get_res.return_value = response
+
+        helper.reset_sites()
+        assert helper._sites == {} and helper._sid_sha1 is None
+
+        base_url, download_page = helper.get_torrent_url(3)
+
+    request_utils.return_value.get_res.assert_called_once()
+    assert base_url == "api.m-team.cc" and download_page == "api/torrent/genDlToken"

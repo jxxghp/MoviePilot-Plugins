@@ -439,7 +439,7 @@
     "author": "jxxghp,CKun",
     "level": 2,
     "history": {
-      "v2.27": "取种不再追加 https=1（与 IYUU 一致）；修复 {torrent_key} 模板与无 id 的 hash 模板取种失败",
+      "v2.27": "取种不再追加 https=1；站点清单每次任务重拉；修复 {torrent_key} 与 hash 模板取种失败",
       "v2.26": "修复高清杜比等需下载凭证站点无法辅种；取种改为按 IYUU 模板分派，站点匹配不再依赖域名别名表",
       "v2.25": "修复 IYUU 与 MoviePilot 使用不同天雪域名时无法辅种的问题",
       "v2.24": "修复 IYUU 与 MoviePilot 使用不同馒头域名时无法辅种的问题",

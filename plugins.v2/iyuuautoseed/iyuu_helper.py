@@ -91,6 +91,11 @@ class IyuuHelper(object):
         return {"site": site.get("site"), "nickname": site.get("nickname"),
                 "base_url": site.get("base_url"), "is_https": site.get("is_https")}
 
+    def reset_sites(self):
+        """清空站点清单缓存，下次取用时重新向 IYUU 拉取"""
+        self._sites = {}
+        self._sid_sha1 = None
+
     def __get_sites(self) -> dict:
         """
         返回支持辅种的全部站点

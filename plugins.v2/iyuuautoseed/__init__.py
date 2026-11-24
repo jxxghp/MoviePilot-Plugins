@@ -758,6 +758,8 @@ class IYUUAutoSeed(_PluginBase):
         if not self.iyuu_helper or not self.service_infos:
             return
         logger.info("开始辅种任务 ...")
+        # 站点清单每次任务重拉，IYUU 更新站点地址后无需重载插件
+        self.iyuu_helper.reset_sites()
         # 端点失败与 rsskey 缓存只在单次任务内有效，避免一次失败固化为长期失败
         self._api_bases = {key: value for key, value in self._api_bases.items() if isinstance(value, str)}
         self._rss_keys = {}
