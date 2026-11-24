@@ -1154,7 +1154,7 @@ class IYUUAutoSeed(_PluginBase):
             site_info = self.__get_site_by_iyuu(seed.get("sid"), sites_helper)
             if site_info and site_info.get('url'):
                 site_domain = site_info.get('domain')
-                logger.debug(f"辅种站点按名称匹配：{site_domain}")
+                logger.debug(f"辅种站点按IYUU站点信息匹配：{site_domain}")
             else:
                 site_info = None
         if not site_info or not site_info.get('url'):
