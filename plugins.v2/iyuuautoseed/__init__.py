@@ -1345,7 +1345,7 @@ class IYUUAutoSeed(_PluginBase):
         if not template:
             logger.warn(f"未获取到站点 {site.get('name')} 的下载地址模板")
             return None, True
-        # IYUU 声明的站点入口，API 类模板据此拼装，域名随 IYUU 站点列表更新
+        # IYUU 声明的站点入口，API 类模板在站点地址不可用时用它拼装
         iyuu_base_url = (self.iyuu_helper.get_torrent_url(seed.get("sid")) or (None, None))[0]
         iyuu_api_base = self.__api_base(iyuu_base_url, seed.get("sid")) if iyuu_base_url else ""
 
@@ -1412,7 +1412,7 @@ class IYUUAutoSeed(_PluginBase):
             if known_base is None and site_key in self._api_bases:
                 # 本次任务内已确认该站点的 API 端点不可用，不再逐个种子重试
                 return None
-            # IYUU 的域名可能滞后于站点，失败时依次试 api 子域、注册域名与站点地址本身
+            # 依次试 MP 站点地址、IYUU 主机与注册域名，站点换域名后仍能命中
             site_domain = self.__registered_domain(site.get("domain") or site.get("url") or "")
             site_url = (site.get("url") or "").rstrip("/")
             api_bases = []
@@ -1464,7 +1464,7 @@ class IYUUAutoSeed(_PluginBase):
                     return __page_torrent_url()
                 return urljoin(site.get('url') or "", download_url), True
             if placeholders & {"hash", "downHash"}:
-                # 没有 id 的模板，hash 只能来自详情页，站点不认 API 兑换的凭证
+                # 没有 id 的模板，hash 只能从详情页取，本地无法构造
                 if "id" not in placeholders:
                     return __page_torrent_url()
                 # 模板要求站点下载凭证，先用站点API换取，换到即免 Cookie 取种
@@ -1506,7 +1506,7 @@ class IYUUAutoSeed(_PluginBase):
         """
         按 IYUU 站点声明拼 API 基地址
 
-        is_https 为 0 的站点只支持 http，其余按 https 处理。
+        IYUU 清单的 is_https 标明站点入口协议：0 走 http，其余（1/2）走 https。
 
         :param host: IYUU 返回的站点入口，可能不带协议
         :param sid: IYUU 站点 ID
@@ -1530,7 +1530,7 @@ class IYUUAutoSeed(_PluginBase):
         """
         labels = [label for label in re.sub(r"^https?://", "", (url or "").lower()).split("/")[0].split(".")
                   if label]
-        # api./www. 是常见入口前缀，保留会让 api 子域兜底拼成 api.api.xxx
+        # api./www. 是常见入口前缀，去掉后 api.m-team.cc 与 m-team.cc 归一到同一注册域
         while len(labels) > 1 and labels[0] in ("api", "www"):
             labels = labels[1:]
         if len(labels) < 2:

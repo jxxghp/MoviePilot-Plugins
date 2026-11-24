@@ -80,7 +80,7 @@ class IyuuHelper(object):
 
     def get_site_info(self, sid) -> Optional[dict]:
         """
-        返回 IYUU 站点标识、昵称与站点地址，用于与 MoviePilot 站点匹配
+        返回 IYUU 站点标识、昵称、站点地址与协议声明，用于站点匹配与拼装 API 地址
 
         :param sid: IYUU 站点 ID
         :return: 站点信息，未维护时返回 None
