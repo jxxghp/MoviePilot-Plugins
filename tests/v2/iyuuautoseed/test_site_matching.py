@@ -65,6 +65,29 @@ def test_mteam_uses_configured_alias_for_rate_limit_and_download(reseed, source,
     )
 
 
+@pytest.mark.parametrize(("source_domain", "configured_domain"), [
+    ("skyey2.com", "skyeysnow.com"),
+    ("skyeysnow.com", "skyey2.com"),
+])
+def test_skyeysnow_uses_configured_alias_for_download(reseed, source_domain, configured_domain):
+    """天雪别名命中后使用本地站点的 Cookie 和域名下载。"""
+    reseed.sites.get_indexer.side_effect = {
+        source_domain: {"id": "skyeysnow", "name": "天雪"},
+        configured_domain: {"id": 6, "name": "天雪", "url": f"https://{configured_domain}/",
+                            "cookie": "test-cookie", "ua": "test-ua"},
+    }.get
+    reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
+
+    assert _download(reseed, source_domain, "download.php?id={}&passkey={passkey}") is True
+
+    reseed.sites.check.assert_called_once_with(configured_domain)
+    reseed.torrent.download_torrent.assert_called_once_with(
+        url=f"https://{configured_domain}/download.php?id=42&https=1",
+        cookie="test-cookie", ua="test-ua", proxy=None
+    )
+    reseed.service.instance.add_torrent.assert_called_once()
+
+
 def test_exact_match_takes_priority_and_respects_site_selection(reseed):
     reseed.sites.get_indexer.side_effect = {
         "m-team.cc": {"id": 7, "url": "https://kp.m-team.cc/"},

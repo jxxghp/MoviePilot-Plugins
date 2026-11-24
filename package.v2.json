@@ -434,11 +434,12 @@
     "name": "IYUU自动辅种",
     "description": "基于IYUU官方Api实现自动辅种。",
     "labels": "做种,IYUU",
-    "version": "2.24",
+    "version": "2.25",
     "icon": "IYUU.png",
     "author": "jxxghp,CKun",
     "level": 2,
     "history": {
+      "v2.25": "修复 IYUU 与 MoviePilot 使用不同天雪域名时无法辅种的问题",
       "v2.24": "修复 IYUU 与 MoviePilot 使用不同馒头域名时无法辅种的问题",
       "v2.23": "支持猪猪实验室API辅种，改为用存取令牌换取签名下载链接",
       "v2.22": "优化过滤iyuu 种子是否已在下载器种",
