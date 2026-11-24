@@ -34,7 +34,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "2.24"
+    plugin_version = "2.25"
     # 插件作者
     plugin_author = "jxxghp,CKun"
     # 作者主页
@@ -61,8 +61,13 @@ class IYUUAutoSeed(_PluginBase):
     # 自动分类
     _auto_category = False
     _sites = []
-    # IYUU 的下载 API 域名与 MoviePilot 配置的站点入口可能使用不同后缀。
-    _site_domain_aliases = {"m-team.cc": "m-team.io", "m-team.io": "m-team.cc"}
+    # IYUU 目录与 MoviePilot 可能使用同一站点的不同域名。
+    _site_domain_aliases = {
+        "m-team.cc": "m-team.io",
+        "m-team.io": "m-team.cc",
+        "skyey2.com": "skyeysnow.com",
+        "skyeysnow.com": "skyey2.com",
+    }
     _notify = False
     _nolabels = None
     _nopaths = None
