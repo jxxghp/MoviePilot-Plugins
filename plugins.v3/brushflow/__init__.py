@@ -222,7 +222,7 @@ class BrushFlow(_PluginBase):
     plugin_name = "站点刷流"
     plugin_desc = "自动托管多个站点刷流任务，并独立调度、统计与诊断。"
     plugin_icon = "brush-flow.png"
-    plugin_version = "6.1.6"
+    plugin_version = "6.1.7"
     plugin_author = "jxxghp,InfinityPacer,Seed680"
     author_url = "https://github.com/InfinityPacer"
     plugin_config_prefix = "brushflow_"
@@ -2341,20 +2341,22 @@ class BrushFlow(_PluginBase):
             for item in conditional_hashes
             if item in torrent_info_map
         )
-        if total_size > min_size:
-            remaining_hashes = [
-                self.__get_hash(torrent)
-                for torrent in remaining_torrents
-                if self.__get_hash(torrent) not in delete_hashes
-            ]
-            completed = self.downloader.get_completed_torrents(ids=remaining_hashes)
+        planned_hashes = set(delete_hashes)
+        remaining_hashes = [
+            torrent_hash
+            for torrent_hash in torrent_info_map
+            if torrent_hash and torrent_hash not in planned_hashes
+        ]
+        # qBittorrent 会把空哈希列表视为不限查询范围。
+        if total_size > min_size and remaining_hashes:
+            completed = self.downloader.get_completed_torrents(ids=remaining_hashes) or []
+            allowed_hashes = set(remaining_hashes)
             candidates = []
             for torrent in completed:
                 torrent_hash = self.__get_hash(torrent)
-                if torrent_tasks.get(torrent_hash, {}).get("hit_and_run"):
+                if torrent_hash not in allowed_hashes or torrent_tasks[torrent_hash].get("hit_and_run"):
                     continue
-                info = torrent_info_map.get(torrent_hash) or self.__get_torrent_info(torrent)
-                candidates.append((torrent_hash, info))
+                candidates.append((torrent_hash, torrent_info_map[torrent_hash]))
             candidates.sort(key=lambda item: item[1].get("seeding_time", 0), reverse=True)
             for torrent_hash, torrent_info in candidates:
                 if total_size <= min_size:
