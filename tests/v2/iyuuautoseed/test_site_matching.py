@@ -216,6 +216,8 @@ def test_site_matched_by_compact_name(reseed):
     ("www.m-team.cc", "m-team.cc"),
     ("a.b.m-team.cc", "m-team.cc"),
     ("www.x.com.cn", "x.com.cn"),
+    ("hudbt.hust.edu.cn", "hust.edu.cn"),
+    ("x.edu.cn", "x.edu.cn"),
     ("test.m-team.com.au", "m-team.com.au"),
     ("site.co.nz", "site.co.nz"),
     ("pt.www.abc.com", "abc.com"),
