@@ -3,7 +3,7 @@ import re
 from datetime import datetime, timedelta
 from threading import Event
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -34,7 +34,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "2.25"
+    plugin_version = "2.26"
     # 插件作者
     plugin_author = "jxxghp,CKun"
     # 作者主页
@@ -61,13 +61,12 @@ class IYUUAutoSeed(_PluginBase):
     # 自动分类
     _auto_category = False
     _sites = []
-    # IYUU 目录与 MoviePilot 可能使用同一站点的不同域名。
-    _site_domain_aliases = {
-        "m-team.cc": "m-team.io",
-        "m-team.io": "m-team.cc",
-        "skyey2.com": "skyeysnow.com",
-        "skyeysnow.com": "skyey2.com",
-    }
+    # 站点用户ID缓存，按域名索引，取种需要
+    _site_user_ids = {}
+    # 已扫描种子的名称，按 info_hash 索引
+    _hash_names = {}
+    # 站点 RSS 的 rsskey 缓存，按域名索引
+    _rss_keys = {}
     _notify = False
     _nolabels = None
     _nopaths = None
@@ -153,6 +152,8 @@ class IYUUAutoSeed(_PluginBase):
         # 重新初始化运行期校验队列，避免类级字典跨插件重载残留。
         self._recheck_torrents = {}
         self._auto_rechecked = set()
+        self._site_user_ids = {}
+        self._hash_names = {}
 
         # 启动定时任务 & 立即运行一次
         if self.get_state() or self._onlyonce:
@@ -784,6 +785,10 @@ class IYUUAutoSeed(_PluginBase):
                 # 获取种子hash
                 hash_str = self.__get_hash(torrent=torrent, dl_type=service.type)
                 completed_hashes_downloader.add(hash_str)
+                # 记录种子名称，站点API按标题换取下载凭证时使用
+                torrent_name = self.__get_torrent_name(torrent=torrent, dl_type=service.type)
+                if hash_str and torrent_name:
+                    self._hash_names[hash_str] = torrent_name
                 if hash_str in self._error_caches or hash_str in self._permanent_error_caches:
                     logger.info(f"种子 {hash_str} 辅种失败且已缓存，跳过 ...")
                     continue
@@ -1130,14 +1135,6 @@ class IYUUAutoSeed(_PluginBase):
                 }
         """
 
-        def __is_special_site(url):
-            """
-            判断是否为特殊站点（是否需要添加https）
-            """
-            if "hdsky.me" in url:
-                return False
-            return True
-
         self.total += 1
         # 获取种子站点及下载地址模板
         site_url, download_page = self.iyuu_helper.get_torrent_url(seed.get("sid"))
@@ -1153,12 +1150,13 @@ class IYUUAutoSeed(_PluginBase):
         sites_helper = SitesHelper()
         site_info = sites_helper.get_indexer(site_domain)
         if not site_info or not site_info.get('url'):
-            alias_domain = self._site_domain_aliases.get(site_domain)
-            if alias_domain:
-                site_info = sites_helper.get_indexer(alias_domain)
-                if site_info and site_info.get('url'):
-                    logger.debug(f"辅种站点域名匹配：{site_domain} -> {alias_domain}")
-                    site_domain = alias_domain
+            # 域名对不上时按 IYUU 站点信息兜底，站点改名换域名后无需改代码
+            site_info = self.__get_site_by_iyuu(seed.get("sid"), sites_helper)
+            if site_info and site_info.get('url'):
+                site_domain = site_info.get('domain')
+                logger.debug(f"辅种站点按名称匹配：{site_domain}")
+            else:
+                site_info = None
         if not site_info or not site_info.get('url'):
             logger.debug(f"没有维护种子对应的站点：{site_url}")
             return False
@@ -1180,9 +1178,9 @@ class IYUUAutoSeed(_PluginBase):
             self.fail += 1
             return False
         # 下载种子
-        torrent_url = self.__get_download_url(seed=seed,
-                                              site=site_info,
-                                              base_url=download_page)
+        torrent_url, use_cookie = self.__get_download_url(seed=seed,
+                                                          site=site_info,
+                                                          base_url=download_page)
         if not torrent_url:
             # 加入失败缓存
             self.__append_seed_cache(self._error_caches, seed.get("info_hash"))
@@ -1190,7 +1188,7 @@ class IYUUAutoSeed(_PluginBase):
             self.cached += 1
             return False
         # 强制使用Https
-        if __is_special_site(torrent_url):
+        if self.__need_https_param(torrent_url):
             if "?" in torrent_url:
                 torrent_url += "&https=1"
             else:
@@ -1198,7 +1196,7 @@ class IYUUAutoSeed(_PluginBase):
         # 下载种子文件
         _, content, _, _, error_msg = TorrentHelper().download_torrent(
             url=torrent_url,
-            cookie=site_info.get("cookie"),
+            cookie=site_info.get("cookie") if use_cookie else None,
             ua=site_info.get("ua") or settings.USER_AGENT,
             proxy=site_info.get("proxy"))
         if not content:
@@ -1322,43 +1320,77 @@ class IYUUAutoSeed(_PluginBase):
             print(str(e))
             return ""
 
-    def __get_download_url(self, seed: dict, site: CommentedMap, base_url: str):
+    @staticmethod
+    def __get_torrent_name(torrent: Any, dl_type: str):
         """
-        拼装种子下载链接
+        获取种子名称
         """
+        try:
+            return torrent.get("name") if dl_type == "qbittorrent" else torrent.name
+        except Exception as e:
+            print(str(e))
+            return ""
 
-        def __is_mteam(url: str):
-            """
-            判断是否为mteam站点
-            """
-            return True if "m-team." in url else False
+    @staticmethod
+    def __need_https_param(url: str) -> bool:
+        """
+        判断下载链接是否需要追加 https=1
 
-        def __is_monika(url: str):
-            """
-            判断是否为monika站点
-            """
-            return True if "monikadesign." in url else False
+        带站点签名的链接追加参数后签名失效，站点会直接返回 404。
 
-        def __is_gpw(url: str):
-            """
-            判断是否为gpw站点
-            """
-            return True if "greatposterwall." in url else False
-        
-        def __is_piggo(url: str):
-            """
-            判断是否为猪猪站点
-            """
-            return True if "piggo." in url else False
+        :param url: 种子下载链接
+        :return: 需要追加时返回 True
+        """
+        return not re.search(r"[?&]sign=", url or "", flags=re.IGNORECASE)
 
-        def __get_piggo_enclosure(tid: str, apikey: str, token: str):
+    def __get_download_url(self, seed: dict, site: CommentedMap, base_url: str) -> Tuple[Optional[str], bool]:
+        """
+        按 IYUU 返回的下载地址模板拼装种子下载链接
+
+        取种方式由模板形态决定，不判断站点域名，站点更换域名时无需改代码。
+
+        :return: 下载链接与下载时是否需要携带站点 Cookie
+        """
+        template = base_url or ""
+        if not template:
+            logger.warn(f"未获取到站点 {site.get('name')} 的下载地址模板")
+            return None, True
+        # IYUU 声明的站点入口，API 类模板据此拼装，域名随 IYUU 站点列表更新
+        iyuu_base_url = (self.iyuu_helper.get_torrent_url(seed.get("sid")) or (None, None))[0]
+        iyuu_api_base = f"https://{str(iyuu_base_url).strip('/')}" if iyuu_base_url else ""
+
+        def __placeholders(text: str) -> set:
+            """
+            模板中的占位符集合，裸占位符 {} 视为种子ID
+            """
+            return {found.strip("{}") or "id" for found in re.findall(r"\{\w*\}", text or "")}
+
+        def __fill(values: dict) -> Tuple[str, set]:
+            """
+            替换已知占位符，返回链接与仍未填充的占位符
+            """
+            url = template.replace("id={}", "id={id}")
+            if values.get("id"):
+                url = url.replace("{}", str(values.get("id")))
+            for key in ("id", "uid", "passkey", "hash", "downHash", "rsskey"):
+                url = url.replace("{%s}" % key, str(values.get(key) or ""))
+            return url, __placeholders(url)
+
+        def __page_torrent_url():
+            """
+            从详情页面取种，需要站点 Cookie
+            """
+            return self.__get_torrent_url_from_page(seed=seed, site=site), True
+
+        def __get_token_enclosure(tid: str, apikey: str, token: str, path: str):
             """
             通过猪猪实验室接口换取种子签名下载链接
             """
             access_token = (apikey or "").strip() or (token or "").strip()
             if not access_token:
-                logger.error("猪猪站点的存取令牌未配置")
+                logger.error("站点存取令牌未配置")
                 return None
+            url = f"{iyuu_api_base}/{path.lstrip('/').replace('{}', str(tid))}"
             res = RequestUtils(
                 headers={
                     'Content-Type': 'application/json',
@@ -1366,185 +1398,262 @@ class IYUUAutoSeed(_PluginBase):
                     'User-Agent': f'{site.get("ua") or settings.USER_AGENT}',
                     'Authorization': f'Bearer {access_token}'
                 }
-            ).post_res(f"https://api.piggo.me/v1/api/torrents/{tid}/download-link", json={})
+            ).post_res(url, json={})
             if not res:
-                logger.warn(f"猪猪获取种子下载链接失败：{tid}")
+                logger.warn(f"站点获取签名下载链接失败：{tid}")
                 return None
             try:
                 return (res.json().get("data") or {}).get("url")
             except ValueError:
-                logger.warn(f"猪猪获取种子下载链接失败，响应解析失败：{tid}")
+                logger.warn(f"站点获取签名下载链接失败，响应解析失败：{tid}")
                 return None
 
-        def __get_mteam_enclosure(tid: str, apikey: str):
+        def __get_api_enclosure(tid: str, apikey: str, path: str):
             """
-            获取mteam种子下载链接
+            对无占位符的 API 模板，用站点 apikey 换取种子下载链接
             """
             if not apikey:
-                logger.error("m-team站点的apikey未配置")
+                logger.error("站点的apikey未配置")
                 return None
-
-            """
-            将mteam种子下载链接域名替换为使用API
-            """
-            api_url = re.sub(r'//[^/]+\.m-team', '//api.m-team', site.get('url'))
-            ua = site.get("ua") or settings.USER_AGENT
-            res = RequestUtils(
-                headers={
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'User-Agent': f'{ua}',
-                    'Accept': 'application/json, text/plain, */*',
-                    'x-api-key': apikey
-                }
-            ).post_res(f"{api_url}api/torrent/genDlToken", params={
-                'id': tid
-            })
+            # UA 走请求库参数，写进 headers 会被部分站点判为浏览器访问
+            res = RequestUtils(ua=site.get("ua") or settings.USER_AGENT,
+                               headers={'Accept': 'application/json, text/plain, */*',
+                                        'x-api-key': apikey}
+                               ).post_res(f"{iyuu_api_base}/{path.lstrip('/')}", params={'id': tid})
             if not res:
-                logger.warn(f"m-team 获取种子下载链接失败：{tid}")
+                logger.warn(f"获取种子下载链接失败：{tid}")
                 return None
-            return res.json().get("data")
-
-        def __get_monika_torrent(tid: str, rssurl: str):
-            """
-            Monika下载需要使用rsskey从站点配置中获取并拼接下载链接
-            """
-            if not rssurl:
-                logger.error("Monika站点的rss链接未配置")
-                return None
-
-            rss_match = re.search(r'/rss/\d+\.(\w+)', rssurl)
-            rsskey = rss_match.group(1)
-            return f"{site.get('url')}torrents/download/{tid}.{rsskey}"
-
-        def __get_gpw_torrent_url_from_page(seed: dict, site: dict):
-            """
-            从详情页面获取下载链接
-            """
-            if not site.get('url'):
-                logger.warn(f"站点 {site.get('name')} 未获取站点地址，无法获取种子下载链接")
-                return None
-            
             try:
-                page_url = f"{site.get('url')}torrents.php?torrentid={seed.get('torrent_id')}&hit=1"
-                logger.info(f"正在获取种子下载链接：{page_url} ...")
-
-                res = RequestUtils(
-                    cookies=site.get("cookie"),
-                    ua=site.get("ua") or settings.USER_AGENT,
-                    proxies=settings.PROXY if site.get("proxy") else None
-                ).get_res(url=page_url)
-
-
-                if res is None or res.status_code not in (200, 500):
-                    logger.error(f"获取种子下载链接失败，请求失败：{page_url}，{res.status_code if res else ''}")
-                    return None
-                # Fix encoding
-                if "charset=utf-8" in res.text or "charset=UTF-8" in res.text:
-                    res.encoding = "UTF-8"
-                else:
-                    res.encoding = res.apparent_encoding
-
-                if not res.text:
-                    logger.warn(f"获取种子下载链接失败，页面内容为空：{page_url}")
-                    return None
-                    # 使用xpath从页面中获取下载链接
-                html = etree.HTML(res.text)
-                if html is None:
-                    logger.warning(f"解析页面失败：{page_url}")
-                    return None            
-                    
-                xpath = "//a[contains(@href, 'torrents.php?action=download')]/@href"
-                urls = html.xpath(xpath)
-            
-                if not urls:
-                    logger.warning(f"获取种子下载链接失败，未找到下载链接：{page_url}")
-                    return None
-                
-                torrent_id = str(seed.get("torrent_id"))
-                matched_url = None
-                # Strict match using regex id=xxxx
-                for u in urls:
-                    if re.search(rf"id={torrent_id}(?:&|$)", u):
-                        matched_url = u
-                        break
-                if not matched_url:
-                    logger.warning(f"未找到与 torrent_id={torrent_id} 对应的下载链接")
-                    return None    
-                
-                final_url = urljoin(site['url'], matched_url)
-
-                logger.info(f"获取种子下载链接成功：{final_url}")
-                return final_url
-            except Exception as e:
-                logger.warn(f"获取种子下载链接失败：{str(e)}")
+                return res.json().get("data")
+            except ValueError:
+                logger.warn(f"获取种子下载链接失败，响应解析失败：{tid}")
                 return None
-            
-        def __is_special_site(url: str):
-            """
-            判断是否为特殊站点
-            """
-            spec_params = ["hash=", "authkey="]
-            if any(field in base_url for field in spec_params):
-                return True
-            if "hdchina.org" in url:
-                return True
-            if "hdsky.me" in url:
-                return True
-            if "hdcity.in" in url:
-                return True
-            if "totheglory.im" in url:
-                return True
-            return False
 
         try:
-            if __is_piggo(site.get('url')):
-                # 调用猪猪实验室接口换取签名下载链接
-                return __get_piggo_enclosure(tid=seed.get("torrent_id"),
+            placeholders = __placeholders(template)
+            if "download-link" in template:
+                # 用站点存取令牌换取签名下载链接
+                return __get_token_enclosure(tid=seed.get("torrent_id"),
                                              apikey=site.get("apikey"),
-                                             token=site.get("token"))
-            if __is_mteam(site.get('url')):
-                # 调用mteam接口获取下载链接
-                return __get_mteam_enclosure(tid=seed.get("torrent_id"), apikey=site.get("apikey"))
-            if __is_monika(site.get('url')):
-                # 返回种子id和站点配置中所Monika的rss链接
-                return __get_monika_torrent(tid=seed.get("torrent_id"), rssurl=site.get("rss"))
-            if __is_gpw(site.get('url')):
-                # 从详情页面获取下载链接
-                return __get_gpw_torrent_url_from_page(seed=seed, site=site)
-            
-            elif __is_special_site(site.get('url')):
-                # 从详情页面获取下载链接
-                return self.__get_torrent_url_from_page(seed=seed, site=site)
-            else:
-                download_url = base_url.replace(
-                    "id={}",
-                    "id={id}"
-                ).replace(
-                    "/{}",
-                    "/{id}"
-                ).replace(
-                    "/{torrent_key}",
-                    ""
-                ).format(
-                    **{
-                        "id": seed.get("torrent_id"),
-                        "passkey": site.get("passkey") or '',
-                        "uid": site.get("uid") or '',
-                    }
-                )
-                if download_url.count("{"):
-                    logger.warn(f"当前不支持该站点的辅助任务，Url转换失败：{seed}")
-                    return None
-                download_url = re.sub(r"[&?]passkey=", "",
-                                      re.sub(r"[&?]uid=", "",
-                                             download_url,
-                                             flags=re.IGNORECASE),
-                                      flags=re.IGNORECASE)
-                return f"{site.get('url')}{download_url}"
+                                             token=site.get("token"),
+                                             path=template), True
+            if not placeholders:
+                # 没有占位符的模板是 API 端点，需要用站点 apikey 换取下载链接
+                return __get_api_enclosure(tid=seed.get("torrent_id"),
+                                           apikey=site.get("apikey"),
+                                           path=template), True
+            if "rsskey" in placeholders:
+                # 用站点 RSS 的 rsskey 拼装下载链接，RSS 空白时从站点页面提取
+                rsskey = self.__get_rss_key(site)
+                if not rsskey:
+                    logger.info(f"{site.get('name')} 取不到rsskey，回退详情页取种：{seed.get('torrent_id')}")
+                    return __page_torrent_url()
+                download_url, rest = __fill({"id": seed.get("torrent_id"), "rsskey": rsskey})
+                if rest:
+                    return __page_torrent_url()
+                return urljoin(site.get('url') or "", download_url), True
+            if placeholders & {"hash", "downHash"}:
+                # 模板要求站点下载凭证，先用站点API换取，换到即免 Cookie 取种
+                api_url = self.__get_downhash_torrent_url(seed=seed, site=site, base_url=template)
+                if api_url:
+                    return api_url, False
+                if "uid" in placeholders:
+                    # 退到站点用户ID + Cookie 取种，模板里空的凭证参数必须去掉
+                    download_url, rest = __fill({"id": seed.get("torrent_id"),
+                                                 "uid": self.__get_site_user_id(site),
+                                                 "hash": "", "downHash": ""})
+                    if not rest:
+                        download_url = re.sub(r"[&?](?:downHash|hash)=", "", download_url, flags=re.IGNORECASE)
+                        logger.info(f"{site.get('name')} 未取得下载凭证，改用站点用户ID取种：{seed.get('torrent_id')}")
+                        return urljoin(site.get('url') or "", download_url), True
+                return __page_torrent_url()
+            if placeholders & {"sign", "cuhash", "authkey", "torrent_pass"}:
+                # 模板带站点侧签名参数，本地生成不了，只能从详情页取种
+                return __page_torrent_url()
+            if "passkey" in placeholders and "download" not in template:
+                # 非 download 形态的模板要带 passkey，而 v3 站点配置不保存 passkey，只能从详情页取种
+                return __page_torrent_url()
+            download_url, rest = __fill({
+                "id": seed.get("torrent_id"),
+                "uid": site.get("uid"),
+                "passkey": site.get("passkey"),
+            })
+            if rest:
+                logger.warn(f"当前不支持该站点的辅助任务，Url转换失败：{seed}")
+                return None
+            download_url = re.sub(r"[&?](?:passkey|uid)=", "", download_url, flags=re.IGNORECASE)
+            return urljoin(site.get('url') or "", download_url), True
         except Exception as e:
             logger.warn(
                 f"{site.get('name')} Url转换失败，{str(e)}：site_url={site.get('url')}，base_url={base_url}, seed={seed}")
-            return self.__get_torrent_url_from_page(seed=seed, site=site)
+            return self.__get_torrent_url_from_page(seed=seed, site=site), True
+
+    @staticmethod
+    def __domain_body(url: Optional[str]) -> str:
+        """
+        取域名主体，忽略协议、子域和公共后缀，便于跨后缀匹配同一站点
+
+        :param url: 站点地址、域名或站点标识
+        :return: 归一化后的域名主体，无法解析时为空字符串
+        """
+        labels = [label for label in re.sub(r"^https?://", "", (url or "").lower()).split("/")[0].split(".")
+                  if label]
+        if len(labels) < 2:
+            return "".join(labels)
+        suffix = 3 if ".".join(labels[-2:]) in ("com.cn", "net.cn", "org.cn", "co.uk", "com.tw", "co.jp") \
+            else 2
+        return ".".join(labels[-suffix:]).rsplit(".", 1)[0]
+
+    def __get_site_by_iyuu(self, sid: Any, sites_helper: Any) -> Optional[dict]:
+        """
+        按 IYUU 站点信息匹配 MoviePilot 站点，站点名称不同也能对上
+
+        依次比较注册域名、域名主体、IYUU 站点标识、站点昵称，命中需唯一。
+
+        :param sid: IYUU 返回的站点 ID
+        :param sites_helper: 站点助手
+        :return: 命中的站点配置，未命中或命中不唯一时返回 None
+        """
+        meta = self.iyuu_helper.get_site_info(sid) or {}
+        if not meta:
+            return None
+        indexers = sites_helper.get_indexers() or []
+        base_url = meta.get("base_url") or ""
+        slug = meta.get("site") or ""
+        keys = {
+            "domain": self.__domain_body(base_url),
+            "slug": self.__domain_body(slug),
+            "name": str(meta.get("nickname") or "").strip().lower(),
+        }
+        for key, getter in (
+                (keys["domain"], lambda site: self.__domain_body(site.get("domain"))),
+                (keys["slug"], lambda site: self.__domain_body(site.get("domain"))),
+                (keys["name"], lambda site: str(site.get("name") or "").strip().lower()),
+                (keys["slug"], lambda site: str(site.get("name") or "").strip().lower()),
+        ):
+            if not key:
+                continue
+            matched = [site for site in indexers if getter(site) == key]
+            if len(matched) == 1:
+                logger.debug(f"辅种站点匹配：{meta.get('nickname')} {base_url} -> {matched[0].get('domain')}")
+                return matched[0]
+        return None
+
+    def __get_rss_key(self, site: dict) -> Optional[str]:
+        """
+        取站点的 rsskey：优先读配置的 RSS 链接，空白时从站点页面提取
+
+        :param site: MoviePilot 维护的站点信息，需包含 rss、url
+        :return: rsskey，取不到时返回 None
+        """
+        rssurl = site.get("rss") or ""
+        for pattern in (r"/rss/\d+\.(\w+)", r"rsskey=(\w{8,})"):
+            match = re.search(pattern, rssurl)
+            if match:
+                return match.group(1)
+        domain = site.get("domain") or ""
+        if domain and domain in self._rss_keys:
+            return self._rss_keys.get(domain)
+        site_url = (site.get("url") or "").rstrip("/")
+        if not site_url:
+            return None
+        res = RequestUtils(cookies=site.get("cookie"),
+                           ua=site.get("ua") or settings.USER_AGENT,
+                           proxies=settings.PROXY if site.get("proxy") else None
+                           ).get_res(url=f"{site_url}/")
+        text = getattr(res, "text", "") or ""
+        # 页面上的下载链接形如 torrents/download/123.<rsskey>
+        for pattern in (r"/rss/\d+\.(\w+)", r"rsskey=(\w{8,})", r"download/\d+\.(\w{8,})"):
+            match = re.search(pattern, text)
+            if match:
+                if domain:
+                    self._rss_keys[domain] = match.group(1)
+                return match.group(1)
+        return None
+
+    def __get_downhash_torrent_url(self, seed: dict, site: dict, base_url: str) -> Optional[str]:
+        """
+        用站点API按种子标题换取下载凭证（downhash），换到即可免 Cookie 取种
+
+        详情页被站点两步验证拦截时，这条链路仍可用。
+
+        :param seed: IYUU 返回的种子信息，需包含 torrent_id 与 info_hash
+        :param site: MoviePilot 维护的站点信息，需包含 url 与 apikey
+        :param base_url: IYUU 返回的种子下载地址模板
+        :return: 下载链接，换取失败时返回 None
+        """
+        apikey = (site.get("apikey") or "").strip()
+        site_url = (site.get("url") or "").rstrip("/")
+        keyword = self._hash_names.get(seed.get("info_hash") or "") or seed.get("name")
+        if not apikey or not site_url or not keyword:
+            return None
+        # 检索按标题匹配，长标题经常搜不到，从完整标题逐级缩到首个词
+        keywords = [keyword, keyword[:40], keyword[:24], re.split(r"[.\s\[]", keyword)[0]]
+        keywords = [item for item in dict.fromkeys(keywords) if item and len(item) >= 4]
+        info_hash = str(seed.get("info_hash") or "").lower()
+        for keyword in keywords:
+            res = RequestUtils(
+                headers={
+                    "x-api-key": apikey,
+                    "Accept": "application/json",
+                    "Content-Type": "application/json"
+                },
+                ua=site.get("ua") or settings.USER_AGENT
+            ).post_res(f"{site_url}/api/v1/torrent/search",
+                       json={"keyword": keyword, "page_number": 0, "page_size": 50, "visible": 1})
+            if not res:
+                logger.warn(f"{site.get('name')} 下载凭证接口无响应：{seed.get('torrent_id')}")
+                return None
+            try:
+                torrents = res.json().get("data") or []
+            except ValueError:
+                logger.warn(f"{site.get('name')} 下载凭证接口响应解析失败：{seed.get('torrent_id')}")
+                return None
+            for torrent in torrents:
+                if str(torrent.get("info_hash") or "").lower() != info_hash or not torrent.get("downhash"):
+                    continue
+                download_url = (base_url or "").replace("id={}", "id={id}")
+                for placeholder, value in (("{id}", torrent.get("id")),
+                                           ("{hash}", torrent.get("downhash")),
+                                           ("{downHash}", torrent.get("downhash")),
+                                           ("{uid}", ""),
+                                           ("{passkey}", "")):
+                    download_url = download_url.replace(placeholder, str(value))
+                if "{" in download_url:
+                    return None
+                download_url = re.sub(r"([&?])hash=", r"\1downhash=", download_url, flags=re.IGNORECASE)
+                download_url = re.sub(r"[&?](?:uid|passkey)=", "", download_url, flags=re.IGNORECASE)
+                return urljoin(f"{site_url}/", download_url)
+        return None
+
+    def __get_site_user_id(self, site: dict) -> Optional[str]:
+        """
+        取站点的用户ID，优先读站点配置，缺失时按域名查站点数据。
+
+        :param site: MoviePilot 维护的站点信息
+        :return: 纯数字的用户ID，取不到时返回 None
+        """
+        user_id = str(site.get("uid") or "").strip()
+        if user_id.isdigit():
+            return user_id
+        if not self._site_user_ids:
+            self._site_user_ids = {
+                row.domain: row.userid
+                for row in SiteOper().get_userdata_latest() or []
+                if row.domain and row.userid
+            }
+        # 站点数据里的域名可能不带 www 或带子域，按域名后缀比对
+        for host in (site.get("domain"), urlparse(site.get("url") or "").hostname):
+            host = str(host or "").strip().lower()
+            if not host:
+                continue
+            for domain, userid in self._site_user_ids.items():
+                domain = str(domain or "").strip().lower()
+                if domain and (host == domain or host.endswith(f".{domain}") or domain.endswith(f".{host}")):
+                    found = str(userid or "").strip()
+                    if found.isdigit():
+                        return found
+        return None
 
     def __get_torrent_url_from_page(self, seed: dict, site: dict):
         """
