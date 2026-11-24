@@ -1519,7 +1519,7 @@ class IYUUAutoSeed(_PluginBase):
             return "".join(labels)
         # 二级公共后缀（com.cn / co.uk / com.au…）要多取一段，ccTLD 固定为两字母
         suffix = 3 if len(labels) >= 3 and len(labels[-1]) == 2 \
-            and labels[-2] in ("com", "net", "org", "gov", "edu", "ac", "co") else 2
+            and labels[-2] in ("com", "net", "org", "co") else 2
         return ".".join(labels[-suffix:])
 
     @classmethod
