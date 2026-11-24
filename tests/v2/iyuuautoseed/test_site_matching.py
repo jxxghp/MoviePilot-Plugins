@@ -209,6 +209,35 @@ def test_site_matched_by_compact_name(reseed):
     )
 
 
+def test_template_with_torrent_key_placeholder(reseed):
+    """带 {torrent_key} 的模板只保留 id，保持旧版整段丢弃的行为。"""
+    site = {"id": 6, "name": "朱雀", "domain": "zhuque.in", "url": "https://zhuque.in/",
+            "cookie": "test-cookie", "ua": "test-ua"}
+    reseed.sites.get_indexer.side_effect = {}.get
+    reseed.sites.get_indexers.return_value = [site]
+    reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
+
+    assert _download(reseed, "zhuque.in", "api/torrent/download/{}/{torrent_key}",
+                     nickname="朱雀", site="zhuque") is True
+
+    reseed.torrent.download_torrent.assert_called_once_with(
+        url="https://zhuque.in/api/torrent/download/42?https=1",
+        cookie="test-cookie", ua="test-ua", proxy=None
+    )
+
+
+def test_hash_template_without_id_stays_on_detail_page(reseed):
+    """没有 id 的 hash 模板，hash 只能来自详情页，不能拿 API 凭证顶替。"""
+    site = {"id": 6, "name": "瓷器", "domain": "hdwing.org", "url": "https://hdwing.org/",
+            "cookie": "test-cookie", "ua": "test-ua", "apikey": "test-key"}
+    reseed.sites.get_indexer.side_effect = {}.get
+    reseed.sites.get_indexers.return_value = [site]
+
+    assert _download(reseed, "hdwing.org", "download.php?hash={hash}",
+                     nickname="瓷器", site="hdchina") is False
+    reseed.request.return_value.post_res.assert_not_called()
+
+
 def test_api_base_probed_once_per_site(reseed):
     """同一站点多个种子只探测一次可用端点，之后直接用已知端点。"""
     site = {"id": 6, "name": "馒头", "domain": "m-team.io", "url": "https://kp.m-team.io/",
@@ -279,6 +308,29 @@ def test_stale_cached_api_base_falls_through(reseed):
     assert attempts == ["https://api.m-team.io/api/torrent/genDlToken",
                         "https://api.m-team.io/api/torrent/genDlToken",
                         "https://m-team.io/api/torrent/genDlToken"]
+
+
+def test_http_site_skips_https_param(reseed):
+    """IYUU 标记为 http 的站点不追加 https=1。"""
+    site = {"id": 6, "name": "路站", "domain": "hdroute.org", "url": "http://hdroute.org/",
+            "cookie": "test-cookie", "ua": "test-ua"}
+    helper = Mock()
+    helper.get_torrent_url.return_value = ("hdroute.org", "download.php?id={}&passkey={passkey}&from=rss")
+    helper.get_site_info.return_value = {"is_https": 0, "base_url": "hdroute.org",
+                                        "site": "hdroute", "nickname": "路站",
+                                        "download_page": "download.php?id={}&passkey={passkey}&from=rss"}
+    reseed.plugin.iyuu_helper = helper
+    reseed.sites.get_indexer.side_effect = {}.get
+    reseed.sites.get_indexers.return_value = [site]
+    reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
+
+    assert _download(reseed, "hdroute.org", "download.php?id={}&passkey={passkey}&from=rss",
+                     nickname="路站", site="hdroute") is True
+
+    reseed.torrent.download_torrent.assert_called_once_with(
+        url="http://hdroute.org/download.php?id=42&from=rss",
+        cookie="test-cookie", ua="test-ua", proxy=None
+    )
 
 
 @pytest.mark.parametrize("host, expected", [

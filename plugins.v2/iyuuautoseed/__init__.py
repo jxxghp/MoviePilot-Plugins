@@ -1194,7 +1194,7 @@ class IYUUAutoSeed(_PluginBase):
             self.cached += 1
             return False
         # 强制使用Https
-        if self.__need_https_param(torrent_url):
+        if self.__need_https_param(torrent_url, seed.get("sid")):
             if "?" in torrent_url:
                 torrent_url += "&https=1"
             else:
@@ -1337,17 +1337,24 @@ class IYUUAutoSeed(_PluginBase):
             print(str(e))
             return ""
 
-    @staticmethod
-    def __need_https_param(url: str) -> bool:
+    def __need_https_param(self, url: str, sid: Any = None) -> bool:
         """
         判断下载链接是否需要追加 https=1
 
         带站点签名的链接追加参数后签名失效，站点会直接返回 404。
 
         :param url: 种子下载链接
+        :param sid: IYUU 站点 ID，用于读取站点协议声明
         :return: 需要追加时返回 True
         """
-        return not re.search(r"[?&]sign=", url or "", flags=re.IGNORECASE)
+        if re.search(r"[?&]sign=", url or "", flags=re.IGNORECASE):
+            return False
+        # IYUU 把 is_https 为 0 的站点标为 http，追加 https=1 会改走 https 而打不开
+        if sid is not None and self.iyuu_helper:
+            meta = self.iyuu_helper.get_site_info(sid) or {}
+            if meta.get("is_https") == 0:
+                return False
+        return True
 
     def __get_download_url(self, seed: dict, site: CommentedMap, base_url: str) -> Tuple[Optional[str], bool]:
         """
@@ -1376,6 +1383,8 @@ class IYUUAutoSeed(_PluginBase):
             替换已知占位符，返回链接与仍未填充的占位符
             """
             url = template.replace("id={}", "id={id}")
+            # 这类模板只要 id 即可取种，旧版同样整段丢弃
+            url = url.replace("/{torrent_key}", "")
             if values.get("id"):
                 url = url.replace("{}", str(values.get("id")))
             for key in ("id", "uid", "passkey", "hash", "downHash", "rsskey"):
@@ -1480,6 +1489,9 @@ class IYUUAutoSeed(_PluginBase):
                     return __page_torrent_url()
                 return urljoin(site.get('url') or "", download_url), True
             if placeholders & {"hash", "downHash"}:
+                # 没有 id 的模板，hash 只能来自详情页，站点不认 API 兑换的凭证
+                if "id" not in placeholders:
+                    return __page_torrent_url()
                 # 模板要求站点下载凭证，先用站点API换取，换到即免 Cookie 取种
                 api_url = self.__get_downhash_torrent_url(seed=seed, site=site, base_url=template)
                 if api_url:
