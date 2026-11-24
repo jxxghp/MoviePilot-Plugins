@@ -1508,6 +1508,9 @@ class IYUUAutoSeed(_PluginBase):
         """
         labels = [label for label in re.sub(r"^https?://", "", (url or "").lower()).split("/")[0].split(".")
                   if label]
+        # api./www. 是常见入口前缀，保留会让 api 子域兜底拼成 api.api.xxx
+        while len(labels) > 1 and labels[0] in ("api", "www"):
+            labels = labels[1:]
         if len(labels) < 2:
             return "".join(labels)
         suffix = 3 if ".".join(labels[-2:]) in ("com.cn", "net.cn", "org.cn", "co.uk", "com.tw", "co.jp") \
@@ -1545,12 +1548,14 @@ class IYUUAutoSeed(_PluginBase):
             "domain": self.__domain_body(base_url),
             "slug": self.__domain_body(slug),
             "name": str(meta.get("nickname") or "").strip().lower(),
+            "compact": self.__compact(slug),
         }
         for key, getter in (
                 (keys["domain"], lambda site: self.__domain_body(site.get("domain"))),
                 (keys["slug"], lambda site: self.__domain_body(site.get("domain"))),
                 (keys["name"], lambda site: str(site.get("name") or "").strip().lower()),
-                (keys["slug"], lambda site: str(site.get("name") or "").strip().lower()),
+                # 站点名常写成 M-Team 这类，去掉分隔符后与 IYUU 标识比对
+                (keys["compact"], lambda site: self.__compact(site.get("name"))),
         ):
             if not key:
                 continue
@@ -1559,6 +1564,16 @@ class IYUUAutoSeed(_PluginBase):
                 logger.debug(f"辅种站点匹配：{meta.get('nickname')} {base_url} -> {matched[0].get('domain')}")
                 return matched[0]
         return None
+
+    @staticmethod
+    def __compact(text: Optional[str]) -> str:
+        """
+        去掉分隔符并小写，用于站点名与 IYUU 站点标识的宽松比对
+
+        :param text: 站点名或站点标识
+        :return: 归一化后的文本
+        """
+        return re.sub(r"[^a-z0-9]", "", (text or "").lower())
 
     def __get_rss_key(self, site: dict) -> Optional[str]:
         """

@@ -132,6 +132,42 @@ def test_api_endpoint_falls_back_to_site_api_subdomain(reseed):
                     "https://api.m-team.io/api/torrent/genDlToken"]
 
 
+def test_api_domain_with_api_prefix_keeps_single_prefix(reseed):
+    """站点地址本身带 api. 前缀时，兜底域名不能拼成 api.api.<域名>。"""
+    site = {"id": 6, "name": "馒头", "domain": "api.m-team-test",
+            "url": "https://api.m-team-test/", "apikey": "test-key"}
+    reseed.sites.get_indexer.side_effect = {}.get
+    reseed.sites.get_indexers.return_value = [site]
+    response = Mock()
+    response.json.return_value = {"data": "https://download.example/torrent"}
+    reseed.request.return_value.post_res.side_effect = [None, response]
+    reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
+
+    assert _download(reseed, "api.m-team.cc", nickname="馒头", site="m-team") is True
+
+    urls = [call.args[0] for call in reseed.request.return_value.post_res.call_args_list]
+    assert urls == ["https://api.m-team.cc/api/torrent/genDlToken",
+                    "https://api.m-team-test/api/torrent/genDlToken"]
+
+
+def test_site_matched_by_compact_name(reseed):
+    """站点名写成 M-Team 时，与 IYUU 站点标识去分隔符后比对命中。"""
+    site = {"id": 6, "name": "M-Team", "domain": "m-team.io", "url": "https://kp.m-team.io/",
+            "cookie": "test-cookie", "ua": "test-ua"}
+    reseed.sites.get_indexer.side_effect = {}.get
+    reseed.sites.get_indexers.return_value = [site]
+    reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
+
+    assert _download(reseed, "mteam.example", "download.php?id={id}",
+                     nickname="馒头", site="m-team") is True
+
+    reseed.sites.check.assert_called_once_with("m-team.io")
+    reseed.torrent.download_torrent.assert_called_once_with(
+        url="https://kp.m-team.io/download.php?id=42&https=1",
+        cookie="test-cookie", ua="test-ua", proxy=None
+    )
+
+
 def test_ambiguous_domain_body_is_skipped(reseed):
     """多个站点域名主体相同时不猜，直接跳过。"""
     reseed.sites.get_indexer.side_effect = {}.get
