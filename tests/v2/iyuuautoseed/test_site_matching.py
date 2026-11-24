@@ -114,6 +114,24 @@ def test_matched_site_respects_rate_limit(reseed):
     reseed.request.assert_not_called()
 
 
+def test_api_endpoint_falls_back_to_site_api_subdomain(reseed):
+    """IYUU 的域名失效时，退回本地站点注册域名的 api 子域再试一次。"""
+    site = {"id": 6, "name": "M-Team", "domain": "m-team.io", "url": "https://kp.m-team.io/",
+            "apikey": "test-key"}
+    reseed.sites.get_indexer.side_effect = {}.get
+    reseed.sites.get_indexers.return_value = [site]
+    response = Mock()
+    response.json.return_value = {"data": "https://download.example/torrent"}
+    reseed.request.return_value.post_res.side_effect = [None, response]
+    reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
+
+    assert _download(reseed, "api.m-team.cc", nickname="馒头", site="m-team") is True
+
+    urls = [call.args[0] for call in reseed.request.return_value.post_res.call_args_list]
+    assert urls == ["https://api.m-team.cc/api/torrent/genDlToken",
+                    "https://api.m-team.io/api/torrent/genDlToken"]
+
+
 def test_ambiguous_domain_body_is_skipped(reseed):
     """多个站点域名主体相同时不猜，直接跳过。"""
     reseed.sites.get_indexer.side_effect = {}.get

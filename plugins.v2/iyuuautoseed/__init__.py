@@ -1415,19 +1415,29 @@ class IYUUAutoSeed(_PluginBase):
             if not apikey:
                 logger.error("站点的apikey未配置")
                 return None
-            # UA 走请求库参数，写进 headers 会被部分站点判为浏览器访问
-            res = RequestUtils(ua=site.get("ua") or settings.USER_AGENT,
-                               headers={'Accept': 'application/json, text/plain, */*',
-                                        'x-api-key': apikey}
-                               ).post_res(f"{iyuu_api_base}/{path.lstrip('/')}", params={'id': tid})
-            if not res:
-                logger.warn(f"获取种子下载链接失败：{tid}")
-                return None
-            try:
-                return res.json().get("data")
-            except ValueError:
-                logger.warn(f"获取种子下载链接失败，响应解析失败：{tid}")
-                return None
+            # IYUU 的域名可能滞后于站点，失败时退回站点注册域名的 api 子域
+            api_bases = [iyuu_api_base]
+            site_domain = self.__registered_domain(site.get("domain") or site.get("url") or "")
+            fallback_base = f"https://api.{site_domain}" if site_domain else ""
+            if fallback_base and fallback_base != iyuu_api_base:
+                api_bases.append(fallback_base)
+            for api_base in api_bases:
+                # UA 走请求库参数，写进 headers 会被部分站点判为浏览器访问
+                res = RequestUtils(ua=site.get("ua") or settings.USER_AGENT,
+                                   headers={'Accept': 'application/json, text/plain, */*',
+                                            'x-api-key': apikey}
+                                   ).post_res(f"{api_base}/{path.lstrip('/')}", params={'id': tid})
+                if not res:
+                    logger.warn(f"获取种子下载链接失败：{tid}（{api_base}）")
+                    continue
+                try:
+                    data = res.json().get("data")
+                except ValueError:
+                    logger.warn(f"获取种子下载链接失败，响应解析失败：{tid}（{api_base}）")
+                    continue
+                if data:
+                    return data
+            return None
 
         try:
             placeholders = __placeholders(template)
@@ -1489,12 +1499,12 @@ class IYUUAutoSeed(_PluginBase):
             return self.__get_torrent_url_from_page(seed=seed, site=site), True
 
     @staticmethod
-    def __domain_body(url: Optional[str]) -> str:
+    def __registered_domain(url: Optional[str]) -> str:
         """
-        取域名主体，忽略协议、子域和公共后缀，便于跨后缀匹配同一站点
+        取注册域名，忽略协议与子域并保留多级公共后缀
 
         :param url: 站点地址、域名或站点标识
-        :return: 归一化后的域名主体，无法解析时为空字符串
+        :return: 注册域名，无法解析时为空字符串
         """
         labels = [label for label in re.sub(r"^https?://", "", (url or "").lower()).split("/")[0].split(".")
                   if label]
@@ -1502,7 +1512,18 @@ class IYUUAutoSeed(_PluginBase):
             return "".join(labels)
         suffix = 3 if ".".join(labels[-2:]) in ("com.cn", "net.cn", "org.cn", "co.uk", "com.tw", "co.jp") \
             else 2
-        return ".".join(labels[-suffix:]).rsplit(".", 1)[0]
+        return ".".join(labels[-suffix:])
+
+    @classmethod
+    def __domain_body(cls, url: Optional[str]) -> str:
+        """
+        取域名主体，忽略协议、子域和公共后缀，便于跨后缀匹配同一站点
+
+        :param url: 站点地址、域名或站点标识
+        :return: 归一化后的域名主体，无法解析时为空字符串
+        """
+        registered = cls.__registered_domain(url)
+        return registered.rsplit(".", 1)[0] if "." in registered else registered
 
     def __get_site_by_iyuu(self, sid: Any, sites_helper: Any) -> Optional[dict]:
         """
