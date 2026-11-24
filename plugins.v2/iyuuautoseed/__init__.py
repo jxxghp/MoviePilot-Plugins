@@ -758,8 +758,9 @@ class IYUUAutoSeed(_PluginBase):
         if not self.iyuu_helper or not self.service_infos:
             return
         logger.info("开始辅种任务 ...")
-        # 只保留已验证可用的 API 端点，失败记录留到本次任务内生效
+        # 端点失败与 rsskey 缓存只在单次任务内有效，避免一次失败固化为长期失败
         self._api_bases = {key: value for key, value in self._api_bases.items() if isinstance(value, str)}
+        self._rss_keys = {}
 
         # 计数器初始化
         self.total = 0

@@ -254,6 +254,33 @@ def test_api_endpoint_skipped_after_all_bases_failed(reseed):
     assert len(attempts) == 4
 
 
+def test_stale_cached_api_base_falls_through(reseed):
+    """缓存的端点失效时仍会继续试其它候选，不会把站点钉死。"""
+    site = {"id": 6, "name": "馒头", "domain": "m-team.io", "url": "https://kp.m-team.io/",
+            "apikey": "test-key"}
+    reseed.sites.get_indexer.side_effect = {}.get
+    reseed.sites.get_indexers.return_value = [site]
+    response = Mock()
+    response.json.return_value = {"data": "https://download.example/torrent"}
+    attempts = []
+    dead = set()
+
+    def fake_post(url, **kwargs):
+        attempts.append(url)
+        return None if any(url.startswith(item) for item in dead) else response
+
+    reseed.request.return_value.post_res.side_effect = fake_post
+    reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
+
+    assert _download(reseed, "api.m-team.io", nickname="馒头", site="m-team") is True
+    dead.add("https://api.m-team.io")
+    assert _download(reseed, "api.m-team.io", nickname="馒头", site="m-team") is True
+
+    assert attempts == ["https://api.m-team.io/api/torrent/genDlToken",
+                        "https://api.m-team.io/api/torrent/genDlToken",
+                        "https://m-team.io/api/torrent/genDlToken"]
+
+
 @pytest.mark.parametrize("host, expected", [
     ("www.m-team-test.test", "m-team-test.test"),
     ("api.m-team-test.test", "m-team-test.test"),
