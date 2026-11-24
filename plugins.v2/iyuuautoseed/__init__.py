@@ -1415,12 +1415,14 @@ class IYUUAutoSeed(_PluginBase):
             if not apikey:
                 logger.error("站点的apikey未配置")
                 return None
-            # IYUU 的域名可能滞后于站点，失败时依次试站点注册域名的 api 子域与域名本身
+            # IYUU 的域名可能滞后于站点，失败时依次试 api 子域、注册域名与站点地址本身
             site_domain = self.__registered_domain(site.get("domain") or site.get("url") or "")
+            site_host = urlparse(site.get("url") or "").hostname or ""
             api_bases = []
             for api_base in (iyuu_api_base,
                              f"https://api.{site_domain}" if site_domain else "",
-                             f"https://{site_domain}" if site_domain else ""):
+                             f"https://{site_domain}" if site_domain else "",
+                             f"https://{site_host}" if site_host else ""):
                 if api_base and api_base.rstrip("/").lower() not in [item.rstrip("/").lower() for item in api_bases]:
                     api_bases.append(api_base)
             for api_base in api_bases:
