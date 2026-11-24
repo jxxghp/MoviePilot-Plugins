@@ -34,7 +34,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "2.23"
+    plugin_version = "2.24"
     # 插件作者
     plugin_author = "jxxghp,CKun"
     # 作者主页
@@ -61,6 +61,8 @@ class IYUUAutoSeed(_PluginBase):
     # 自动分类
     _auto_category = False
     _sites = []
+    # IYUU 的下载 API 域名与 MoviePilot 配置的站点入口可能使用不同后缀。
+    _site_domain_aliases = {"m-team.cc": "m-team.io", "m-team.io": "m-team.cc"}
     _notify = False
     _nolabels = None
     _nopaths = None
@@ -1145,6 +1147,13 @@ class IYUUAutoSeed(_PluginBase):
         # 站点信息
         sites_helper = SitesHelper()
         site_info = sites_helper.get_indexer(site_domain)
+        if not site_info or not site_info.get('url'):
+            alias_domain = self._site_domain_aliases.get(site_domain)
+            if alias_domain:
+                site_info = sites_helper.get_indexer(alias_domain)
+                if site_info and site_info.get('url'):
+                    logger.debug(f"辅种站点域名匹配：{site_domain} -> {alias_domain}")
+                    site_domain = alias_domain
         if not site_info or not site_info.get('url'):
             logger.debug(f"没有维护种子对应的站点：{site_url}")
             return False
