@@ -19,6 +19,7 @@ def reseed(monkeypatch):
     plugin._addhosttotag = True
     plugin._recheck_torrents = {}
     plugin._success_caches = []
+    plugin._api_bases = {}
     seed = {"sid": 3, "torrent_id": 42, "info_hash": "seed-hash"}
     service = SimpleNamespace(name="TR", type="transmission", instance=Mock())
     service.instance.get_torrents.return_value = ([], None)
@@ -206,6 +207,51 @@ def test_site_matched_by_compact_name(reseed):
         url="https://kp.m-team.io/download.php?id=42&https=1",
         cookie="test-cookie", ua="test-ua", proxy=None
     )
+
+
+def test_api_base_probed_once_per_site(reseed):
+    """同一站点多个种子只探测一次可用端点，之后直接用已知端点。"""
+    site = {"id": 6, "name": "馒头", "domain": "m-team.io", "url": "https://kp.m-team.io/",
+            "apikey": "test-key"}
+    reseed.sites.get_indexer.side_effect = {}.get
+    reseed.sites.get_indexers.return_value = [site]
+    response = Mock()
+    response.json.return_value = {"data": "https://download.example/torrent"}
+    attempts = []
+
+    def fake_post(url, **kwargs):
+        attempts.append(url)
+        return None if "invalid" in url else response
+
+    reseed.request.return_value.post_res.side_effect = fake_post
+    reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
+
+    for _ in range(2):
+        assert _download(reseed, "api.m-team.invalid", nickname="馒头", site="m-team") is True
+
+    assert attempts == ["https://api.m-team.invalid/api/torrent/genDlToken",
+                        "https://api.m-team.io/api/torrent/genDlToken",
+                        "https://api.m-team.io/api/torrent/genDlToken"]
+
+
+def test_api_endpoint_skipped_after_all_bases_failed(reseed):
+    """端点全部不可用的站点，同一次任务内不再为后续种子重试。"""
+    site = {"id": 6, "name": "馒头", "domain": "m-team.io", "url": "https://kp.m-team.io/",
+            "apikey": "test-key"}
+    reseed.sites.get_indexer.side_effect = {}.get
+    reseed.sites.get_indexers.return_value = [site]
+    attempts = []
+
+    def fake_post(url, **kwargs):
+        attempts.append(url)
+        return None
+
+    reseed.request.return_value.post_res.side_effect = fake_post
+
+    _download(reseed, "api.m-team.invalid", nickname="馒头", site="m-team")
+    assert len(attempts) == 4
+    _download(reseed, "api.m-team.invalid", nickname="馒头", site="m-team")
+    assert len(attempts) == 4
 
 
 @pytest.mark.parametrize("host, expected", [

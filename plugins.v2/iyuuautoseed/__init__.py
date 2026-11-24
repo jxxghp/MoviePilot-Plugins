@@ -67,6 +67,8 @@ class IYUUAutoSeed(_PluginBase):
     _hash_names = {}
     # 站点 RSS 的 rsskey 缓存，按域名索引
     _rss_keys = {}
+    # 各站点可用的 API 端点，按域名索引；本次任务内失败的记为空，避免逐个种子重复试探
+    _api_bases = {}
     _notify = False
     _nolabels = None
     _nopaths = None
@@ -154,6 +156,7 @@ class IYUUAutoSeed(_PluginBase):
         self._auto_rechecked = set()
         self._site_user_ids = {}
         self._hash_names = {}
+        self._api_bases = {}
 
         # 启动定时任务 & 立即运行一次
         if self.get_state() or self._onlyonce:
@@ -755,6 +758,8 @@ class IYUUAutoSeed(_PluginBase):
         if not self.iyuu_helper or not self.service_infos:
             return
         logger.info("开始辅种任务 ...")
+        # 只保留已验证可用的 API 端点，失败记录留到本次任务内生效
+        self._api_bases = {key: value for key, value in self._api_bases.items() if isinstance(value, str)}
 
         # 计数器初始化
         self.total = 0
@@ -1415,14 +1420,19 @@ class IYUUAutoSeed(_PluginBase):
             if not apikey:
                 logger.error("站点的apikey未配置")
                 return None
+            site_key = site.get("domain") or site.get("url") or ""
+            known_base = self._api_bases.get(site_key)
+            if known_base is None and site_key in self._api_bases:
+                # 本次任务内已确认该站点的 API 端点不可用，不再逐个种子重试
+                return None
             # IYUU 的域名可能滞后于站点，失败时依次试 api 子域、注册域名与站点地址本身
             site_domain = self.__registered_domain(site.get("domain") or site.get("url") or "")
             site_host = urlparse(site.get("url") or "").hostname or ""
             api_bases = []
-            for api_base in (iyuu_api_base,
+            for api_base in ([known_base] if known_base else []) + [iyuu_api_base,
                              f"https://api.{site_domain}" if site_domain else "",
                              f"https://{site_domain}" if site_domain else "",
-                             f"https://{site_host}" if site_host else ""):
+                             f"https://{site_host}" if site_host else ""]:
                 if api_base and api_base.rstrip("/").lower() not in [item.rstrip("/").lower() for item in api_bases]:
                     api_bases.append(api_base)
             for api_base in api_bases:
@@ -1440,7 +1450,9 @@ class IYUUAutoSeed(_PluginBase):
                     logger.warn(f"获取种子下载链接失败，响应解析失败：{tid}（{api_base}）")
                     continue
                 if data:
+                    self._api_bases[site_key] = api_base
                     return data
+            self._api_bases[site_key] = None
             return None
 
         try:
