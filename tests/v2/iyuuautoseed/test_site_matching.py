@@ -150,6 +150,25 @@ def test_api_domain_with_api_prefix_keeps_single_prefix(reseed):
                     "https://api.m-team-test/api/torrent/genDlToken"]
 
 
+def test_api_path_template_falls_back_to_bare_domain(reseed):
+    """API 端点挂在站点域名下的路径里（无 api 子域）时，兜底要试域名本身。"""
+    site = {"id": 6, "name": "馒头", "domain": "piggo.me", "url": "https://piggo.me/",
+            "apikey": "test-key"}
+    reseed.sites.get_indexer.side_effect = {}.get
+    reseed.sites.get_indexers.return_value = [site]
+    response = Mock()
+    response.json.return_value = {"data": "https://download.example/torrent"}
+    reseed.request.return_value.post_res.side_effect = [None, response]
+    reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
+
+    assert _download(reseed, "api.piggo.me", "v1/api/torrents/genDlToken",
+                     nickname="馒头", site="m-team") is True
+
+    urls = [call.args[0] for call in reseed.request.return_value.post_res.call_args_list]
+    assert urls == ["https://api.piggo.me/v1/api/torrents/genDlToken",
+                    "https://piggo.me/v1/api/torrents/genDlToken"]
+
+
 def test_site_matched_by_compact_name(reseed):
     """站点名写成 M-Team 时，与 IYUU 站点标识去分隔符后比对命中。"""
     site = {"id": 6, "name": "M-Team", "domain": "m-team.io", "url": "https://kp.m-team.io/",
