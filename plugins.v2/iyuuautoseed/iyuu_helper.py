@@ -89,7 +89,7 @@ class IyuuHelper(object):
         if not site:
             return None
         return {"site": site.get("site"), "nickname": site.get("nickname"),
-                "base_url": site.get("base_url")}
+                "base_url": site.get("base_url"), "is_https": site.get("is_https")}
 
     def __get_sites(self) -> dict:
         """

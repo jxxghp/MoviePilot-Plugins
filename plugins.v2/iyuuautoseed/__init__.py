@@ -34,7 +34,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "2.26"
+    plugin_version = "2.27"
     # 插件作者
     plugin_author = "jxxghp,CKun"
     # 作者主页
@@ -1193,12 +1193,6 @@ class IYUUAutoSeed(_PluginBase):
             self.fail += 1
             self.cached += 1
             return False
-        # 强制使用Https
-        if self.__need_https_param(torrent_url):
-            if "?" in torrent_url:
-                torrent_url += "&https=1"
-            else:
-                torrent_url += "?https=1"
         # 下载种子文件
         _, content, _, _, error_msg = TorrentHelper().download_torrent(
             url=torrent_url,
@@ -1337,18 +1331,6 @@ class IYUUAutoSeed(_PluginBase):
             print(str(e))
             return ""
 
-    @staticmethod
-    def __need_https_param(url: str) -> bool:
-        """
-        判断下载链接是否需要追加 https=1
-
-        带站点签名的链接追加参数后签名失效，站点会直接返回 404。
-
-        :param url: 种子下载链接
-        :return: 需要追加时返回 True
-        """
-        return not re.search(r"[?&]sign=", url or "", flags=re.IGNORECASE)
-
     def __get_download_url(self, seed: dict, site: CommentedMap, base_url: str) -> Tuple[Optional[str], bool]:
         """
         按 IYUU 返回的下载地址模板拼装种子下载链接
@@ -1363,7 +1345,7 @@ class IYUUAutoSeed(_PluginBase):
             return None, True
         # IYUU 声明的站点入口，API 类模板据此拼装，域名随 IYUU 站点列表更新
         iyuu_base_url = (self.iyuu_helper.get_torrent_url(seed.get("sid")) or (None, None))[0]
-        iyuu_api_base = f"https://{str(iyuu_base_url).strip('/')}" if iyuu_base_url else ""
+        iyuu_api_base = self.__api_base(iyuu_base_url, seed.get("sid")) if iyuu_base_url else ""
 
         def __placeholders(text: str) -> set:
             """
@@ -1430,12 +1412,10 @@ class IYUUAutoSeed(_PluginBase):
                 return None
             # IYUU 的域名可能滞后于站点，失败时依次试 api 子域、注册域名与站点地址本身
             site_domain = self.__registered_domain(site.get("domain") or site.get("url") or "")
-            site_host = urlparse(site.get("url") or "").hostname or ""
+            site_url = (site.get("url") or "").rstrip("/")
             api_bases = []
-            for api_base in ([known_base] if known_base else []) + [iyuu_api_base,
-                             f"https://api.{site_domain}" if site_domain else "",
-                             f"https://{site_domain}" if site_domain else "",
-                             f"https://{site_host}" if site_host else ""]:
+            for api_base in ([known_base] if known_base else []) + [site_url, iyuu_api_base,
+                             f"https://{site_domain}" if site_domain else ""]:
                 if api_base and api_base.rstrip("/").lower() not in [item.rstrip("/").lower() for item in api_bases]:
                     api_bases.append(api_base)
             for api_base in api_bases:
@@ -1519,6 +1499,24 @@ class IYUUAutoSeed(_PluginBase):
             logger.warn(
                 f"{site.get('name')} Url转换失败，{str(e)}：site_url={site.get('url')}，base_url={base_url}, seed={seed}")
             return self.__get_torrent_url_from_page(seed=seed, site=site), True
+
+    def __api_base(self, host: Any, sid: Any = None) -> str:
+        """
+        按 IYUU 站点声明拼 API 基地址
+
+        is_https 为 0 的站点只支持 http，其余按 https 处理。
+
+        :param host: IYUU 返回的站点入口，可能不带协议
+        :param sid: IYUU 站点 ID
+        :return: 带协议的基地址
+        """
+        host = str(host or "").strip().strip("/")
+        if not host:
+            return ""
+        if re.match(r"^https?://", host, flags=re.IGNORECASE):
+            return host
+        meta = self.iyuu_helper.get_site_info(sid) if sid is not None and self.iyuu_helper else {}
+        return f"{'http' if (meta or {}).get('is_https') == 0 else 'https'}://{host}"
 
     @staticmethod
     def __registered_domain(url: Optional[str]) -> str:
