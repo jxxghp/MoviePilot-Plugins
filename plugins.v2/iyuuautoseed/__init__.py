@@ -1194,7 +1194,7 @@ class IYUUAutoSeed(_PluginBase):
             self.cached += 1
             return False
         # 强制使用Https
-        if self.__need_https_param(torrent_url, seed.get("sid")):
+        if self.__need_https_param(torrent_url):
             if "?" in torrent_url:
                 torrent_url += "&https=1"
             else:
@@ -1337,24 +1337,17 @@ class IYUUAutoSeed(_PluginBase):
             print(str(e))
             return ""
 
-    def __need_https_param(self, url: str, sid: Any = None) -> bool:
+    @staticmethod
+    def __need_https_param(url: str) -> bool:
         """
         判断下载链接是否需要追加 https=1
 
         带站点签名的链接追加参数后签名失效，站点会直接返回 404。
 
         :param url: 种子下载链接
-        :param sid: IYUU 站点 ID，用于读取站点协议声明
         :return: 需要追加时返回 True
         """
-        if re.search(r"[?&]sign=", url or "", flags=re.IGNORECASE):
-            return False
-        # IYUU 把 is_https 为 0 的站点标为 http，追加 https=1 会改走 https 而打不开
-        if sid is not None and self.iyuu_helper:
-            meta = self.iyuu_helper.get_site_info(sid) or {}
-            if meta.get("is_https") == 0:
-                return False
-        return True
+        return not re.search(r"[?&]sign=", url or "", flags=re.IGNORECASE)
 
     def __get_download_url(self, seed: dict, site: CommentedMap, base_url: str) -> Tuple[Optional[str], bool]:
         """

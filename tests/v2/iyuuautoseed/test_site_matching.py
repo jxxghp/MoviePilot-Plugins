@@ -310,29 +310,6 @@ def test_stale_cached_api_base_falls_through(reseed):
                         "https://m-team.io/api/torrent/genDlToken"]
 
 
-def test_http_site_skips_https_param(reseed):
-    """IYUU 标记为 http 的站点不追加 https=1。"""
-    site = {"id": 6, "name": "路站", "domain": "hdroute.org", "url": "http://hdroute.org/",
-            "cookie": "test-cookie", "ua": "test-ua"}
-    helper = Mock()
-    helper.get_torrent_url.return_value = ("hdroute.org", "download.php?id={}&passkey={passkey}&from=rss")
-    helper.get_site_info.return_value = {"is_https": 0, "base_url": "hdroute.org",
-                                        "site": "hdroute", "nickname": "路站",
-                                        "download_page": "download.php?id={}&passkey={passkey}&from=rss"}
-    reseed.plugin.iyuu_helper = helper
-    reseed.sites.get_indexer.side_effect = {}.get
-    reseed.sites.get_indexers.return_value = [site]
-    reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
-
-    assert _download(reseed, "hdroute.org", "download.php?id={}&passkey={passkey}&from=rss",
-                     nickname="路站", site="hdroute") is True
-
-    reseed.torrent.download_torrent.assert_called_once_with(
-        url="http://hdroute.org/download.php?id=42&from=rss",
-        cookie="test-cookie", ua="test-ua", proxy=None
-    )
-
-
 @pytest.mark.parametrize("host, expected", [
     ("www.m-team-test.test", "m-team-test.test"),
     ("api.m-team-test.test", "m-team-test.test"),
