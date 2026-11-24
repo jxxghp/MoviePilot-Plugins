@@ -191,12 +191,16 @@ def test_site_matched_by_compact_name(reseed):
     ("www.m-team-test.test", "m-team-test.test"),
     ("api.m-team-test.test", "m-team-test.test"),
     ("www.api.m-team-test.test", "m-team-test.test"),
+    ("test.m-team-test.test", "m-team-test.test"),
     ("www.m-team.cc", "m-team.cc"),
+    ("a.b.m-team.cc", "m-team.cc"),
     ("www.x.com.cn", "x.com.cn"),
+    ("test.m-team.com.au", "m-team.com.au"),
+    ("site.co.nz", "site.co.nz"),
     ("pt.www.abc.com", "abc.com"),
 ])
 def test_registered_domain_strips_entry_prefixes(host, expected):
-    """入口前缀 api./www. 不参与注册域名，避免兜底拼出 api.api. 或 api.www.。"""
+    """注册域名忽略入口前缀与普通子域，多级公共后缀保留两段。"""
     assert IYUUAutoSeed._IYUUAutoSeed__registered_domain(host) == expected
 
 
