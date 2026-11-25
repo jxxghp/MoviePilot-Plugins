@@ -25,6 +25,13 @@ from app.schemas.types import EventType
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
 
+try:
+    from app.domain.site import resolve_site_user_agent as _resolve_site_user_agent
+except ImportError:  # 旧宿主无统一解析函数
+    def _resolve_site_user_agent(site_ua, configured_ua, default_ua):
+        ua = site_ua.strip() if isinstance(site_ua, str) else ""
+        return ua or (configured_ua or "").strip() or default_ua
+
 
 class IYUUAutoSeed(_PluginBase):
     # 插件名称
@@ -1199,7 +1206,7 @@ class IYUUAutoSeed(_PluginBase):
         _, content, _, _, error_msg = TorrentHelper().download_torrent(
             url=torrent_url,
             cookie=site_info.get("cookie") if use_cookie else None,
-            ua=site_info.get("ua") or settings.USER_AGENT,
+            ua=self.__site_ua(site_info),
             proxy=site_info.get("proxy"))
         if not content:
             # 下载失败
@@ -1403,7 +1410,7 @@ class IYUUAutoSeed(_PluginBase):
                     headers={
                         'Content-Type': 'application/json',
                         'Accept': 'application/json',
-                        'User-Agent': f'{site.get("ua") or settings.USER_AGENT}',
+                        'User-Agent': self.__site_ua(site),
                         'Authorization': f'Bearer {access_token}'
                     }
                 ).post_res(f"{api_base}/{path.lstrip('/').replace('{}', str(tid))}", json={})
@@ -1437,7 +1444,7 @@ class IYUUAutoSeed(_PluginBase):
             for api_base in __dedupe(([known_base] if known_base else [])
                                      + self.__api_base_candidates(site, iyuu_api_base)):
                 # UA 走请求库参数，写进 headers 会被部分站点判为浏览器访问
-                res = RequestUtils(ua=site.get("ua") or settings.USER_AGENT,
+                res = RequestUtils(ua=self.__site_ua(site),
                                    headers={'Accept': 'application/json, text/plain, */*',
                                             'x-api-key': apikey}
                                    ).post_res(f"{api_base}/{path.lstrip('/')}", params={'id': tid})
@@ -1599,6 +1606,20 @@ class IYUUAutoSeed(_PluginBase):
         registered = cls.__registered_domain(url)
         return registered.rsplit(".", 1)[0] if "." in registered else registered
 
+    @staticmethod
+    def __site_ua(site: Optional[dict]) -> str:
+        """
+        按 站点配置 > 通用站点配置 > 全局默认值 解析请求 User-Agent
+
+        :param site: 站点配置
+        :return: 实际使用的 User-Agent
+        """
+        return _resolve_site_user_agent(
+            (site or {}).get("ua"),
+            getattr(settings, "SITE_USER_AGENT", None),
+            settings.USER_AGENT,
+        )
+
     def __get_site_by_iyuu(self, sid: Any, sites_helper: Any) -> Optional[dict]:
         """
         按 IYUU 站点信息匹配 MoviePilot 站点，站点名称不同也能对上
@@ -1665,7 +1686,7 @@ class IYUUAutoSeed(_PluginBase):
         if not site_url:
             return None
         res = RequestUtils(cookies=site.get("cookie"),
-                           ua=site.get("ua") or settings.USER_AGENT,
+                           ua=self.__site_ua(site),
                            proxies=settings.PROXY if site.get("proxy") else None
                            ).get_res(url=f"{site_url}/")
         text = getattr(res, "text", "") or ""
@@ -1705,7 +1726,7 @@ class IYUUAutoSeed(_PluginBase):
                     "Accept": "application/json",
                     "Content-Type": "application/json"
                 },
-                ua=site.get("ua") or settings.USER_AGENT
+                ua=self.__site_ua(site)
             ).post_res(f"{site_url}/api/v1/torrent/search",
                        json={"keyword": keyword, "page_number": 0, "page_size": 50, "visible": 1})
             if not res:
@@ -1774,7 +1795,7 @@ class IYUUAutoSeed(_PluginBase):
             logger.info(f"正在获取种子下载链接：{page_url} ...")
             res = RequestUtils(
                 cookies=site.get("cookie"),
-                ua=site.get("ua") or settings.USER_AGENT,
+                ua=self.__site_ua(site),
                 proxies=settings.PROXY if site.get("proxy") else None
             ).get_res(url=page_url)
             if res is not None and res.status_code in (200, 500):
