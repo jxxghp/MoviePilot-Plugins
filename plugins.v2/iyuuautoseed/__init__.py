@@ -1345,7 +1345,7 @@ class IYUUAutoSeed(_PluginBase):
         if not template:
             logger.warn(f"未获取到站点 {site.get('name')} 的下载地址模板")
             return None, True
-        # IYUU 声明的站点入口，API 类模板在站点地址不可用时用它拼装
+        # IYUU 声明的站点入口：API 类模板的次选端点，其子域前缀也用来拼换域名后的端点
         iyuu_base_url = (self.iyuu_helper.get_torrent_url(seed.get("sid")) or (None, None))[0]
         iyuu_api_base = self.__api_base(iyuu_base_url, seed.get("sid")) if iyuu_base_url else ""
 
@@ -1374,31 +1374,52 @@ class IYUUAutoSeed(_PluginBase):
             """
             return self.__get_torrent_url_from_page(seed=seed, site=site), True
 
+        def __dedupe(bases: list) -> list:
+            """
+            候选端点去末尾斜杠后按小写去重，跳过空白项
+            """
+            uniq = []
+            for base in bases:
+                if base and base.rstrip("/").lower() not in [item.rstrip("/").lower() for item in uniq]:
+                    uniq.append(base)
+            return uniq
+
         def __get_token_enclosure(tid: str, apikey: str, token: str, path: str):
             """
-            通过猪猪实验室接口换取种子签名下载链接
+            对带 download-link 的模板，用站点存取令牌换取签名下载链接，端点按候选依次尝试
             """
             access_token = (apikey or "").strip() or (token or "").strip()
             if not access_token:
                 logger.error("站点存取令牌未配置")
                 return None
-            url = f"{iyuu_api_base}/{path.lstrip('/').replace('{}', str(tid))}"
-            res = RequestUtils(
-                headers={
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                    'User-Agent': f'{site.get("ua") or settings.USER_AGENT}',
-                    'Authorization': f'Bearer {access_token}'
-                }
-            ).post_res(url, json={})
-            if not res:
-                logger.warn(f"站点获取签名下载链接失败：{tid}")
+            site_key = site.get("domain") or site.get("url") or ""
+            known_base = self._api_bases.get(site_key)
+            if known_base is None and site_key in self._api_bases:
+                # 本次任务内已确认该站点的 API 端点不可用，不再逐个种子重试
                 return None
-            try:
-                return (res.json().get("data") or {}).get("url")
-            except ValueError:
-                logger.warn(f"站点获取签名下载链接失败，响应解析失败：{tid}")
-                return None
+            for api_base in __dedupe(([known_base] if known_base else [])
+                                     + self.__api_base_candidates(site, iyuu_api_base)):
+                res = RequestUtils(
+                    headers={
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'User-Agent': f'{site.get("ua") or settings.USER_AGENT}',
+                        'Authorization': f'Bearer {access_token}'
+                    }
+                ).post_res(f"{api_base}/{path.lstrip('/').replace('{}', str(tid))}", json={})
+                if not res:
+                    logger.warn(f"站点获取签名下载链接失败：{tid}（{api_base}）")
+                    continue
+                try:
+                    data = (res.json().get("data") or {}).get("url")
+                except ValueError:
+                    logger.warn(f"站点获取签名下载链接失败，响应解析失败：{tid}（{api_base}）")
+                    continue
+                if data:
+                    self._api_bases[site_key] = api_base
+                    return data
+            self._api_bases[site_key] = None
+            return None
 
         def __get_api_enclosure(tid: str, apikey: str, path: str):
             """
@@ -1412,15 +1433,9 @@ class IYUUAutoSeed(_PluginBase):
             if known_base is None and site_key in self._api_bases:
                 # 本次任务内已确认该站点的 API 端点不可用，不再逐个种子重试
                 return None
-            # 依次试 MP 站点地址、IYUU 主机与注册域名，站点换域名后仍能命中
-            site_domain = self.__registered_domain(site.get("domain") or site.get("url") or "")
-            site_url = (site.get("url") or "").rstrip("/")
-            api_bases = []
-            for api_base in ([known_base] if known_base else []) + [site_url, iyuu_api_base,
-                             f"https://{site_domain}" if site_domain else ""]:
-                if api_base and api_base.rstrip("/").lower() not in [item.rstrip("/").lower() for item in api_bases]:
-                    api_bases.append(api_base)
-            for api_base in api_bases:
+            # 依次试 MP 站点地址、IYUU 主机、跟随 IYUU 前缀的站点域名与站点注册域名
+            for api_base in __dedupe(([known_base] if known_base else [])
+                                     + self.__api_base_candidates(site, iyuu_api_base)):
                 # UA 走请求库参数，写进 headers 会被部分站点判为浏览器访问
                 res = RequestUtils(ua=site.get("ua") or settings.USER_AGENT,
                                    headers={'Accept': 'application/json, text/plain, */*',
@@ -1519,6 +1534,39 @@ class IYUUAutoSeed(_PluginBase):
             return host
         meta = self.iyuu_helper.get_site_info(sid) if sid is not None and self.iyuu_helper else {}
         return f"{'http' if (meta or {}).get('is_https') == 0 else 'https'}://{host}"
+
+    def __api_base_candidates(self, site: dict, iyuu_api_base: str) -> list:
+        """
+        返回换取下载链接时依次尝试的 API 基地址
+
+        MP 站点地址优先，其次 IYUU 清单主机；站点地址填的就是注册域名时，再按 IYUU 主机的
+        子域前缀换到站点域名，覆盖站点已换域名、IYUU 清单尚未跟上的窗口期。
+
+        :param site: MoviePilot 维护的站点信息，需包含 url 与 domain
+        :param iyuu_api_base: 按 IYUU 清单拼出的带协议基地址
+        :return: 候选基地址列表，去重由调用方处理
+        """
+        site_url = (site.get("url") or "").rstrip("/")
+        registered = self.__registered_domain(site.get("domain") or site_url)
+        scheme = iyuu_api_base.split("://")[0].lower() if "://" in (iyuu_api_base or "") else "https"
+        # 前缀候选跟随 IYUU 声明的协议，注册域名兜底仍用 https
+        candidates = [site_url, iyuu_api_base]
+        iyuu_host = re.sub(r"^https?://", "", (iyuu_api_base or "").lower()).strip("/")
+        iyuu_registered = self.__registered_domain(iyuu_host)
+        prefix = ""
+        if iyuu_host and iyuu_registered and iyuu_host != iyuu_registered \
+                and iyuu_host.endswith(f".{iyuu_registered}"):
+            prefix = iyuu_host[:-len(iyuu_registered) - 1]
+        # 站点地址带镜像或入口子域时以用户填的为准，不再拼新主机
+        labels = [label for label in re.sub(r"^https?://", "", site_url.lower()).split("/")[0].split(".")
+                  if label]
+        while len(labels) > 1 and labels[0] in ("api", "www"):
+            labels = labels[1:]
+        if prefix and registered and ".".join(labels) == registered:
+            candidates.append(f"{scheme}://{prefix}.{registered}")
+        if registered:
+            candidates.append(f"https://{registered}")
+        return candidates
 
     @staticmethod
     def __registered_domain(url: Optional[str]) -> str:
