@@ -1362,7 +1362,7 @@
   },
   "UpdateWeChatIp": {
     "name": "动态企微可信IP",
-    "description": "修改企微应用可信IP,可本地扫码刷新Cookie,直接调用接口更稳定",
+    "description": "修改企业微信应用可信IP,可本地扫码刷新Cookie,直接调用接口更稳定",
     "labels": "消息通知,企业微信",
     "version": "2.0.3",
     "icon": "Wecom_A.png",

@@ -43,8 +43,8 @@ def _download(reseed, source, template="api/torrent/genDlToken", **meta):
     return reseed.plugin._IYUUAutoSeed__download_torrent(reseed.seed, reseed.service, "/data", "tv")
 
 
-def test_api_domain_matched_by_domain_body(reseed):
-    """IYUU 用 api.m-team.cc、MoviePilot 用 m-team.io 时按域名主体命中，仍用 IYUU 域名调接口。"""
+def test_api_uses_mp_site_url_first(reseed):
+    """API 端点优先用 MP 站点地址，用户配镜像域名时自然走镜像。"""
     site = {"id": 6, "name": "M-Team", "domain": "m-team.io", "url": "https://kp.m-team.io/",
             "apikey": "test-key", "proxy": True}
     reseed.sites.get_indexer.side_effect = {}.get
@@ -61,7 +61,7 @@ def test_api_domain_matched_by_domain_body(reseed):
     # UA 必须走请求库参数，写进 headers 会被站点判为浏览器访问
     assert "User-Agent" not in reseed.request.call_args.kwargs["headers"]
     reseed.request.return_value.post_res.assert_called_once_with(
-        "https://api.m-team.cc/api/torrent/genDlToken", params={"id": 42}
+        "https://kp.m-team.io/api/torrent/genDlToken", params={"id": 42}
     )
     assert reseed.torrent.download_torrent.call_args.kwargs["proxy"] is True
     reseed.service.instance.add_torrent.assert_called_once_with(
@@ -82,7 +82,7 @@ def test_skyeysnow_matched_by_site_name(reseed):
 
     reseed.sites.check.assert_called_once_with("skyeysnow.com")
     reseed.torrent.download_torrent.assert_called_once_with(
-        url="https://skyeysnow.com/download.php?id=42&https=1",
+        url="https://skyeysnow.com/download.php?id=42",
         cookie="test-cookie", ua="test-ua", proxy=None
     )
     reseed.service.instance.add_torrent.assert_called_once()
@@ -115,8 +115,8 @@ def test_matched_site_respects_rate_limit(reseed):
     reseed.request.assert_not_called()
 
 
-def test_api_endpoint_falls_back_to_site_api_subdomain(reseed):
-    """IYUU 的域名失效时，退回本地站点注册域名的 api 子域再试一次。"""
+def test_api_falls_back_to_iyuu_host(reseed):
+    """MP 站点地址取不到时退回 IYUU 清单给的主机（m-team 这类 API 在独立子域）。"""
     site = {"id": 6, "name": "M-Team", "domain": "m-team.io", "url": "https://kp.m-team.io/",
             "apikey": "test-key"}
     reseed.sites.get_indexer.side_effect = {}.get
@@ -129,30 +129,32 @@ def test_api_endpoint_falls_back_to_site_api_subdomain(reseed):
     assert _download(reseed, "api.m-team.cc", nickname="馒头", site="m-team") is True
 
     urls = [call.args[0] for call in reseed.request.return_value.post_res.call_args_list]
-    assert urls == ["https://api.m-team.cc/api/torrent/genDlToken",
-                    "https://api.m-team.io/api/torrent/genDlToken"]
+    assert urls == ["https://kp.m-team.io/api/torrent/genDlToken",
+                    "https://api.m-team.cc/api/torrent/genDlToken"]
 
 
-def test_api_domain_with_api_prefix_keeps_single_prefix(reseed):
-    """站点地址本身带 api. 前缀时，兜底域名不能拼成 api.api.<域名>。"""
-    site = {"id": 6, "name": "馒头", "domain": "api.m-team-test",
-            "url": "https://api.m-team-test/", "apikey": "test-key"}
+def test_api_base_without_guessed_api_prefix(reseed):
+    """兜底不再猜 api. 子域，多级域名不会被拼成 api.test.test-m-team.test 这类主机。"""
+    site = {"id": 6, "name": "馒头", "domain": "test.test-m-team.test",
+            "url": "https://test.test-m-team.test/", "apikey": "test-key"}
     reseed.sites.get_indexer.side_effect = {}.get
     reseed.sites.get_indexers.return_value = [site]
     response = Mock()
     response.json.return_value = {"data": "https://download.example/torrent"}
-    reseed.request.return_value.post_res.side_effect = [None, response]
+    reseed.request.return_value.post_res.side_effect = [None, None, response]
     reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
 
     assert _download(reseed, "api.m-team.cc", nickname="馒头", site="m-team") is True
 
     urls = [call.args[0] for call in reseed.request.return_value.post_res.call_args_list]
-    assert urls == ["https://api.m-team.cc/api/torrent/genDlToken",
-                    "https://api.m-team-test/api/torrent/genDlToken"]
+    assert urls == ["https://test.test-m-team.test/api/torrent/genDlToken",
+                    "https://api.m-team.cc/api/torrent/genDlToken",
+                    "https://test-m-team.test/api/torrent/genDlToken"]
+    assert not any("api.test" in url for url in urls)
 
 
-def test_api_path_template_falls_back_to_bare_domain(reseed):
-    """API 端点挂在站点域名下的路径里（无 api 子域）时，兜底要试域名本身。"""
+def test_api_path_template_falls_back_to_iyuu_api_host(reseed):
+    """API 挂在独立子域时（piggo），MP 站点地址失败后退回 IYUU 的 api 主机。"""
     site = {"id": 6, "name": "馒头", "domain": "piggo.me", "url": "https://piggo.me/",
             "apikey": "test-key"}
     reseed.sites.get_indexer.side_effect = {}.get
@@ -166,29 +168,28 @@ def test_api_path_template_falls_back_to_bare_domain(reseed):
                      nickname="馒头", site="m-team") is True
 
     urls = [call.args[0] for call in reseed.request.return_value.post_res.call_args_list]
-    assert urls == ["https://api.piggo.me/v1/api/torrents/genDlToken",
-                    "https://piggo.me/v1/api/torrents/genDlToken"]
+    assert urls == ["https://piggo.me/v1/api/torrents/genDlToken",
+                    "https://api.piggo.me/v1/api/torrents/genDlToken"]
 
 
-def test_api_endpoint_falls_back_to_configured_site_url(reseed):
-    """未收录的多级后缀会把注册域名切错，最后一级直接用站点地址本身兜住。"""
+def test_api_endpoint_falls_back_to_registered_domain(reseed):
+    """未收录的多级后缀会把注册域名切错，最后一级仍用注册域名兜住。"""
     site = {"id": 6, "name": "馒头", "domain": "foo.web.id", "url": "https://foo.web.id/",
             "apikey": "test-key"}
     reseed.sites.get_indexer.side_effect = {}.get
     reseed.sites.get_indexers.return_value = [site]
     response = Mock()
     response.json.return_value = {"data": "https://download.example/torrent"}
-    reseed.request.return_value.post_res.side_effect = [None, None, None, response]
+    reseed.request.return_value.post_res.side_effect = [None, None, response]
     reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
 
     assert _download(reseed, "api.old-host.id", "v1/api/torrents/genDlToken",
                      nickname="馒头", site="m-team") is True
 
     urls = [call.args[0] for call in reseed.request.return_value.post_res.call_args_list]
-    assert urls == ["https://api.old-host.id/v1/api/torrents/genDlToken",
-                    "https://api.web.id/v1/api/torrents/genDlToken",
-                    "https://web.id/v1/api/torrents/genDlToken",
-                    "https://foo.web.id/v1/api/torrents/genDlToken"]
+    assert urls == ["https://foo.web.id/v1/api/torrents/genDlToken",
+                    "https://api.old-host.id/v1/api/torrents/genDlToken",
+                    "https://web.id/v1/api/torrents/genDlToken"]
 
 
 def test_site_matched_by_compact_name(reseed):
@@ -204,13 +205,64 @@ def test_site_matched_by_compact_name(reseed):
 
     reseed.sites.check.assert_called_once_with("m-team.io")
     reseed.torrent.download_torrent.assert_called_once_with(
-        url="https://kp.m-team.io/download.php?id=42&https=1",
+        url="https://kp.m-team.io/download.php?id=42",
         cookie="test-cookie", ua="test-ua", proxy=None
     )
 
 
+def test_template_with_torrent_key_placeholder(reseed):
+    """带 {torrent_key} 的模板只保留 id，保持旧版整段丢弃的行为。"""
+    site = {"id": 6, "name": "朱雀", "domain": "zhuque.in", "url": "https://zhuque.in/",
+            "cookie": "test-cookie", "ua": "test-ua"}
+    reseed.sites.get_indexer.side_effect = {}.get
+    reseed.sites.get_indexers.return_value = [site]
+    reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
+
+    assert _download(reseed, "zhuque.in", "api/torrent/download/{}/{torrent_key}",
+                     nickname="朱雀", site="zhuque") is True
+
+    reseed.torrent.download_torrent.assert_called_once_with(
+        url="https://zhuque.in/api/torrent/download/42",
+        cookie="test-cookie", ua="test-ua", proxy=None
+    )
+
+
+def test_hash_template_without_id_stays_on_detail_page(reseed):
+    """没有 id 的 hash 模板，hash 只能来自详情页，不能拿 API 凭证顶替。"""
+    site = {"id": 6, "name": "瓷器", "domain": "hdwing.org", "url": "https://hdwing.org/",
+            "cookie": "test-cookie", "ua": "test-ua", "apikey": "test-key"}
+    reseed.sites.get_indexer.side_effect = {}.get
+    reseed.sites.get_indexers.return_value = [site]
+
+    assert _download(reseed, "hdwing.org", "download.php?hash={hash}",
+                     nickname="瓷器", site="hdchina") is False
+    reseed.request.return_value.post_res.assert_not_called()
+
+
+def test_api_base_follows_iyuu_http_declaration(reseed):
+    """IYUU 声明 is_https=0 的站点，退回其主机时要用 http，不能写死 https。"""
+    site = {"id": 6, "name": "路", "domain": "hdroute.org", "url": "https://hdroute.org/",
+            "apikey": "test-key"}
+    reseed.sites.get_indexer.side_effect = {}.get
+    reseed.sites.get_indexers.return_value = [site]
+    response = Mock()
+    response.json.return_value = {"data": "https://download.example/torrent"}
+    attempts = []
+
+    def fake_post(url, **kwargs):
+        attempts.append(url)
+        return None if url.startswith("https://hdroute.org") else response
+
+    reseed.request.return_value.post_res.side_effect = fake_post
+    reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
+
+    assert _download(reseed, "www.hdroute.org", "v1/api/torrents/genDlToken",
+                     nickname="路", site="hdroute", is_https=0) is True
+    assert attempts == ["https://hdroute.org/v1/api/torrents/genDlToken",
+                        "http://www.hdroute.org/v1/api/torrents/genDlToken"]
+
 def test_api_base_probed_once_per_site(reseed):
-    """同一站点多个种子只探测一次可用端点，之后直接用已知端点。"""
+    """同一站点命中端点后记下，后续种子不再逐个候选重试。"""
     site = {"id": 6, "name": "馒头", "domain": "m-team.io", "url": "https://kp.m-team.io/",
             "apikey": "test-key"}
     reseed.sites.get_indexer.side_effect = {}.get
@@ -221,7 +273,7 @@ def test_api_base_probed_once_per_site(reseed):
 
     def fake_post(url, **kwargs):
         attempts.append(url)
-        return None if "invalid" in url else response
+        return None if ("invalid" in url or url.startswith("https://kp.")) else response
 
     reseed.request.return_value.post_res.side_effect = fake_post
     reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
@@ -229,9 +281,10 @@ def test_api_base_probed_once_per_site(reseed):
     for _ in range(2):
         assert _download(reseed, "api.m-team.invalid", nickname="馒头", site="m-team") is True
 
-    assert attempts == ["https://api.m-team.invalid/api/torrent/genDlToken",
-                        "https://api.m-team.io/api/torrent/genDlToken",
-                        "https://api.m-team.io/api/torrent/genDlToken"]
+    assert attempts == ["https://kp.m-team.io/api/torrent/genDlToken",
+                        "https://api.m-team.invalid/api/torrent/genDlToken",
+                        "https://m-team.io/api/torrent/genDlToken",
+                        "https://m-team.io/api/torrent/genDlToken"]
 
 
 def test_api_endpoint_skipped_after_all_bases_failed(reseed):
@@ -249,9 +302,9 @@ def test_api_endpoint_skipped_after_all_bases_failed(reseed):
     reseed.request.return_value.post_res.side_effect = fake_post
 
     _download(reseed, "api.m-team.invalid", nickname="馒头", site="m-team")
-    assert len(attempts) == 4
+    assert len(attempts) == 3
     _download(reseed, "api.m-team.invalid", nickname="馒头", site="m-team")
-    assert len(attempts) == 4
+    assert len(attempts) == 3
 
 
 def test_stale_cached_api_base_falls_through(reseed):
@@ -263,7 +316,7 @@ def test_stale_cached_api_base_falls_through(reseed):
     response = Mock()
     response.json.return_value = {"data": "https://download.example/torrent"}
     attempts = []
-    dead = set()
+    dead = {"https://kp.m-team.io"}
 
     def fake_post(url, **kwargs):
         attempts.append(url)
@@ -272,14 +325,117 @@ def test_stale_cached_api_base_falls_through(reseed):
     reseed.request.return_value.post_res.side_effect = fake_post
     reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
 
-    assert _download(reseed, "api.m-team.io", nickname="馒头", site="m-team") is True
-    dead.add("https://api.m-team.io")
-    assert _download(reseed, "api.m-team.io", nickname="馒头", site="m-team") is True
+    assert _download(reseed, "api.m-team.cc", nickname="馒头", site="m-team") is True
+    dead.add("https://api.m-team.cc")
+    assert _download(reseed, "api.m-team.cc", nickname="馒头", site="m-team") is True
 
-    assert attempts == ["https://api.m-team.io/api/torrent/genDlToken",
-                        "https://api.m-team.io/api/torrent/genDlToken",
+    assert attempts == ["https://kp.m-team.io/api/torrent/genDlToken",
+                        "https://api.m-team.cc/api/torrent/genDlToken",
+                        "https://api.m-team.cc/api/torrent/genDlToken",
+                        "https://kp.m-team.io/api/torrent/genDlToken",
                         "https://m-team.io/api/torrent/genDlToken"]
 
+
+def test_api_endpoint_follows_iyuu_subdomain_after_migration(reseed):
+    """站点换域名而 IYUU 清单滞后时，跟随清单主机的子域前缀在新域名上换取下载链接。"""
+    site = {"id": 6, "name": "馒头", "domain": "m-team.test", "url": "https://m-team.test/",
+             "apikey": "test-key"}
+    reseed.sites.get_indexer.side_effect = {}.get
+    reseed.sites.get_indexers.return_value = [site]
+    response = Mock()
+    response.json.return_value = {"data": "https://download.example/torrent"}
+    attempts = []
+
+    def fake_post(url, **kwargs):
+        attempts.append(url)
+        return response if url == "https://api.m-team.test/api/torrent/genDlToken" else None
+
+    reseed.request.return_value.post_res.side_effect = fake_post
+    reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
+
+    assert _download(reseed, "api.m-team.cc", nickname="馒头", site="m-team") is True
+
+    assert attempts == ["https://m-team.test/api/torrent/genDlToken",
+                        "https://api.m-team.cc/api/torrent/genDlToken",
+                        "https://api.m-team.test/api/torrent/genDlToken"]
+
+
+def test_token_endpoint_tries_site_url_then_follows_prefix(reseed):
+    """带 download-link 的模板同样走候选遍历：站点地址 → IYUU 主机 → 跟随前缀的新域名。"""
+    site = {"id": 6, "name": "猪猪", "domain": "pig.test", "url": "https://pig.test/",
+            "token": "test-token"}
+    reseed.sites.get_indexer.side_effect = {}.get
+    reseed.sites.get_indexers.return_value = [site]
+    response = Mock()
+    response.json.return_value = {"data": {"url": "https://download.example/torrent"}}
+    attempts = []
+
+    def fake_post(url, **kwargs):
+        attempts.append(url)
+        return response if url == "https://api.pig.test/v1/api/torrents/42/download-link" else None
+
+    reseed.request.return_value.post_res.side_effect = fake_post
+    reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
+
+    assert _download(reseed, "api.piggo.me", "/v1/api/torrents/{}/download-link",
+                     nickname="猪猪", site="piggo") is True
+
+    assert attempts == ["https://pig.test/v1/api/torrents/42/download-link",
+                        "https://api.piggo.me/v1/api/torrents/42/download-link",
+                        "https://api.pig.test/v1/api/torrents/42/download-link"]
+    assert reseed.request.call_args.kwargs["headers"]["Authorization"] == "Bearer test-token"
+
+
+def test_token_endpoint_keeps_mirror_subdomain(reseed):
+    """站点地址填的是镜像子域时以用户配置为准，不再拼 api 前缀主机。"""
+    site = {"id": 6, "name": "猪猪", "domain": "mirror.pig.test", "url": "https://mirror.pig.test/",
+            "token": "test-token"}
+    reseed.sites.get_indexer.side_effect = {}.get
+    reseed.sites.get_indexers.return_value = [site]
+    response = Mock()
+    response.json.return_value = {"data": {"url": "https://download.example/torrent"}}
+    attempts = []
+
+    def fake_post(url, **kwargs):
+        attempts.append(url)
+        return response if url == "https://api.piggo.me/v1/api/torrents/42/download-link" else None
+
+    reseed.request.return_value.post_res.side_effect = fake_post
+    reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
+
+    assert _download(reseed, "api.piggo.me", "/v1/api/torrents/{}/download-link",
+                     nickname="猪猪", site="piggo") is True
+
+    assert attempts == ["https://mirror.pig.test/v1/api/torrents/42/download-link",
+                        "https://api.piggo.me/v1/api/torrents/42/download-link"]
+    assert not any(url.startswith("https://api.pig.test") for url in attempts)
+
+
+def test_token_endpoint_probed_once_per_site(reseed):
+    """download-link 模板命中端点后记下，同站后续种子不再逐个候选重试。"""
+    site = {"id": 6, "name": "猪猪", "domain": "pig.test", "url": "https://pig.test/",
+            "token": "test-token"}
+    reseed.sites.get_indexer.side_effect = {}.get
+    reseed.sites.get_indexers.return_value = [site]
+    response = Mock()
+    response.json.return_value = {"data": {"url": "https://download.example/torrent"}}
+    attempts = []
+
+    def fake_post(url, **kwargs):
+        attempts.append(url)
+        return response if url == "https://api.pig.test/v1/api/torrents/42/download-link" else None
+
+    reseed.request.return_value.post_res.side_effect = fake_post
+    reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
+
+    assert _download(reseed, "api.piggo.me", "/v1/api/torrents/{}/download-link",
+                     nickname="猪猪", site="piggo") is True
+    first = len(attempts)
+    assert _download(reseed, "api.piggo.me", "/v1/api/torrents/{}/download-link",
+                     nickname="猪猪", site="piggo") is True
+
+    assert len(attempts) == first + 1
+    assert attempts[first] == "https://api.pig.test/v1/api/torrents/42/download-link"
 
 @pytest.mark.parametrize("host, expected", [
     ("www.m-team-test.test", "m-team-test.test"),

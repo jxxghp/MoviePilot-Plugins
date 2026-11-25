@@ -25,6 +25,13 @@ from app.schemas.types import EventType
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
 
+try:
+    from app.domain.site import resolve_site_user_agent as _resolve_site_user_agent
+except ImportError:  # 旧宿主无统一解析函数
+    def _resolve_site_user_agent(site_ua, configured_ua, default_ua):
+        ua = site_ua.strip() if isinstance(site_ua, str) else ""
+        return ua or (configured_ua or "").strip() or default_ua
+
 
 class IYUUAutoSeed(_PluginBase):
     # 插件名称
@@ -34,7 +41,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "2.26"
+    plugin_version = "2.27"
     # 插件作者
     plugin_author = "jxxghp,CKun"
     # 作者主页
@@ -758,6 +765,8 @@ class IYUUAutoSeed(_PluginBase):
         if not self.iyuu_helper or not self.service_infos:
             return
         logger.info("开始辅种任务 ...")
+        # 站点清单每次任务重拉，IYUU 更新站点地址后无需重载插件
+        self.iyuu_helper.reset_sites()
         # 端点失败与 rsskey 缓存只在单次任务内有效，避免一次失败固化为长期失败
         self._api_bases = {key: value for key, value in self._api_bases.items() if isinstance(value, str)}
         self._rss_keys = {}
@@ -1193,17 +1202,11 @@ class IYUUAutoSeed(_PluginBase):
             self.fail += 1
             self.cached += 1
             return False
-        # 强制使用Https
-        if self.__need_https_param(torrent_url):
-            if "?" in torrent_url:
-                torrent_url += "&https=1"
-            else:
-                torrent_url += "?https=1"
         # 下载种子文件
         _, content, _, _, error_msg = TorrentHelper().download_torrent(
             url=torrent_url,
             cookie=site_info.get("cookie") if use_cookie else None,
-            ua=site_info.get("ua") or settings.USER_AGENT,
+            ua=self.__site_ua(site_info),
             proxy=site_info.get("proxy"))
         if not content:
             # 下载失败
@@ -1337,18 +1340,6 @@ class IYUUAutoSeed(_PluginBase):
             print(str(e))
             return ""
 
-    @staticmethod
-    def __need_https_param(url: str) -> bool:
-        """
-        判断下载链接是否需要追加 https=1
-
-        带站点签名的链接追加参数后签名失效，站点会直接返回 404。
-
-        :param url: 种子下载链接
-        :return: 需要追加时返回 True
-        """
-        return not re.search(r"[?&]sign=", url or "", flags=re.IGNORECASE)
-
     def __get_download_url(self, seed: dict, site: CommentedMap, base_url: str) -> Tuple[Optional[str], bool]:
         """
         按 IYUU 返回的下载地址模板拼装种子下载链接
@@ -1361,9 +1352,9 @@ class IYUUAutoSeed(_PluginBase):
         if not template:
             logger.warn(f"未获取到站点 {site.get('name')} 的下载地址模板")
             return None, True
-        # IYUU 声明的站点入口，API 类模板据此拼装，域名随 IYUU 站点列表更新
+        # IYUU 声明的站点入口：API 类模板的次选端点，其子域前缀也用来拼换域名后的端点
         iyuu_base_url = (self.iyuu_helper.get_torrent_url(seed.get("sid")) or (None, None))[0]
-        iyuu_api_base = f"https://{str(iyuu_base_url).strip('/')}" if iyuu_base_url else ""
+        iyuu_api_base = self.__api_base(iyuu_base_url, seed.get("sid")) if iyuu_base_url else ""
 
         def __placeholders(text: str) -> set:
             """
@@ -1376,6 +1367,8 @@ class IYUUAutoSeed(_PluginBase):
             替换已知占位符，返回链接与仍未填充的占位符
             """
             url = template.replace("id={}", "id={id}")
+            # 这类模板只要 id 即可取种，旧版同样整段丢弃
+            url = url.replace("/{torrent_key}", "")
             if values.get("id"):
                 url = url.replace("{}", str(values.get("id")))
             for key in ("id", "uid", "passkey", "hash", "downHash", "rsskey"):
@@ -1388,31 +1381,52 @@ class IYUUAutoSeed(_PluginBase):
             """
             return self.__get_torrent_url_from_page(seed=seed, site=site), True
 
+        def __dedupe(bases: list) -> list:
+            """
+            候选端点去末尾斜杠后按小写去重，跳过空白项
+            """
+            uniq = []
+            for base in bases:
+                if base and base.rstrip("/").lower() not in [item.rstrip("/").lower() for item in uniq]:
+                    uniq.append(base)
+            return uniq
+
         def __get_token_enclosure(tid: str, apikey: str, token: str, path: str):
             """
-            通过猪猪实验室接口换取种子签名下载链接
+            对带 download-link 的模板，用站点存取令牌换取签名下载链接，端点按候选依次尝试
             """
             access_token = (apikey or "").strip() or (token or "").strip()
             if not access_token:
                 logger.error("站点存取令牌未配置")
                 return None
-            url = f"{iyuu_api_base}/{path.lstrip('/').replace('{}', str(tid))}"
-            res = RequestUtils(
-                headers={
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                    'User-Agent': f'{site.get("ua") or settings.USER_AGENT}',
-                    'Authorization': f'Bearer {access_token}'
-                }
-            ).post_res(url, json={})
-            if not res:
-                logger.warn(f"站点获取签名下载链接失败：{tid}")
+            site_key = site.get("domain") or site.get("url") or ""
+            known_base = self._api_bases.get(site_key)
+            if known_base is None and site_key in self._api_bases:
+                # 本次任务内已确认该站点的 API 端点不可用，不再逐个种子重试
                 return None
-            try:
-                return (res.json().get("data") or {}).get("url")
-            except ValueError:
-                logger.warn(f"站点获取签名下载链接失败，响应解析失败：{tid}")
-                return None
+            for api_base in __dedupe(([known_base] if known_base else [])
+                                     + self.__api_base_candidates(site, iyuu_api_base)):
+                res = RequestUtils(
+                    headers={
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'User-Agent': self.__site_ua(site),
+                        'Authorization': f'Bearer {access_token}'
+                    }
+                ).post_res(f"{api_base}/{path.lstrip('/').replace('{}', str(tid))}", json={})
+                if not res:
+                    logger.warn(f"站点获取签名下载链接失败：{tid}（{api_base}）")
+                    continue
+                try:
+                    data = (res.json().get("data") or {}).get("url")
+                except ValueError:
+                    logger.warn(f"站点获取签名下载链接失败，响应解析失败：{tid}（{api_base}）")
+                    continue
+                if data:
+                    self._api_bases[site_key] = api_base
+                    return data
+            self._api_bases[site_key] = None
+            return None
 
         def __get_api_enclosure(tid: str, apikey: str, path: str):
             """
@@ -1426,19 +1440,11 @@ class IYUUAutoSeed(_PluginBase):
             if known_base is None and site_key in self._api_bases:
                 # 本次任务内已确认该站点的 API 端点不可用，不再逐个种子重试
                 return None
-            # IYUU 的域名可能滞后于站点，失败时依次试 api 子域、注册域名与站点地址本身
-            site_domain = self.__registered_domain(site.get("domain") or site.get("url") or "")
-            site_host = urlparse(site.get("url") or "").hostname or ""
-            api_bases = []
-            for api_base in ([known_base] if known_base else []) + [iyuu_api_base,
-                             f"https://api.{site_domain}" if site_domain else "",
-                             f"https://{site_domain}" if site_domain else "",
-                             f"https://{site_host}" if site_host else ""]:
-                if api_base and api_base.rstrip("/").lower() not in [item.rstrip("/").lower() for item in api_bases]:
-                    api_bases.append(api_base)
-            for api_base in api_bases:
+            # 依次试 MP 站点地址、IYUU 主机、跟随 IYUU 前缀的站点域名与站点注册域名
+            for api_base in __dedupe(([known_base] if known_base else [])
+                                     + self.__api_base_candidates(site, iyuu_api_base)):
                 # UA 走请求库参数，写进 headers 会被部分站点判为浏览器访问
-                res = RequestUtils(ua=site.get("ua") or settings.USER_AGENT,
+                res = RequestUtils(ua=self.__site_ua(site),
                                    headers={'Accept': 'application/json, text/plain, */*',
                                             'x-api-key': apikey}
                                    ).post_res(f"{api_base}/{path.lstrip('/')}", params={'id': tid})
@@ -1480,6 +1486,9 @@ class IYUUAutoSeed(_PluginBase):
                     return __page_torrent_url()
                 return urljoin(site.get('url') or "", download_url), True
             if placeholders & {"hash", "downHash"}:
+                # 没有 id 的模板，hash 只能从详情页取，本地无法构造
+                if "id" not in placeholders:
+                    return __page_torrent_url()
                 # 模板要求站点下载凭证，先用站点API换取，换到即免 Cookie 取种
                 api_url = self.__get_downhash_torrent_url(seed=seed, site=site, base_url=template)
                 if api_url:
@@ -1515,6 +1524,57 @@ class IYUUAutoSeed(_PluginBase):
                 f"{site.get('name')} Url转换失败，{str(e)}：site_url={site.get('url')}，base_url={base_url}, seed={seed}")
             return self.__get_torrent_url_from_page(seed=seed, site=site), True
 
+    def __api_base(self, host: Any, sid: Any = None) -> str:
+        """
+        按 IYUU 站点声明拼 API 基地址
+
+        IYUU 清单的 is_https 标明站点入口协议：0 走 http，其余（1/2）走 https。
+
+        :param host: IYUU 返回的站点入口，可能不带协议
+        :param sid: IYUU 站点 ID
+        :return: 带协议的基地址
+        """
+        host = str(host or "").strip().strip("/")
+        if not host:
+            return ""
+        if re.match(r"^https?://", host, flags=re.IGNORECASE):
+            return host
+        meta = self.iyuu_helper.get_site_info(sid) if sid is not None and self.iyuu_helper else {}
+        return f"{'http' if (meta or {}).get('is_https') == 0 else 'https'}://{host}"
+
+    def __api_base_candidates(self, site: dict, iyuu_api_base: str) -> list:
+        """
+        返回换取下载链接时依次尝试的 API 基地址
+
+        MP 站点地址优先，其次 IYUU 清单主机；站点地址填的就是注册域名时，再按 IYUU 主机的
+        子域前缀换到站点域名，覆盖站点已换域名、IYUU 清单尚未跟上的窗口期。
+
+        :param site: MoviePilot 维护的站点信息，需包含 url 与 domain
+        :param iyuu_api_base: 按 IYUU 清单拼出的带协议基地址
+        :return: 候选基地址列表，去重由调用方处理
+        """
+        site_url = (site.get("url") or "").rstrip("/")
+        registered = self.__registered_domain(site.get("domain") or site_url)
+        scheme = iyuu_api_base.split("://")[0].lower() if "://" in (iyuu_api_base or "") else "https"
+        # 前缀候选跟随 IYUU 声明的协议，注册域名兜底仍用 https
+        candidates = [site_url, iyuu_api_base]
+        iyuu_host = re.sub(r"^https?://", "", (iyuu_api_base or "").lower()).strip("/")
+        iyuu_registered = self.__registered_domain(iyuu_host)
+        prefix = ""
+        if iyuu_host and iyuu_registered and iyuu_host != iyuu_registered \
+                and iyuu_host.endswith(f".{iyuu_registered}"):
+            prefix = iyuu_host[:-len(iyuu_registered) - 1]
+        # 站点地址带镜像或入口子域时以用户填的为准，不再拼新主机
+        labels = [label for label in re.sub(r"^https?://", "", site_url.lower()).split("/")[0].split(".")
+                  if label]
+        while len(labels) > 1 and labels[0] in ("api", "www"):
+            labels = labels[1:]
+        if prefix and registered and ".".join(labels) == registered:
+            candidates.append(f"{scheme}://{prefix}.{registered}")
+        if registered:
+            candidates.append(f"https://{registered}")
+        return candidates
+
     @staticmethod
     def __registered_domain(url: Optional[str]) -> str:
         """
@@ -1525,7 +1585,7 @@ class IYUUAutoSeed(_PluginBase):
         """
         labels = [label for label in re.sub(r"^https?://", "", (url or "").lower()).split("/")[0].split(".")
                   if label]
-        # api./www. 是常见入口前缀，保留会让 api 子域兜底拼成 api.api.xxx
+        # api./www. 是常见入口前缀，去掉后 api.m-team.cc 与 m-team.cc 归一到同一注册域
         while len(labels) > 1 and labels[0] in ("api", "www"):
             labels = labels[1:]
         if len(labels) < 2:
@@ -1545,6 +1605,20 @@ class IYUUAutoSeed(_PluginBase):
         """
         registered = cls.__registered_domain(url)
         return registered.rsplit(".", 1)[0] if "." in registered else registered
+
+    @staticmethod
+    def __site_ua(site: Optional[dict]) -> str:
+        """
+        按 站点配置 > 通用站点配置 > 全局默认值 解析请求 User-Agent
+
+        :param site: 站点配置
+        :return: 实际使用的 User-Agent
+        """
+        return _resolve_site_user_agent(
+            (site or {}).get("ua"),
+            getattr(settings, "SITE_USER_AGENT", None),
+            settings.USER_AGENT,
+        )
 
     def __get_site_by_iyuu(self, sid: Any, sites_helper: Any) -> Optional[dict]:
         """
@@ -1612,7 +1686,7 @@ class IYUUAutoSeed(_PluginBase):
         if not site_url:
             return None
         res = RequestUtils(cookies=site.get("cookie"),
-                           ua=site.get("ua") or settings.USER_AGENT,
+                           ua=self.__site_ua(site),
                            proxies=settings.PROXY if site.get("proxy") else None
                            ).get_res(url=f"{site_url}/")
         text = getattr(res, "text", "") or ""
@@ -1652,7 +1726,7 @@ class IYUUAutoSeed(_PluginBase):
                     "Accept": "application/json",
                     "Content-Type": "application/json"
                 },
-                ua=site.get("ua") or settings.USER_AGENT
+                ua=self.__site_ua(site)
             ).post_res(f"{site_url}/api/v1/torrent/search",
                        json={"keyword": keyword, "page_number": 0, "page_size": 50, "visible": 1})
             if not res:
@@ -1721,7 +1795,7 @@ class IYUUAutoSeed(_PluginBase):
             logger.info(f"正在获取种子下载链接：{page_url} ...")
             res = RequestUtils(
                 cookies=site.get("cookie"),
-                ua=site.get("ua") or settings.USER_AGENT,
+                ua=self.__site_ua(site),
                 proxies=settings.PROXY if site.get("proxy") else None
             ).get_res(url=page_url)
             if res is not None and res.status_code in (200, 500):
