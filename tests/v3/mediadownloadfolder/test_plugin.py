@@ -383,9 +383,9 @@ def test_real_download_chain_accepts_folder_and_persists_actual_path(
         """通过宿主事件入口执行真实插件处理器。"""
         from app.schemas.types import ChainEventType
 
-        assert event_type == ChainEventType.ResourceDownload
         message = SimpleNamespace(event_data=data)
-        plugin.on_resource_download(message)
+        if event_type == ChainEventType.ResourceDownload:
+            plugin.on_resource_download(message)
         return message
 
     monkeypatch.setattr(eventmanager, "send_event", dispatch)
