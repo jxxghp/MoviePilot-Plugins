@@ -322,6 +322,22 @@ def test_gone_seed_goes_to_permanent_cache(reseed):
     assert reseed.plugin._error_caches == []
 
 
+@pytest.mark.parametrize("content,error_msg", [
+    ("magnet:?xt=urn:btih:" + "a" * 40, "磁力链接"),
+    ("magnet:?xt=urn:btih:" + "b" * 40, "获取到磁力链接"),
+])
+def test_magnet_is_not_submitted_to_downloader(reseed, content, error_msg):
+    """宿主把磁力放在 content 位置返回时不得提交下载器，并按永久失败处理。"""
+    reseed.torrent.download_torrent.return_value = (None, content, "", [], error_msg)
+
+    assert getattr(reseed.plugin, DOWNLOAD_TORRENT)(
+        reseed.seed, reseed.service, "/data", "tv"
+    ) is False
+    reseed.service.instance.add_torrent.assert_not_called()
+    assert reseed.plugin._permanent_error_caches == [reseed.seed["info_hash"]]
+    assert reseed.plugin._error_caches == []
+
+
 def test_seed_url_is_not_logged(reseed, monkeypatch):
     """种子链接带 passkey，成功与失败日志都不得原样输出，但失败原因要留下。"""
     recorder = Mock()

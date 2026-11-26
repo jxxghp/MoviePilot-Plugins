@@ -1241,17 +1241,17 @@ class IYUUAutoSeed(_PluginBase):
             cookie=site_info.get("cookie") if use_cookie else None,
             ua=self.__site_ua(site_info),
             proxy=site_info.get("proxy"))
-        if not content:
-            # 下载失败
+        # 磁力链接被宿主放在 content 位置返回（str），它没有文件清单，匹配不了原种目录
+        if not content or isinstance(content, str):
             self.fail += 1
             if self.__is_permanent_seed_error(error_msg):
-                # 种子确认已不存在，重试没有意义
+                # 种子确认已不存在，或只回磁力，重试没有意义
                 self.__append_seed_cache(self._permanent_error_caches, seed.get("info_hash"))
             else:
                 # 连接不通、流控、403/5xx 等均按暂态处理，保留在可清除缓存里等待下一轮
                 self.__append_seed_cache(self._error_caches, seed.get("info_hash"))
             # 种子链接常带 passkey/rsskey 等凭证，只记录站点与失败原因
-            logger.error(f"{site_info.get('name')} 下载种子文件失败：{error_msg or '未返回原因'}")
+            logger.error(f"{site_info.get('name')} 取种失败：{error_msg or '未返回原因'}")
             return False
         # 添加下载，辅种任务默认暂停
         logger.info(f"{site_info.get('name')} 开始添加下载任务，种子：{seed.get('torrent_id')} ...")
