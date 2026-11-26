@@ -3,6 +3,7 @@ import json
 import time
 from typing import Tuple, Optional
 
+from app.log import logger
 from app.utils.http import RequestUtils
 
 
@@ -109,7 +110,7 @@ class IyuuHelper(object):
                 ret_sites[site.get('id')] = site
             return ret_sites
         else:
-            print(msg)
+            logger.warning(f"获取IYUU站点列表失败：{msg}")
             return {}
 
     def __report_existing(self) -> Optional[str]:
