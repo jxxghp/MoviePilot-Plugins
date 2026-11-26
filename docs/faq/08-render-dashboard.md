@@ -45,3 +45,12 @@ def get_dashboard(self, key: str, **kwargs) -> Optional[Tuple[Dict[str, Any], Di
     """
     pass
 ```
+
+## 延伸：移动端桌面小组件（`MoviePilot v3.2.15+` / `MoviePilot-App v2.0.7+`）
+
+- 已按上方规范实现 `vuetify` 模式 `get_dashboard()` 的插件，在移动端 App 中无需额外改造即可自动提取指标与列表，作为“MoviePilot 插件”桌面小组件展示。
+- 如需为 iOS、Android、HarmonyOS 提供独立的桌面小组件卡片（包括 `metrics`、`list`、`poster`、`nowPlaying` 预设形态，或 `kind="custom"` 声明式自定义节点树），可在插件主类中实现 `get_widgets()` 与 `get_widget_data(key)`；Vue 插件还可在前台通过 `hostSdk.native.widget.update(...)` 实时推送桌面状态并监听 `'widget.action'` 交互动作。
+- 接入方法与完整规范见：
+  - [MoviePilot 插件开发指南：移动端桌面小组件与 App 原生能力](../Plugin_Development.md#84-移动端桌面小组件与-app-原生能力)
+  - [MoviePilot-App 插件开发指南（含原生能力与三端桌面小组件）](https://github.com/jxxghp/MoviePilot-App/blob/v2/docs/plugin-development-guide.md)
+  - [MoviePilot-App 原生音频与状态栏/锁屏播控指南](https://github.com/jxxghp/MoviePilot-App/blob/v2/docs/plugin-audio-and-status-bar-guide.md)

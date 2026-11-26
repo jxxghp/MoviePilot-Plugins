@@ -11,7 +11,7 @@
 - [5. 如何通过插件增强MoviePilot的识别功能？](./faq/05-enhance-recognition.md)
 - [6. 如何扩展内建索引器的索引站点？](./faq/06-extend-indexer-sites.md)
 - [7. 如何在插件中调用API接口？](./faq/07-call-api-from-plugin.md)
-- [8. 如何将插件内容显示到仪表板？](./faq/08-render-dashboard.md)
+- [8. 如何将插件内容显示到仪表板或移动端桌面小组件？](./faq/08-render-dashboard.md)
 - [9. 如何扩展探索功能的媒体数据源？](./faq/09-extend-discovery-source.md)
 - [10. 如何扩展推荐功能的媒体数据源？](./faq/10-extend-recommend-source.md)
 - [11. 如何通过插件重载实现系统模块功能？](./faq/11-override-system-module.md)

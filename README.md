@@ -39,8 +39,9 @@ V3 专用实现不要从该文档开始。
 
 本仓库不是独立运行时：
 
-- `MoviePilot` 负责插件加载、事件分发、API、服务、数据、工作流和 Agent 运行时。
-- `MoviePilot-Frontend` 负责配置页、详情页、仪表板和 Vue 联邦组件渲染。
+- `MoviePilot` 负责插件加载、事件分发、API、服务、数据、工作流、桌面小组件只读快照和 Agent 运行时。
+- `MoviePilot-Frontend` 负责配置页、详情页、仪表板、插件宿主 SDK 和 Vue 联邦组件渲染。
+- `MoviePilot-App` 负责 iOS、Android、HarmonyOS 客户端容器、最小化悬浮胶囊、三端桌面小组件渲染和系统原生能力桥接。
 - `MoviePilot-Plugins` 负责插件源码、市场索引、图标、测试、文档和发布流程。
 
 ## 当前目录
@@ -95,3 +96,6 @@ GitHub 仓库的 `main` 分支；仓库地址通过 `PLUGIN_MARKET` 配置，多
 - [FAQ 索引](./docs/FAQ.md)
 - [插件仓测试说明](./tests/README.md)
 - [MoviePilot-Frontend V3 模块联邦指南](https://github.com/jxxghp/MoviePilot-Frontend/blob/v3/docs/module-federation-guide.md)
+- [MoviePilot-Frontend 插件前端 SDK](https://github.com/jxxghp/MoviePilot-Frontend/blob/v3/docs/plugin-frontend-sdk.md)
+- [MoviePilot-App 插件开发指南（原生能力与三端桌面小组件）](https://github.com/jxxghp/MoviePilot-App/blob/v2/docs/plugin-development-guide.md)
+- [MoviePilot-App 原生音频与状态栏/锁屏播控指南](https://github.com/jxxghp/MoviePilot-App/blob/v2/docs/plugin-audio-and-status-bar-guide.md)

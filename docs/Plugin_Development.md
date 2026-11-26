@@ -18,12 +18,13 @@
 
 `MoviePilot-Plugins` 是插件源码、市场索引、图标和开发文档仓库，不是独立运行时。
 
-一个插件实际涉及三个仓库：
+一个插件实际涉及四个仓库：
 
 | 仓库 | 责任 |
 | --- | --- |
-| `MoviePilot` | 加载插件，提供事件、服务、API、数据、工作流和 Agent 运行时 |
-| `MoviePilot-Frontend` | 渲染配置页、详情页、仪表板和 Vue 联邦远程组件 |
+| `MoviePilot` | 加载插件，提供事件、服务、API、数据、工作流、桌面小组件快照和 Agent 运行时 |
+| `MoviePilot-Frontend` | 渲染配置页、详情页、仪表板、Vue 联邦远程组件与插件前端 SDK |
+| `MoviePilot-App` | 承载移动端插件容器、最小化悬浮胶囊、三端桌面小组件以及原生设备与音频桥接能力 |
 | `MoviePilot-Plugins` | 保存插件源码、市场元数据、图标、测试和发布配置 |
 
 插件与主程序运行在同一个 Python 进程和依赖环境中。插件不是独立微服务，也没有
@@ -219,7 +220,8 @@ class MyPlugin(_PluginBase):
 | --- | --- |
 | `get_command()` | 注册远程命令 |
 | `get_service()` | 注册定时或周期服务 |
-| `get_dashboard()` / `get_dashboard_meta()` | 注册一个或多个仪表板 |
+| `get_dashboard()` / `get_dashboard_meta()` | 注册一个或多个仪表板（未单独声明桌面小组件时也会自动投影为移动端插件小组件） |
+| `get_widgets()` / `get_widget_data(key)` | 声明移动端桌面小组件目录与单卡片只读快照（支持预设形态与声明式自定义布局） |
 | `get_render_mode()` | 选择 `vuetify` 或 `vue` 渲染模式 |
 | `get_sidebar_nav()` | 为 Vue 插件声明侧栏全页入口 |
 | `get_agent_pets()` | 为 Vue 插件声明智能助手形象 |
@@ -628,6 +630,77 @@ css: {
 
 不要仅以“`remoteEntry.js` 当前没有引用”为理由保留整包 Vuetify CSS。发布流程会打包插件目录，后续构建图变化也可能使这类文件重新进入加载链路；门禁会直接拒绝该产物。
 
+### 8.4 移动端桌面小组件与 App 原生能力
+
+从 `MoviePilot v3.2.15` 与 `MoviePilot-App v2.0.7` 起，插件除了网页页面与仪表板外，还可以接入 iOS、Android、HarmonyOS 三端统一的桌面小组件和客户端原生宿主能力。
+
+#### 1. 后端桌面小组件扩展（推荐后台刷新主链路）
+
+移动端桌面小组件使用独立的 30 天只读凭据在后台定时拉取宿主 `/api/v1/widget/plugins` 与 `/api/v1/widget/plugins/{plugin_id}`，即使插件页面未在前台打开也能持续刷新：
+
+- **零改造仪表板兜底**：已实现 `get_dashboard()`（`vuetify` 模式）的插件无需新增代码，宿主会自动提取其中的指标与列表投影为插件桌面小组件。
+- **显式声明桌面小组件**：需要多卡片、专门排版或与网页仪表板区分展示时，在插件主类实现 `get_widgets()` 与 `get_widget_data(key)`。`kind` 支持四种预设形态（`metrics`、`list`、`poster`、`nowPlaying`）以及声明式自定义布局树（`custom`，深度不超过 5 层、单卡总节点不超过 40 个；图片地址仅允许同源插件静态资源 `/api/v1/plugin/file/...`）：
+
+```python
+from typing import Any
+
+
+def get_widgets(self) -> list[dict[str, Any]]:
+    """声明可绑定到移动端桌面的插件小组件列表。"""
+    if not self.get_state():
+        return []
+    return [
+        {
+            "key": "overview",
+            "name": "实时统计卡片",
+            "description": "在桌面展示插件核心指标或自定义排版",
+            "kind": "custom",
+        }
+    ]
+
+
+def get_widget_data(self, key: str = "", **kwargs) -> dict[str, Any] | None:
+    """按小组件 key 返回单卡片只读快照数据。"""
+    if not self.get_state() or key not in ("", "overview"):
+        return None
+    return {
+        "title": self.plugin_name,
+        "subtitle": "最近同步正常",
+        "kind": "custom",
+        "metrics": [
+            {"id": "total", "label": "今日处理", "value": "12", "tone": "accent"},
+        ],
+        "layout": {
+            "type": "column",
+            "gap": 8,
+            "children": [
+                {"type": "text", "text": "今日已处理 12 项任务", "size": "md", "weight": "semibold"},
+                {
+                    "type": "button",
+                    "label": "立即查看",
+                    "action": {"type": "openPlugin", "surface": "data"},
+                },
+            ],
+        },
+    }
+```
+
+#### 2. Vue 插件运行时推送与 App 原生能力桥接
+
+当 Vue 联邦插件运行在 `MoviePilot-App` 原生宿主内时，可通过宿主注入的 `hostSdk`（详见前端 SDK 类型声明）按需调用客户端能力，并在普通浏览器环境中优雅降级：
+
+- **桌面小组件实时推送与动作回调**：通过 `hostSdk.native.widget.update(...)`、`remove(...)`、`list()` 实时刷新本机小组件缓存，并通过 `hostSdk.events.on('widget.action', handler)` 响应小组件按钮触发的 `pluginAction`。
+- **最小化悬浮胶囊**：通过 `hostSdk.shell.minimize(...)` 将正在运行的插件收起为三端统一的单行紧凑悬浮胶囊。
+- **原生后台音频、频谱与系统播控**：通过 `hostSdk.native.audio` 托管后台音频播放（自动处理带鉴权 Range 流式拉取）、订阅 `audio.play.spectrum` 实时 FFT 频谱与左右声道电平、读写与监听系统媒体音量（`getSystemVolume` / `setSystemVolume` / `audio.systemVolume`），并自动联动系统锁屏/状态栏播控通知与“MoviePilot 正在播放”桌面小组件。
+- **通用设备能力**：支持剪贴板、触感反馈、系统分享、生物识别、安全存储、本地通知与网络状态感知等桥接接口。
+
+完整字段定义、自定义布局节点白名单、桥接权限声明与多端适配示例，请直接参考以下权威文档（不在本仓重复维护多份字段表）：
+
+- [MoviePilot-App 插件开发指南（含原生能力与三端桌面小组件规范）](https://github.com/jxxghp/MoviePilot-App/blob/v2/docs/plugin-development-guide.md)
+- [MoviePilot-App 原生音频、频谱与状态栏/锁屏播控指南](https://github.com/jxxghp/MoviePilot-App/blob/v2/docs/plugin-audio-and-status-bar-guide.md)
+- [MoviePilot-Frontend 插件前端 SDK 说明](https://github.com/jxxghp/MoviePilot-Frontend/blob/v3/docs/plugin-frontend-sdk.md)
+- [MoviePilot 后端小组件只读快照协议](https://github.com/jxxghp/MoviePilot/blob/v3/docs/widgets.md)
+
 ## 9. 事件、API 和后台能力
 
 ### 9.1 远程命令与事件
@@ -882,6 +955,9 @@ V2 实现会在独立进程中运行，避免同名模块互相污染：
 | API 返回、调用和 Vue 客户端 | [插件 API 专题](./V3_API_Response_Adaptation.md) |
 | 消息、服务、缓存、存储、Agent 等功能 | [常见问题](./FAQ.md) |
 | Vue 联邦组件 | [前端 V3 模块联邦指南](https://github.com/jxxghp/MoviePilot-Frontend/blob/v3/docs/module-federation-guide.md) |
+| Vue 插件前端 SDK 与宿主桥接类型 | [插件前端 SDK](https://github.com/jxxghp/MoviePilot-Frontend/blob/v3/docs/plugin-frontend-sdk.md) |
+| 移动端桌面小组件、最小化胶囊与原生设备能力 | [App 插件开发指南](https://github.com/jxxghp/MoviePilot-App/blob/v2/docs/plugin-development-guide.md) |
+| 原生后台音频、实时频谱与锁屏/状态栏播控 | [App 原生音频与播控指南](https://github.com/jxxghp/MoviePilot-App/blob/v2/docs/plugin-audio-and-status-bar-guide.md) |
 | 仍然维护 V2 实现 | [V2 历史开发指南](./V2_Plugin_Development.md) |
 
 如果文档与运行时行为不一致，以 MoviePilot V3 当前宿主代码和测试为准，并在修复
