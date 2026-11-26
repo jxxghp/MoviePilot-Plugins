@@ -99,11 +99,11 @@ class IYUUAutoSeed(_PluginBase):
     _is_recheck_running = False
     # 已自动补发校验的种子hash，避免重复补发
     _auto_rechecked = set()
-    # 辅种缓存，出错的种子不再重复辅种，可清除
+    # 辅种缓存，本轮取种或添加失败的种子，单次任务内不再重复处理，下一轮开始时重清
     _error_caches = []
     # 辅种缓存，辅种成功的种子，可清除
     _success_caches = []
-    # 辅种缓存，出错的种子不再重复辅种，且无法清除。种子被删除404等情况
+    # 辅种缓存，确认种子已不存在或只回磁力，不再尝试；同样随“清除缓存后运行”清空
     _permanent_error_caches = []
     # 辅种缓存最大保存条数，避免长期运行时配置缓存无限增长
     _seed_cache_max_items = 10000
@@ -769,11 +769,8 @@ class IYUUAutoSeed(_PluginBase):
     @classmethod
     def __is_permanent_seed_error(cls, error_msg: Optional[str]) -> bool:
         """
-        判断取种失败是否说明种子本身已不存在。
-
-        宿主 TorrentHelper 只回传错误文案，HTTP 状态码内嵌在“下载种子出错，状态码：xxx”里，
-        因此按状态码判断；403 与 5xx 可能只是站点前置代理拦截，不能据此认定种子失效。
-        磁力链接无法用于辅种，重试没有意义，同样按永久处理。
+        判断取种失败是否说明种子本身无法再辅种：403/5xx 可能只是站点前置代理拦截，
+        不能据此认定失效；磁力链接没有文件清单，则始终无法辅种。
         """
         if not error_msg:
             return False
@@ -797,6 +794,8 @@ class IYUUAutoSeed(_PluginBase):
         # 端点失败与 rsskey 缓存只在单次任务内有效，避免一次失败固化为长期失败
         self._api_bases = {key: value for key, value in self._api_bases.items() if isinstance(value, str)}
         self._rss_keys = {}
+        # 暂态失败同样每轮重开，站点恢复后就能重试；确认失效的种子仍留在永久桶
+        self._error_caches = []
 
         # 计数器初始化
         self.total = 0
@@ -1248,7 +1247,7 @@ class IYUUAutoSeed(_PluginBase):
                 # 种子确认已不存在，或只回磁力，重试没有意义
                 self.__append_seed_cache(self._permanent_error_caches, seed.get("info_hash"))
             else:
-                # 连接不通、流控、403/5xx 等均按暂态处理，保留在可清除缓存里等待下一轮
+                # 连接不通、流控、403/5xx 等不能认定种子失效，只在本轮内跳过
                 self.__append_seed_cache(self._error_caches, seed.get("info_hash"))
             # 种子链接常带 passkey/rsskey 等凭证，只记录站点与失败原因
             logger.error(f"{site_info.get('name')} 取种失败：{error_msg or '未返回原因'}")
@@ -1302,10 +1301,7 @@ class IYUUAutoSeed(_PluginBase):
     def __adopt_recheck_torrents(self, service: ServiceInfo, torrent: Any):
         """
         把此前已添加但未纳入校验轮询的辅种任务补回校验队列。
-
-        下载器里已存在该种子时原逻辑只计数跳过，若它是因未取到任务标识而遗留的
-        暂停辅种任务，就会永远停在校验前状态；此处按辅种标签认领，交由
-        check_recheck_service 接手，不触碰用户自行暂停的普通任务。
+        仅按辅种标签认领，不触碰用户自行暂停的普通任务。
         """
         try:
             hash_str = self.__get_hash(torrent=torrent, dl_type=service.type)

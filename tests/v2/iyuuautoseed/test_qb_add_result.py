@@ -300,7 +300,7 @@ def test_permanent_classification(error_msg, permanent):
     "种子数据有误，请确认链接是否正确，如为PT站点则需手工在站点下载一次种子",
 ])
 def test_transient_failure_goes_to_clearable_cache(reseed, error_msg):
-    """暂态失败写进可清除缓存，清一次缓存即可重试，而不是被永久跳过。"""
+    """暂态失败不得进永久缓存，只记入可清除缓存。"""
     reseed.torrent.download_torrent.return_value = (None, None, "", [], error_msg)
 
     assert getattr(reseed.plugin, DOWNLOAD_TORRENT)(
@@ -336,6 +336,22 @@ def test_magnet_is_not_submitted_to_downloader(reseed, content, error_msg):
     reseed.service.instance.add_torrent.assert_not_called()
     assert reseed.plugin._permanent_error_caches == [reseed.seed["info_hash"]]
     assert reseed.plugin._error_caches == []
+
+
+def test_transient_cache_is_reset_for_next_round(reseed, monkeypatch):
+    """上一轮的暂态失败不应固化成永久跳过，每轮开始时重清。"""
+    plugin = reseed.plugin
+    plugin._error_caches = ["last-round-hash"]
+    plugin._notify = False
+    reseed.service.instance.get_completed_torrents.return_value = []
+    monkeypatch.setattr(plugin.iyuu_helper, "reset_sites", lambda: None)
+    monkeypatch.setattr(plugin, "_IYUUAutoSeed__update_config", lambda: None)
+    monkeypatch.setattr(type(plugin), "service_infos",
+                        property(lambda self: {"QB": reseed.service}), raising=True)
+
+    plugin.auto_seed()
+
+    assert plugin._error_caches == []
 
 
 def test_seed_url_is_not_logged(reseed, monkeypatch):
