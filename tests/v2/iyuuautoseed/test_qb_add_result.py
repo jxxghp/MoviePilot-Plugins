@@ -71,7 +71,8 @@ def reseed(monkeypatch):
     plugin.iyuu_helper._sites = {
         3: {"base_url": "api.m-team.cc", "download_page": "api/torrent/genDlToken"}
     }
-    return SimpleNamespace(plugin=plugin, seed=seed, service=service, sites=sites, torrent=torrent)
+    return SimpleNamespace(plugin=plugin, seed=seed, service=service, sites=sites, torrent=torrent,
+                           request=request)
 
 
 # ---------------------------------------------------------------- 添加结果判定
@@ -321,21 +322,31 @@ def test_gone_seed_goes_to_permanent_cache(reseed):
     assert reseed.plugin._error_caches == []
 
 
-def test_seed_url_is_not_logged(reseed, caplog):
-    """种子链接带 passkey 等凭证，成功与失败日志都不得原样输出。"""
-    with caplog.at_level("INFO"):
-        reseed.torrent.download_torrent.return_value = (
-            None, b"torrent", "folder", ["file.mkv"], ""
-        )
-        assert getattr(reseed.plugin, DOWNLOAD_TORRENT)(
-            reseed.seed, reseed.service, "/data", "tv"
-        ) is True
-        reseed.torrent.download_torrent.return_value = (
-            None, None, "", [], "下载种子出错，状态码：403"
-        )
-        getattr(reseed.plugin, DOWNLOAD_TORRENT)(reseed.seed, reseed.service, "/data", "tv")
+def test_seed_url_is_not_logged(reseed, monkeypatch):
+    """种子链接带 passkey，成功与失败日志都不得原样输出，但失败原因要留下。"""
+    recorder = Mock()
+    monkeypatch.setattr(iyuuautoseed, "logger", recorder)
+    reseed.request.return_value.post_res.return_value.json.return_value = {
+        "data": "https://download.example/torrent?passkey=SECRET-TOKEN"
+    }
+    # 成功路径：拿到可用种子内容
+    reseed.torrent.download_torrent.return_value = (
+        None, b"torrent", "folder", ["file.mkv"], ""
+    )
+    assert getattr(reseed.plugin, DOWNLOAD_TORRENT)(
+        reseed.seed, reseed.service, "/data", "tv"
+    ) is True
+    # 失败路径：403 属暂态
+    reseed.torrent.download_torrent.return_value = (
+        None, None, "", [], "下载种子出错，状态码：403"
+    )
+    assert getattr(reseed.plugin, DOWNLOAD_TORRENT)(
+        reseed.seed, reseed.service, "/data", "tv"
+    ) is False
 
-    joined = "\n".join(record.getMessage() for record in caplog.records)
+    joined = "\n".join(str(call.args[0]) for call in recorder.method_calls if call.args)
+    # 凭证链接确实进了流程，否则上面两条断言是空断言
+    assert "SECRET-TOKEN" in reseed.torrent.download_torrent.call_args.kwargs["url"]
+    assert "SECRET-TOKEN" not in joined
     assert "download.example" not in joined
-    assert "passkey=" not in joined
-    assert "下载种子出错，状态码：403" in joined
+    assert "状态码：403" in joined
