@@ -37,7 +37,7 @@ class AutoSignIn(_PluginBase):
     # 插件图标
     plugin_icon = "signin.png"
     # 插件版本
-    plugin_version = "2.9.19"
+    plugin_version = "2.9.20"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -1805,10 +1805,34 @@ class AutoSignIn(_PluginBase):
                 data={"signin_success": result.success, "login_success": result.logged_in},
             )
 
+    @staticmethod
+    def _site_request_ua(site_info: CommentedMap) -> str:
+        """按“站点配置 > 通用配置 > 默认值”解析站点请求 UA。"""
+        site_ua = str(site_info.get("ua") or "").strip()
+        configured = str(getattr(settings, "SITE_USER_AGENT", "") or "").strip()
+        default = str(getattr(settings, "USER_AGENT", "") or "").strip()
+        # 站点值等于宿主默认 UA 时视为未配置，与核心站点访问保持一致。
+        if site_ua and site_ua != default:
+            return site_ua
+        return configured or site_ua or default
+
+    @classmethod
+    def _with_site_ua(cls, site_info: CommentedMap) -> CommentedMap:
+        """为本次签到/登录补齐 UA，站点处理器统一读取该字段。"""
+        if not site_info:
+            return site_info
+        resolved = cls._site_request_ua(site_info)
+        if not resolved or str(site_info.get("ua") or "").strip() == resolved:
+            return site_info
+        copied = site_info.copy()
+        copied["ua"] = resolved
+        return copied
+
     def signin_site(self, site_info: CommentedMap) -> SiteResult:
         """
         签到一个站点
         """
+        site_info = self._with_site_ua(site_info)
         site_module = self.__build_class(site_info.get("url"))
         # 开始记时
         start_time = datetime.now()
@@ -1919,6 +1943,7 @@ class AutoSignIn(_PluginBase):
         """
         模拟登录一个站点
         """
+        site_info = self._with_site_ua(site_info)
         site_module = self.__build_class(site_info.get("url"))
         # 开始记时
         start_time = datetime.now()
