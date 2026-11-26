@@ -107,6 +107,10 @@ class IYUUAutoSeed(_PluginBase):
     _permanent_error_caches = []
     # 辅种缓存最大保存条数，避免长期运行时配置缓存无限增长
     _seed_cache_max_items = 10000
+    # 仅这些状态码说明种子已不存在，其余失败按暂态处理
+    _permanent_seed_error_codes = (404, 410)
+    # 宿主 TorrentHelper 只返回文案，状态码内嵌在“下载种子出错，状态码：xxx”里
+    _torrent_status_code_pattern = re.compile(r"状态码[：:]\s*(\d{3})")
     # 辅种计数
     total = 0
     realtotal = 0
@@ -762,6 +766,22 @@ class IYUUAutoSeed(_PluginBase):
             cache.append(value)
         self.__trim_seed_cache(cache)
 
+    @classmethod
+    def __is_permanent_seed_error(cls, error_msg: Optional[str]) -> bool:
+        """
+        判断取种失败是否说明种子本身已不存在。
+
+        宿主 TorrentHelper 只回传错误文案，HTTP 状态码内嵌在“下载种子出错，状态码：xxx”里，
+        因此按状态码判断；403 与 5xx 可能只是站点前置代理拦截，不能据此认定种子失效。
+        磁力链接无法用于辅种，重试没有意义，同样按永久处理。
+        """
+        if not error_msg:
+            return False
+        status = cls._torrent_status_code_pattern.search(error_msg)
+        if status:
+            return int(status.group(1)) in cls._permanent_seed_error_codes
+        return "磁力" in error_msg
+
     def auto_seed(self):
         """
         开始辅种
@@ -1224,16 +1244,17 @@ class IYUUAutoSeed(_PluginBase):
         if not content:
             # 下载失败
             self.fail += 1
-            # 加入失败缓存
-            if error_msg and ('无法打开链接' in error_msg or '触发站点流控' in error_msg):
-                self.__append_seed_cache(self._error_caches, seed.get("info_hash"))
-            else:
-                # 种子不存在的情况
+            if self.__is_permanent_seed_error(error_msg):
+                # 种子确认已不存在，重试没有意义
                 self.__append_seed_cache(self._permanent_error_caches, seed.get("info_hash"))
-            logger.error(f"下载种子文件失败：{torrent_url}")
+            else:
+                # 连接不通、流控、403/5xx 等均按暂态处理，保留在可清除缓存里等待下一轮
+                self.__append_seed_cache(self._error_caches, seed.get("info_hash"))
+            # 种子链接常带 passkey/rsskey 等凭证，只记录站点与失败原因
+            logger.error(f"{site_info.get('name')} 下载种子文件失败：{error_msg or '未返回原因'}")
             return False
         # 添加下载，辅种任务默认暂停
-        logger.info(f"添加下载任务：{torrent_url} ...")
+        logger.info(f"{site_info.get('name')} 开始添加下载任务，种子：{seed.get('torrent_id')} ...")
         download_id, added = self.__download(service=service,
                                              content=content,
                                              save_path=save_path,
@@ -1266,7 +1287,7 @@ class IYUUAutoSeed(_PluginBase):
             else:
                 self.__add_recheck_torrents(service, download_id)
             # 下载成功
-            logger.info(f"成功添加辅种下载，站点：{site_info.get('name')}，种子链接：{torrent_url}")
+            logger.info(f"成功添加辅种下载，站点：{site_info.get('name')}，种子：{seed.get('info_hash')}")
             # 成功也加入缓存，有一些改了路径校验不通过的，手动删除后，下一次又会辅上
             self.__append_seed_cache(self._success_caches, seed.get("info_hash"))
             return True

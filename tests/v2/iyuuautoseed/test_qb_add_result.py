@@ -261,3 +261,81 @@ def test_site_deleted_accepts_string_site_id():
 
     assert plugin._sites == [6]
     assert saved["sites"] == [6]
+
+
+# ---------------------------------------------------------- 取种失败的缓存分类
+
+CLASSIFY = "_IYUUAutoSeed__is_permanent_seed_error"
+
+
+@pytest.mark.parametrize("error_msg,permanent", [
+    ("下载种子出错，状态码：404", True),
+    ("下载种子出错，状态码：410", True),
+    ("下载种子出错，状态码：403", False),
+    ("下载种子出错，状态码：500", False),
+    ("下载种子出错，状态码：502", False),
+    ("下载种子出错，状态码：504", False),
+    ("下载种子出错，状态码:403", False),
+    ("站点限流：Request frequency limit, please try in 5 seconds.", False),
+    ("触发站点流控，请稍后重试", False),
+    ("无法打开链接", False),
+    ("未下载到种子数据", False),
+    ("种子数据有误，请确认链接是否正确", False),
+    ("种子下载重定向出现环路", False),
+    ("磁力链接", True),
+    ("获取到磁力链接", True),
+    (None, False),
+    ("", False),
+])
+def test_permanent_classification(error_msg, permanent):
+    """只有确认种子不存在或磁力不可辅种才永久拉黑，其余按暂态处理。"""
+    assert getattr(_plugin(), CLASSIFY)(error_msg) is permanent
+
+
+@pytest.mark.parametrize("error_msg", [
+    "下载种子出错，状态码：403",
+    "下载种子出错，状态码：502",
+    "站点限流：Request frequency limit, please try in 5 seconds.",
+    "种子数据有误，请确认链接是否正确，如为PT站点则需手工在站点下载一次种子",
+])
+def test_transient_failure_goes_to_clearable_cache(reseed, error_msg):
+    """暂态失败写进可清除缓存，清一次缓存即可重试，而不是被永久跳过。"""
+    reseed.torrent.download_torrent.return_value = (None, None, "", [], error_msg)
+
+    assert getattr(reseed.plugin, DOWNLOAD_TORRENT)(
+        reseed.seed, reseed.service, "/data", "tv"
+    ) is False
+    assert reseed.plugin._error_caches == [reseed.seed["info_hash"]]
+    assert reseed.plugin._permanent_error_caches == []
+
+
+def test_gone_seed_goes_to_permanent_cache(reseed):
+    """站点明确返回种子不存在时才进永久缓存。"""
+    reseed.torrent.download_torrent.return_value = (
+        None, None, "", [], "下载种子出错，状态码：404"
+    )
+
+    getattr(reseed.plugin, DOWNLOAD_TORRENT)(reseed.seed, reseed.service, "/data", "tv")
+
+    assert reseed.plugin._permanent_error_caches == [reseed.seed["info_hash"]]
+    assert reseed.plugin._error_caches == []
+
+
+def test_seed_url_is_not_logged(reseed, caplog):
+    """种子链接带 passkey 等凭证，成功与失败日志都不得原样输出。"""
+    with caplog.at_level("INFO"):
+        reseed.torrent.download_torrent.return_value = (
+            None, b"torrent", "folder", ["file.mkv"], ""
+        )
+        assert getattr(reseed.plugin, DOWNLOAD_TORRENT)(
+            reseed.seed, reseed.service, "/data", "tv"
+        ) is True
+        reseed.torrent.download_torrent.return_value = (
+            None, None, "", [], "下载种子出错，状态码：403"
+        )
+        getattr(reseed.plugin, DOWNLOAD_TORRENT)(reseed.seed, reseed.service, "/data", "tv")
+
+    joined = "\n".join(record.getMessage() for record in caplog.records)
+    assert "download.example" not in joined
+    assert "passkey=" not in joined
+    assert "下载种子出错，状态码：403" in joined
