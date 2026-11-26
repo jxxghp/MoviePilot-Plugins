@@ -41,7 +41,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "2.27"
+    plugin_version = "2.28"
     # 插件作者
     plugin_author = "jxxghp,CKun"
     # 作者主页
@@ -139,7 +139,11 @@ class IYUUAutoSeed(_PluginBase):
             self._auto_start = config.get("auto_start")
             self._reuse_save_path = config.get("reuse_save_path", True)
             self._addhosttotag = config.get("addhosttotag")
-            self._size = float(config.get("size")) if config.get("size") else 0
+            try:
+                self._size = float(config.get("size")) if config.get("size") else 0
+            except (TypeError, ValueError):
+                logger.warning(f"辅种体积配置无效：{config.get('size')}，按不限制处理")
+                self._size = 0
             self._clearcache = config.get("clearcache")
             self._permanent_error_caches = (
                 [] if self._clearcache else list(config.get("permanent_error_caches") or [])
@@ -762,7 +766,10 @@ class IYUUAutoSeed(_PluginBase):
         """
         开始辅种
         """
-        if not self.iyuu_helper or not self.service_infos:
+        if not self.iyuu_helper:
+            return
+        services = self.service_infos
+        if not services:
             return
         logger.info("开始辅种任务 ...")
         # 站点清单每次任务重拉，IYUU 更新站点地址后无需重载插件
@@ -779,7 +786,7 @@ class IYUUAutoSeed(_PluginBase):
         self.fail = 0
         self.cached = 0
         # 扫描下载器辅种
-        for service in self.service_infos.values():
+        for service in services.values():
             downloader = service.name
             downloader_obj = service.instance
             logger.info(f"开始扫描下载器 {downloader} ...")
@@ -893,17 +900,21 @@ class IYUUAutoSeed(_PluginBase):
         if self._is_recheck_running:
             return
         self._is_recheck_running = True
-        if self.auto_service_info:
-            # 检查指定下载器
-            self.check_recheck_service(self.auto_service_info)
+        try:
+            auto_service = self.auto_service_info if self._auto_downloader else None
+            if auto_service:
+                # 检查指定下载器
+                self.check_recheck_service(auto_service)
+                return
+            # 未配置主辅分离或该下载器暂不可用时回退检查全部下载器，避免校验队列停摆
+            services = self.service_infos
+            if not services:
+                return
+            for service in services.values():
+                # 需要检查的种子
+                self.check_recheck_service(service)
+        finally:
             self._is_recheck_running = False
-            return
-        if not self.service_infos:
-            return
-        for service in self.service_infos.values():
-            # 需要检查的种子
-            self.check_recheck_service(service)
-        self._is_recheck_running = False
 
     def check_recheck_service(self, service: ServiceInfo):
         """
@@ -963,6 +974,11 @@ class IYUUAutoSeed(_PluginBase):
         if not hash_strs:
             return
         logger.info(f"下载器 {service.name} 开始查询辅种，数量：{len(hash_strs)} ...")
+        # 主辅分离时整批复用一个实例，避免逐种子重复获取，也避免实例为空时中断本批
+        auto_service = self.auto_service_info if self._auto_downloader else None
+        if self._auto_downloader and not auto_service:
+            logger.warning(f"主辅分离下载器 {self._auto_downloader} 不可用，本批 {len(hash_strs)} 个种子本轮跳过 ...")
+            return
         # 下载器中的本批次 Hashs
         hashs = [item.get("hash") for item in hash_strs]
         # 每个Hash的保存目录
@@ -1010,16 +1026,10 @@ class IYUUAutoSeed(_PluginBase):
                     logger.info(f"种子 {seed.get('info_hash')} 辅种失败且已缓存，跳过 ...")
                     continue
                 # 添加任务 如果配置了主辅分离使用辅种下载器
-                if self._auto_downloader:
-                    success = self.__download_torrent(seed=seed,
-                                                      service=self.auto_service_info,
-                                                      save_path=save_paths.get(current_hash),
-                                                      save_category=save_category.get(current_hash))
-                else:
-                    success = self.__download_torrent(seed=seed,
-                                                      service=service,
-                                                      save_path=save_paths.get(current_hash),
-                                                      save_category=save_category.get(current_hash))
+                success = self.__download_torrent(seed=seed,
+                                                  service=auto_service or service,
+                                                  save_path=save_paths.get(current_hash),
+                                                  save_category=save_category.get(current_hash))
                 if success:
                     success_torrents.append(seed.get("info_hash"))
 
@@ -1081,10 +1091,10 @@ class IYUUAutoSeed(_PluginBase):
             self.save_data(key=current_hash,
                            value=seed_history)
         except Exception as e:
-            print(str(e))
+            logger.error(f"保存辅种历史失败：{e}")
 
     def __download(self, service: ServiceInfo, content: bytes,
-                   save_path: str, save_category: str, site_name: str) -> Optional[str]:
+                   save_path: str, save_category: str, site_name: str) -> Tuple[Optional[str], bool]:
 
         torrent_tags = self._labelsafterseed.split(',')
 
@@ -1094,6 +1104,7 @@ class IYUUAutoSeed(_PluginBase):
 
         """
         添加下载任务
+        :return: 任务标识与任务是否已提交到下载器；已提交但未取到标识时不应记入失败缓存
         """
         if service.type == "qbittorrent":
             # 生成随机Tag
@@ -1105,27 +1116,29 @@ class IYUUAutoSeed(_PluginBase):
             # 开启自动分类管理时 ATM 会覆盖 save_path，辅种落到分类目录而非原种路径，
             # 原种文件不复用即表现为“文件丢失”。
             force_reuse = bool(self._reuse_save_path)
-            state = service.instance.add_torrent(content=content,
-                                                 download_dir=save_path,
-                                                 is_paused=True,
-                                                 tag=torrent_tags,
-                                                 category=None if force_reuse else save_category,
-                                                 is_skip_checking=self._skipverify,
-                                                 ignore_category_check=not force_reuse)
-            if not state:
-                return None
-            else:
-                # 获取种子Hash
+            added, torrent_ids = service.instance.add_torrent(content=content,
+                                                              download_dir=save_path,
+                                                              is_paused=True,
+                                                              tag=torrent_tags,
+                                                              category=None if force_reuse else save_category,
+                                                              is_skip_checking=self._skipverify,
+                                                              ignore_category_check=not force_reuse)
+            if not added:
+                logger.error(f"{service.name} 下载任务添加失败")
+                return None, False
+            # 优先取用添加响应里的任务标识，取不到再按标签轮询
+            torrent_hash = (torrent_ids or [""])[0]
+            if not torrent_hash:
                 torrent_hash = service.instance.get_torrent_id_by_tag(tags=tag)
-                if not torrent_hash:
-                    logger.error(f"{service.name} 下载任务添加成功，但获取任务信息失败！")
-                    return None
-                # 强制复用路径时分类未在添加时下发(ATM已关闭)，此处补设；
-                # ATM 关闭下修改分类不会触发文件移动，save_path 保持不变
-                if force_reuse and save_category:
-                    service.instance.set_torrent_category(hash_string=torrent_hash,
-                                                          category=save_category)
-            return torrent_hash
+            if not torrent_hash:
+                logger.error(f"{service.name} 下载任务已添加，但获取任务信息失败！")
+                return None, True
+            # 强制复用路径时分类未在添加时下发(ATM已关闭)，此处补设；
+            # ATM 关闭下修改分类不会触发文件移动，save_path 保持不变
+            if force_reuse and save_category:
+                service.instance.set_torrent_category(hash_string=torrent_hash,
+                                                      category=save_category)
+            return torrent_hash, True
         elif service.type == "transmission":
             # 添加任务
             torrent = service.instance.add_torrent(content=content,
@@ -1133,12 +1146,11 @@ class IYUUAutoSeed(_PluginBase):
                                                    is_paused=True,
                                                    labels=torrent_tags)
             if not torrent:
-                return None
-            else:
-                return torrent.hashString
+                return None, False
+            return torrent.hashString, True
 
         logger.error(f"不支持的下载器：{service.type}")
-        return None
+        return None, False
 
     def __download_torrent(self, seed: dict, service: ServiceInfo, save_path: str, save_category: str):
         """
@@ -1185,6 +1197,7 @@ class IYUUAutoSeed(_PluginBase):
         if torrent_info:
             logger.info(f"{seed.get('info_hash')} 已在下载器中，跳过 ...")
             self.exist += 1
+            self.__adopt_recheck_torrents(service=service, torrent=torrent_info[0])
             return False
         # 站点流控
         check, checkmsg = sites_helper.check(site_domain)
@@ -1221,16 +1234,20 @@ class IYUUAutoSeed(_PluginBase):
             return False
         # 添加下载，辅种任务默认暂停
         logger.info(f"添加下载任务：{torrent_url} ...")
-        download_id = self.__download(service=service,
-                                      content=content,
-                                      save_path=save_path,
-                                      save_category=save_category,
-                                      site_name=site_info.get("name"))
+        download_id, added = self.__download(service=service,
+                                             content=content,
+                                             save_path=save_path,
+                                             save_category=save_category,
+                                             site_name=site_info.get("name"))
         if not download_id:
             # 下载失败
             self.fail += 1
-            # 加入失败缓存
-            self.__append_seed_cache(self._error_caches, seed.get("info_hash"))
+            if not added:
+                # 加入失败缓存
+                self.__append_seed_cache(self._error_caches, seed.get("info_hash"))
+            else:
+                # 任务已进入下载器只是未取到标识，交给下一轮的存在性检查兜底，不写缓存
+                logger.warning(f"{site_info.get('name')} 辅种任务已添加但未取到标识，本条不写入失败缓存")
             return False
         else:
             self.success += 1
@@ -1261,6 +1278,32 @@ class IYUUAutoSeed(_PluginBase):
             self._recheck_torrents[service.name] = []
         self._recheck_torrents[service.name].append(download_id)
 
+    def __adopt_recheck_torrents(self, service: ServiceInfo, torrent: Any):
+        """
+        把此前已添加但未纳入校验轮询的辅种任务补回校验队列。
+
+        下载器里已存在该种子时原逻辑只计数跳过，若它是因未取到任务标识而遗留的
+        暂停辅种任务，就会永远停在校验前状态；此处按辅种标签认领，交由
+        check_recheck_service 接手，不触碰用户自行暂停的普通任务。
+        """
+        try:
+            hash_str = self.__get_hash(torrent=torrent, dl_type=service.type)
+            if not hash_str:
+                return
+            if hash_str in (self._recheck_torrents.get(service.name) or []):
+                return
+            seed_labels = {label.strip() for label in (self._labelsafterseed or "").split(",") if label.strip()}
+            if not seed_labels:
+                return
+            if not seed_labels.intersection(self.__get_label(torrent=torrent, dl_type=service.type)):
+                return
+            if self.__can_seeding(torrent=torrent, dl_type=service.type):
+                return
+            logger.info(f"种子 {hash_str} 带辅种标签且未进入做种状态，补入校验队列 ...")
+            self.__add_recheck_torrents(service, hash_str)
+        except Exception as err:
+            logger.warning(f"补登校验队列失败：{err}")
+
     @staticmethod
     def __get_hash(torrent: Any, dl_type: str):
         """
@@ -1269,7 +1312,7 @@ class IYUUAutoSeed(_PluginBase):
         try:
             return torrent.get("hash") if dl_type == "qbittorrent" else torrent.hashString
         except Exception as e:
-            print(str(e))
+            logger.warning(f"获取种子Hash失败：{e}")
             return ""
 
     @staticmethod
@@ -1281,7 +1324,7 @@ class IYUUAutoSeed(_PluginBase):
             return [str(tag).strip() for tag in torrent.get("tags").split(',')] \
                 if dl_type == "qbittorrent" else torrent.labels or []
         except Exception as e:
-            print(str(e))
+            logger.warning(f"获取种子标签失败：{e}")
             return []
 
     @staticmethod
@@ -1292,7 +1335,7 @@ class IYUUAutoSeed(_PluginBase):
         try:
             return torrent.get("category") if dl_type == "qbittorrent" else None
         except Exception as e:
-            print(str(e))
+            logger.warning(f"获取种子分类失败：{e}")
             return []
 
     @staticmethod
@@ -1304,7 +1347,7 @@ class IYUUAutoSeed(_PluginBase):
             return torrent.get("state") in ["pausedUP", "stoppedUP"] if dl_type == "qbittorrent" \
                 else (torrent.status.stopped and torrent.percent_done == 1)
         except Exception as e:
-            print(str(e))
+            logger.warning(f"获取种子做种状态失败：{e}")
             return False
 
     @staticmethod
@@ -1315,7 +1358,7 @@ class IYUUAutoSeed(_PluginBase):
         try:
             return torrent.get("save_path") if dl_type == "qbittorrent" else torrent.download_dir
         except Exception as e:
-            print(str(e))
+            logger.warning(f"获取种子保存路径失败：{e}")
             return ""
 
     @staticmethod
@@ -1326,7 +1369,7 @@ class IYUUAutoSeed(_PluginBase):
         try:
             return torrent.get("total_size") if dl_type == "qbittorrent" else torrent.total_size
         except Exception as e:
-            print(str(e))
+            logger.warning(f"获取种子体积失败：{e}")
             return ""
 
     @staticmethod
@@ -1337,7 +1380,7 @@ class IYUUAutoSeed(_PluginBase):
         try:
             return torrent.get("name") if dl_type == "qbittorrent" else torrent.name
         except Exception as e:
-            print(str(e))
+            logger.warning(f"获取种子名称失败：{e}")
             return ""
 
     def __get_download_url(self, seed: dict, site: CommentedMap, base_url: str) -> Tuple[Optional[str], bool]:
@@ -1841,7 +1884,7 @@ class IYUUAutoSeed(_PluginBase):
                     self._event.clear()
                 self._scheduler = None
         except Exception as e:
-            print(str(e))
+            logger.warning(f"停止辅种服务异常：{e}")
 
     def __custom_sites(self) -> List[Any]:
         custom_sites = []
@@ -1865,7 +1908,7 @@ class IYUUAutoSeed(_PluginBase):
 
                 # 删除对应站点
                 if site_id:
-                    sites = [site for site in sites if int(site) != int(site_id)]
+                    sites = [site for site in sites if str(site) != str(site_id)]
                 else:
                     # 清空
                     sites = []
