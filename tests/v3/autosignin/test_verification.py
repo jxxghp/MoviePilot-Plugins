@@ -21,6 +21,7 @@ from app.plugins.autosignin.sites.btschool import BTSchool
 from app.plugins.autosignin.sites.hares import Hares
 from app.plugins.autosignin.sites.hdchina import HDChina
 from app.plugins.autosignin.sites.hdsky import HDSky
+from app.plugins.autosignin.sites import hdsky
 from app.plugins.autosignin.sites.hdupt import HDUpt
 from app.plugins.autosignin.sites.mteam import MTorrent
 from app.plugins.autosignin.sites.opencd import Opencd
@@ -526,14 +527,164 @@ def test_opencd_state_false_without_reason_is_duplicate_signin(monkeypatch, payl
 def test_hdsky_boolean_result_is_not_string_truthiness(monkeypatch, payload, success):
     """天空签到接口严格读取布尔值，字符串 false 不能冒充成功。"""
     monkeypatch.setattr(HDSky, "get_page_source", Mock(return_value=_LOGIN))
-    request = SimpleNamespace(post_res=Mock(side_effect=[
-        response(payload={"success": True, "code": "image-hash"}),
-        response(payload={**payload, "message": "invalid_imagehash"}),
-    ]))
-    monkeypatch.setattr("app.plugins.autosignin.sites.hdsky.RequestUtils", Mock(return_value=request))
+    hashes = []
+
+    def post(url=None, data=None, **_kwargs):
+        if url.endswith("image_code_ajax.php"):
+            hashes.append(len(hashes) + 1)
+            return response(payload={"success": True, "code": f"hash-{len(hashes)}"})
+        return response(payload={**payload, "message": "invalid_imagehash"})
+
+    monkeypatch.setattr("app.plugins.autosignin.sites.hdsky.RequestUtils",
+                        Mock(return_value=SimpleNamespace(post_res=Mock(side_effect=post))))
+    monkeypatch.setattr("app.plugins.autosignin.sites.hdsky.time.sleep", Mock())
+    monkeypatch.setattr("app.plugins.autosignin.sites.hdsky.time.monotonic", Mock(return_value=0.0))
     monkeypatch.setattr("app.plugins.autosignin.sites.hdsky.OcrHelper", Mock(return_value=SimpleNamespace(
         get_captcha_text=Mock(return_value="ABCDEF"))))
     assert HDSky().signin(site_info())[0] is success
+
+
+def test_hdsky_invalid_captcha_switches_image_and_retries(monkeypatch):
+    """站点判验证码错误后换新图重试，第二轮提交成功。"""
+    monkeypatch.setattr(HDSky, "get_page_source", Mock(return_value=_LOGIN))
+    submitted = []
+
+    def post(url=None, data=None, **_kwargs):
+        if url.endswith("image_code_ajax.php"):
+            return response(payload={"success": True, "code": f"hash-{len(submitted) + 1}"})
+        submitted.append(data)
+        if len(submitted) == 1:
+            return response(payload={"success": False, "message": "invalid_imagehash"})
+        return response(payload={"success": True})
+
+    monkeypatch.setattr("app.plugins.autosignin.sites.hdsky.RequestUtils",
+                        Mock(return_value=SimpleNamespace(post_res=Mock(side_effect=post))))
+    monkeypatch.setattr("app.plugins.autosignin.sites.hdsky.time.sleep", Mock())
+    monkeypatch.setattr("app.plugins.autosignin.sites.hdsky.time.monotonic", Mock(return_value=0.0))
+    monkeypatch.setattr("app.plugins.autosignin.sites.hdsky.OcrHelper", Mock(return_value=SimpleNamespace(
+        get_captcha_text=Mock(return_value="ABCDEF"))))
+
+    assert HDSky().signin(site_info()) == (True, "签到成功")
+    assert [item["imagehash"] for item in submitted] == ["hash-1", "hash-2"]
+
+
+def test_hdsky_submit_without_response_stops(monkeypatch):
+    """提交未收到响应时直接结束，不重复提交。"""
+    monkeypatch.setattr(HDSky, "get_page_source", Mock(return_value=_LOGIN))
+    submitted = []
+
+    def post(url=None, data=None, **_kwargs):
+        if url.endswith("image_code_ajax.php"):
+            return response(payload={"success": True, "code": "hash-1"})
+        submitted.append(data)
+        return None
+
+    monkeypatch.setattr("app.plugins.autosignin.sites.hdsky.RequestUtils",
+                        Mock(return_value=SimpleNamespace(post_res=Mock(side_effect=post))))
+    monkeypatch.setattr("app.plugins.autosignin.sites.hdsky.time.sleep", Mock())
+    monkeypatch.setattr("app.plugins.autosignin.sites.hdsky.time.monotonic", Mock(return_value=0.0))
+    monkeypatch.setattr("app.plugins.autosignin.sites.hdsky.OcrHelper", Mock(return_value=SimpleNamespace(
+        get_captcha_text=Mock(return_value="ABCDEF"))))
+
+    assert HDSky().signin(site_info()) == (False, "签到失败，签到接口请求失败：未收到响应")
+    assert len(submitted) == 1
+
+
+def test_hdsky_duplicate_signin_is_confirmed(monkeypatch):
+    """站点回 date_unmatch 视为今日已签到，不再重试。"""
+    monkeypatch.setattr(HDSky, "get_page_source", Mock(return_value=_LOGIN))
+    submitted = []
+
+    def post(url=None, data=None, **_kwargs):
+        if url.endswith("image_code_ajax.php"):
+            return response(payload={"success": True, "code": "hash-1"})
+        submitted.append(data)
+        return response(payload={"success": False, "message": "date_unmatch"})
+
+    monkeypatch.setattr("app.plugins.autosignin.sites.hdsky.RequestUtils",
+                        Mock(return_value=SimpleNamespace(post_res=Mock(side_effect=post))))
+    monkeypatch.setattr("app.plugins.autosignin.sites.hdsky.time.sleep", Mock())
+    monkeypatch.setattr("app.plugins.autosignin.sites.hdsky.time.monotonic", Mock(return_value=0.0))
+    monkeypatch.setattr("app.plugins.autosignin.sites.hdsky.OcrHelper", Mock(return_value=SimpleNamespace(
+        get_captcha_text=Mock(return_value="ABCDEF"))))
+
+    assert HDSky().signin(site_info()) == (True, "今日已签到")
+    assert len(submitted) == 1
+
+
+def test_hdsky_challenge_homepage_fails_without_requests(monkeypatch):
+    """首页是 Cloudflare 挑战页时直接失败，不取验证码也不提交。"""
+    challenge = ('<html><title>Just a moment...</title>'
+                 '<script src="/cdn-cgi/challenge-platform/h/g/orchestrate/chl_page/v1?ray=x"></script></html>')
+    monkeypatch.setattr(HDSky, "get_page_source", Mock(return_value=challenge))
+    request = SimpleNamespace(post_res=Mock())
+    monkeypatch.setattr("app.plugins.autosignin.sites.hdsky.RequestUtils", Mock(return_value=request))
+
+    assert HDSky().signin(site_info()) == (False, "签到失败，站点被Cloudflare防护，请打开站点浏览器仿真")
+    request.post_res.assert_not_called()
+
+
+def test_hdsky_challenge_on_submit_reports_protection_once(monkeypatch):
+    """提交被 Cloudflare 拦截时按防护失败上报，只提交一次。"""
+    monkeypatch.setattr(HDSky, "get_page_source", Mock(return_value=_LOGIN))
+    submitted = []
+
+    def post(url=None, data=None, **_kwargs):
+        if url.endswith("image_code_ajax.php"):
+            return response(payload={"success": True, "code": "hash-1"})
+        submitted.append(data)
+        return response(text='<html><title>Just a moment...</title>cf_chl_opt</html>')
+
+    monkeypatch.setattr("app.plugins.autosignin.sites.hdsky.RequestUtils",
+                        Mock(return_value=SimpleNamespace(post_res=Mock(side_effect=post))))
+    monkeypatch.setattr("app.plugins.autosignin.sites.hdsky.time.sleep", Mock())
+    monkeypatch.setattr("app.plugins.autosignin.sites.hdsky.time.monotonic", Mock(return_value=0.0))
+    monkeypatch.setattr("app.plugins.autosignin.sites.hdsky.OcrHelper", Mock(return_value=SimpleNamespace(
+        get_captcha_text=Mock(return_value="ABCDEF"))))
+
+    assert HDSky().signin(site_info()) == (False, "签到失败，站点被Cloudflare防护，请打开站点浏览器仿真")
+    assert len(submitted) == 1
+
+
+def test_hdsky_duration_budget_stops_before_captcha(monkeypatch):
+    """首页耗时用尽单站预算时不再取验证码或提交。"""
+    monkeypatch.setattr(HDSky, "get_page_source", Mock(return_value=_LOGIN))
+    budget = max(hdsky.MAX_DURATION, 15 + 30)
+    ticks = iter([0.0, float(budget + 1)])
+    monkeypatch.setattr("app.plugins.autosignin.sites.hdsky.time.monotonic",
+                        Mock(side_effect=lambda: next(ticks, float(budget + 1))))
+    request = SimpleNamespace(post_res=Mock())
+    monkeypatch.setattr("app.plugins.autosignin.sites.hdsky.RequestUtils", Mock(return_value=request))
+
+    expected = f"签到失败，单站签到超时（超过 {budget} 秒）"
+    assert HDSky().signin(site_info()) == (False, expected)
+    request.post_res.assert_not_called()
+
+
+def test_hdsky_unreadable_captcha_switches_image_and_caps_ocr(monkeypatch):
+    """识别不出六位码时换图重试，识别总次数封顶且不提交。"""
+    monkeypatch.setattr(HDSky, "get_page_source", Mock(return_value=_LOGIN))
+    fetches, submitted = [], []
+
+    def post(url=None, data=None, **_kwargs):
+        if url.endswith("image_code_ajax.php"):
+            fetches.append(data)
+            return response(payload={"success": True, "code": f"hash-{len(fetches)}"})
+        submitted.append(data)
+        return response(payload={"success": False, "message": "invalid_imagehash"})
+
+    ocr = Mock(return_value="12")
+    monkeypatch.setattr("app.plugins.autosignin.sites.hdsky.RequestUtils",
+                        Mock(return_value=SimpleNamespace(post_res=Mock(side_effect=post))))
+    monkeypatch.setattr("app.plugins.autosignin.sites.hdsky.time.sleep", Mock())
+    monkeypatch.setattr("app.plugins.autosignin.sites.hdsky.time.monotonic", Mock(return_value=0.0))
+    monkeypatch.setattr("app.plugins.autosignin.sites.hdsky.OcrHelper",
+                        Mock(return_value=SimpleNamespace(get_captcha_text=ocr)))
+
+    assert HDSky().signin(site_info()) == (False, "签到失败：未获取到验证码")
+    assert ocr.call_count == 8
+    assert len(fetches) == 2
+    assert submitted == []
 
 
 @pytest.mark.parametrize("body, checked_page, success", [
