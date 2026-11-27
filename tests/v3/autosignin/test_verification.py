@@ -466,15 +466,15 @@ def test_state_string_must_equal_success(monkeypatch, state, success):
     request.post_res.assert_called_once()
 
 
-@pytest.mark.parametrize("payload, expected", [
-    ({"state": "success"}, (True, "签到成功")),
-    ({"state": False}, (True, "今日已签到（接口未返回原因）")),
-    ({"state": "false"}, (True, "今日已签到（接口未返回原因）")),
-    ({"state": "false", "msg": "验证码错误"}, (False, "签到失败，签到接口返回 HTTP 200：验证码错误")),
-    ({"state": "error"}, (False, "签到失败，签到接口返回 HTTP 200：未返回成功状态")),
-    ({"state": True}, (False, "签到失败，签到接口返回 HTTP 200：未返回成功状态")),
+@pytest.mark.parametrize("payload, expected, submits", [
+    ({"state": "success"}, (True, "签到成功"), 1),
+    ({"state": False}, (True, "今日已签到（接口未返回原因）"), 1),
+    ({"state": "false"}, (True, "今日已签到（接口未返回原因）"), 1),
+    ({"state": "false", "msg": "验证码错误"}, (False, "签到失败，签到接口返回 HTTP 200：验证码错误"), 3),
+    ({"state": "error"}, (False, "签到失败，签到接口返回 HTTP 200：未返回成功状态"), 1),
+    ({"state": True}, (False, "签到失败，签到接口返回 HTTP 200：未返回成功状态"), 1),
 ])
-def test_opencd_state_false_without_reason_is_duplicate_signin(monkeypatch, payload, expected):
+def test_opencd_state_false_without_reason_is_duplicate_signin(monkeypatch, payload, expected, submits):
     """实测：验证码错误带 msg，当日已签到只回不带原因的 state=false；其余状态仍不算成功。"""
     form = ('<form id="frmSignin"><img src="code.png"><input name="imagehash" value="test">'
             '<input name="csrf_token" value="test-csrf"></form>')
@@ -489,7 +489,7 @@ def test_opencd_state_false_without_reason_is_duplicate_signin(monkeypatch, payl
     monkeypatch.setattr("app.plugins.autosignin.sites.opencd.OcrHelper", Mock(return_value=SimpleNamespace(
         get_captcha_text=Mock(return_value="ABCDEF"))))
     assert Opencd().signin(site_info(cookie="opencd=test")) == expected
-    request.post_res.assert_called_once()
+    assert request.post_res.call_count == submits
 
 
 @pytest.mark.parametrize("payload, success", [({"success": True}, True), ({"success": "false"}, False),

@@ -36,6 +36,17 @@ def _signin_form():
     """
 
 
+def _form_revision(csrf_token: str, image_hash: str):
+    """构造指定 token 的签到表单，用于确认每轮重试都取到新表单。"""
+    return (
+        f'<form id="frmSignin" action="plugin_sign-in.php?cmd=signin">'
+        f'<input name="csrf_token" value="{csrf_token}">'
+        f'<input name="imagehash" value="{image_hash}">'
+        f'<input name="imagestring">'
+        f'<img src="image.php?action=regimage&amp;imagehash={image_hash}"></form>'
+    )
+
+
 @pytest.fixture
 def signin_context(monkeypatch):
     """隔离站点、OCR 和等待，保留页面响应新 Cookie 与提交结果。"""
@@ -103,26 +114,26 @@ def test_signin_preserves_page_csrf_session_and_configured_origin(signin_context
     assert context.site["cookie"] == "uid=test; pass=a=b; c_csrf=old-cookie"
 
 
-@pytest.mark.parametrize("response, expected", [
-    (None, "签到失败，签到接口请求失败：未收到响应"),
+@pytest.mark.parametrize("response, expected, submits", [
+    (None, "签到失败，签到接口请求失败：未收到响应", 1),
     (_response("CSRF token verification failed", 403),
-     "签到失败，签到接口返回 HTTP 403：CSRF token verification failed"),
+     "签到失败，签到接口返回 HTTP 403：CSRF token verification failed", 1),
     (_response("<html><body>Service unavailable</body></html>", 503),
-     "签到失败，签到接口返回 HTTP 503：Service unavailable"),
+     "签到失败，签到接口返回 HTTP 503：Service unavailable", 1),
     (_response(payload={"state": "false", "msg": "验证码错误"}),
-     "签到失败，签到接口返回 HTTP 200：验证码错误"),
-    (_response("<html>Unexpected response</html>"), "签到失败，签到接口响应不是有效JSON（HTTP 200）"),
-    (_response(payload=[{"state": "success"}]), "签到失败，签到接口响应格式异常（HTTP 200）"),
+     "签到失败，签到接口返回 HTTP 200：验证码错误", 3),
+    (_response("<html>Unexpected response</html>"), "签到失败，签到接口响应不是有效JSON（HTTP 200）", 1),
+    (_response(payload=[{"state": "success"}]), "签到失败，签到接口响应格式异常（HTTP 200）", 1),
 ])
-def test_submission_failures_report_actual_reason(signin_context, response, expected):
-    """提交失败明确区分 HTTP、业务与响应格式，不得落入未获取验证码分支。"""
+def test_submission_failures_report_actual_reason(signin_context, response, expected, submits):
+    """提交失败明确区分 HTTP、业务与响应格式；只有验证码错误才换表重试。"""
     context = signin_context
     context.request.post_res.return_value = response
 
     assert opencd.Opencd().signin(context.site) == (False, expected)
 
     context.logger.error.assert_called_once_with(f"皇后 {expected}")
-    context.request.post_res.assert_called_once()
+    assert context.request.post_res.call_count == submits
     assert "未获取到验证码" not in expected
 
 
@@ -157,14 +168,60 @@ def test_page_request_failure_keeps_http_reason(signin_context, response, expect
 
 @pytest.mark.parametrize("captcha", ["", "ABCDE", "ABCDEFG"])
 def test_invalid_captcha_is_not_submitted(signin_context, captcha):
-    """只有识别到六位验证码才提交，耗尽识别次数时返回验证码错误。"""
+    """每张图最多识别四次；读不出就换新图，识别总次数封顶后不再提交。"""
     context = signin_context
     context.ocr.return_value = captcha
 
     assert opencd.Opencd().signin(context.site) == (False, "签到失败：未获取到验证码")
 
-    assert context.ocr.call_count == 4
+    assert context.ocr.call_count == opencd.MAX_CAPTCHA_CALLS
+    assert context.request.get_res.call_count == opencd.MAX_CAPTCHA_CALLS // opencd.CAPTCHA_ATTEMPTS_PER_IMAGE
     context.request.post_res.assert_not_called()
+
+
+def test_captcha_unreadable_refreshes_form_and_submits(signin_context):
+    """一张图四次都读不出时换新图，第二轮识别成功才提交。"""
+    context = signin_context
+    context.request.get_res.side_effect = [
+        _response(_form_revision("csrf-0", "hash-0")),
+        _response(_form_revision("csrf-1", "hash-1")),
+    ]
+    context.ocr.side_effect = ["", "", "", "", "ABCDEF"]
+
+    assert opencd.Opencd().signin(context.site) == (True, "签到成功")
+
+    assert context.request.get_res.call_count == 2
+    assert context.ocr.call_count == 5
+    context.request.post_res.assert_called_once()
+    assert context.request.post_res.call_args.kwargs["data"]["imagehash"] == "hash-1"
+
+
+def test_duration_budget_stops_before_form_request(signin_context, monkeypatch):
+    """首页耗时已用尽单站预算时不再取表单、识别或提交。"""
+    context = signin_context
+    budget = max(opencd.MAX_DURATION, 15 + 30)
+    monkeypatch.setattr(opencd.time, "monotonic", Mock(side_effect=[0.0, float(budget + 1)]))
+
+    expected = f"签到失败，单站签到超时（超过 {budget} 秒）"
+    assert opencd.Opencd().signin(context.site) == (False, expected)
+
+    context.request.get_res.assert_not_called()
+    context.ocr.assert_not_called()
+    context.request.post_res.assert_not_called()
+    context.logger.error.assert_called_once_with(f"皇后 {expected}")
+
+
+def test_slow_homepage_still_attempts_first_round(signin_context, monkeypatch):
+    """首页耗掉基础预算但站点超时较长时，预算放宽后首轮仍会取表并提交。"""
+    context = signin_context
+    context.site["timeout"] = 90
+    ticks = iter([0.0, float(opencd.MAX_DURATION + 5)])
+    monkeypatch.setattr(opencd.time, "monotonic", Mock(side_effect=lambda: next(ticks, float(opencd.MAX_DURATION + 5))))
+
+    assert opencd.Opencd().signin(context.site) == (True, "签到成功")
+
+    assert context.request.get_res.call_count == 1
+    context.request.post_res.assert_called_once()
 
 
 def test_explicit_signed_homepage_skips_requests(signin_context):
@@ -233,3 +290,81 @@ def test_state_false_without_message_is_today_already_signed(signin_context, pay
 
     context.request.post_res.assert_called_once()
     context.logger.error.assert_not_called()
+
+
+def test_captcha_error_resubmits_with_fresh_form(signin_context):
+    """验证码被站点判错后重取整张表单，前两次失败第三次提交成功。"""
+    context = signin_context
+    context.request.get_res.side_effect = [
+        _response(_form_revision(f"csrf-{index}", f"hash-{index}"), cookies={"c_csrf": f"page-{index}"})
+        for index in range(3)
+    ]
+    context.request.post_res.side_effect = [
+        _response(payload={"state": "false", "msg": "验证码错误"}),
+        _response(payload={"state": "false", "msg": "验证码错误"}),
+        _response(payload={"state": "success"}),
+    ]
+
+    assert opencd.Opencd().signin(context.site) == (True, "签到成功")
+
+    assert context.request.get_res.call_count == 3
+    assert context.request.post_res.call_count == 3
+    assert context.ocr.call_count == 3
+    submitted = [call.kwargs["data"] for call in context.request.post_res.call_args_list]
+    assert [data["csrf_token"] for data in submitted] == ["csrf-0", "csrf-1", "csrf-2"]
+    assert [data["imagehash"] for data in submitted] == ["hash-0", "hash-1", "hash-2"]
+    ocr_cookies = [call.kwargs["cookie"] for call in context.ocr.call_args_list]
+    assert ocr_cookies[0].endswith("c_csrf=page-0")
+    assert ocr_cookies[2].endswith("c_csrf=page-2")
+    context.logger.error.assert_not_called()
+
+
+def test_captcha_error_stops_after_three_submits(signin_context):
+    """三次提交都被判验证码错误时返回最后一次原因，不再提交第四次。"""
+    context = signin_context
+    context.request.post_res.return_value = _response(payload={"state": "false", "msg": "验证码错误"})
+
+    assert opencd.Opencd().signin(context.site) == (False, "签到失败，签到接口返回 HTTP 200：验证码错误")
+
+    assert context.request.post_res.call_count == 3
+    assert context.request.get_res.call_count == 3
+    context.logger.error.assert_called_once_with("皇后 签到失败，签到接口返回 HTTP 200：验证码错误")
+
+
+def test_page_request_missing_retries_once(signin_context):
+    """签到页未收到响应时原地重试一次，第二次取到表单后正常提交。"""
+    context = signin_context
+    context.request.get_res.side_effect = [None, context.page]
+
+    assert opencd.Opencd().signin(context.site) == (True, "签到成功")
+
+    assert context.request.get_res.call_count == 2
+    context.request.post_res.assert_called_once()
+
+
+def test_page_request_missing_twice_stops_before_captcha(signin_context):
+    """连续两次未收到签到页时按页面请求失败结束，不进入验证码或提交阶段。"""
+    context = signin_context
+    context.request.get_res.return_value = None
+
+    assert opencd.Opencd().signin(context.site) == (False, "签到失败，签到页面请求失败：未收到响应")
+
+    assert context.request.get_res.call_count == 2
+    context.ocr.assert_not_called()
+    context.request.post_res.assert_not_called()
+
+
+def test_page_request_server_error_retries_once(signin_context):
+    """签到页返回服务端 5xx 时原地重试一次，仍失败则保留最后一次 HTTP 原因。"""
+    context = signin_context
+    context.request.get_res.side_effect = [
+        _response("Bad gateway", 502),
+        _response("Service unavailable", 503),
+    ]
+
+    assert opencd.Opencd().signin(context.site) == (
+        False, "签到失败，签到页面返回 HTTP 503：Service unavailable")
+
+    assert context.request.get_res.call_count == 2
+    context.ocr.assert_not_called()
+    context.request.post_res.assert_not_called()
