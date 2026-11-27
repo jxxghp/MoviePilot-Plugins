@@ -1163,10 +1163,17 @@ class IYUUAutoSeed(_PluginBase):
             if force_reuse and save_category:
                 service.instance.set_torrent_category(hash_string=torrent_hash,
                                                       category=save_category)
-            # 随机标签只用于定位本次添加的任务，定位完成后摘除，避免在下载器标签栏累积
-            if hasattr(service.instance, "remove_torrents_tag"):
+            # 随机标签只用于定位本次添加的任务，定位完成后连同标签定义一起删除，避免在下载器标签栏累积
+            if hasattr(service.instance, "delete_torrents_tag"):
                 try:
-                    service.instance.remove_torrents_tag(ids=torrent_hash, tag=tag)
+                    if not service.instance.delete_torrents_tag(ids=torrent_hash, tag=tag):
+                        logger.warning(f"{service.name} 临时标签 {tag} 未能确认删除")
+                except Exception as err:
+                    logger.debug(f"{service.name} 删除临时标签失败：{err}")
+            elif hasattr(service.instance, "remove_torrents_tag"):
+                try:
+                    if not service.instance.remove_torrents_tag(ids=torrent_hash, tag=tag):
+                        logger.warning(f"{service.name} 临时标签 {tag} 未能确认移除")
                 except Exception as err:
                     logger.debug(f"{service.name} 移除临时标签失败：{err}")
             return torrent_hash, True

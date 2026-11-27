@@ -44,6 +44,7 @@ def _qb_service(torrents=None):
     service.instance.get_torrents.return_value = (torrents or [], None)
     service.instance.add_torrent.return_value = (True, ["added-hash"])
     service.instance.get_torrent_id_by_tag.return_value = "tag-hash"
+    service.instance.delete_torrents_tag.return_value = True
     return service
 
 
@@ -136,7 +137,7 @@ def test_random_tag_is_removed_after_add(reseed):
     tags = reseed.service.instance.add_torrent.call_args.kwargs["tag"]
     random_tag = [tag for tag in tags if tag != "辅种"]
     assert len(random_tag) == 1
-    reseed.service.instance.remove_torrents_tag.assert_called_once_with(
+    reseed.service.instance.delete_torrents_tag.assert_called_once_with(
         ids="added-hash", tag=random_tag[0]
     )
 
@@ -149,8 +150,8 @@ def test_random_tag_is_removed_when_resolved_by_tag(reseed):
         service=reseed.service, content=b"torrent", save_path="/data",
         save_category=None, site_name="M-Team"
     ) == ("tag-hash", True)
-    reseed.service.instance.remove_torrents_tag.assert_called_once()
-    assert reseed.service.instance.remove_torrents_tag.call_args.kwargs["ids"] == "tag-hash"
+    reseed.service.instance.delete_torrents_tag.assert_called_once()
+    assert reseed.service.instance.delete_torrents_tag.call_args.kwargs["ids"] == "tag-hash"
 
 
 def test_random_tag_is_kept_when_id_unknown(reseed):
@@ -162,12 +163,13 @@ def test_random_tag_is_kept_when_id_unknown(reseed):
         service=reseed.service, content=b"torrent", save_path="/data",
         save_category=None, site_name="M-Team"
     ) == (None, True)
+    reseed.service.instance.delete_torrents_tag.assert_not_called()
     reseed.service.instance.remove_torrents_tag.assert_not_called()
 
 
 def test_random_tag_removal_failure_does_not_break_add(reseed):
     """摘标签失败只记调试日志，不影响辅种结果。"""
-    reseed.service.instance.remove_torrents_tag.side_effect = RuntimeError("boom")
+    reseed.service.instance.delete_torrents_tag.side_effect = RuntimeError("boom")
 
     assert getattr(reseed.plugin, DOWNLOAD)(
         service=reseed.service, content=b"torrent", save_path="/data",
@@ -181,6 +183,31 @@ def test_host_without_remove_tag_api_still_works(reseed):
         spec=["add_torrent", "get_torrent_id_by_tag", "set_torrent_category"]
     )
     reseed.service.instance.add_torrent.return_value = (True, ["added-hash"])
+
+    assert getattr(reseed.plugin, DOWNLOAD)(
+        service=reseed.service, content=b"torrent", save_path="/data",
+        save_category=None, site_name="M-Team"
+    ) == ("added-hash", True)
+
+
+def test_host_without_delete_api_falls_back_to_remove_tag(reseed):
+    """宿主没有 delete_torrents_tag 时回退到仅从任务移除标签。"""
+    reseed.service.instance = Mock(
+        spec=["add_torrent", "get_torrent_id_by_tag", "set_torrent_category", "remove_torrents_tag"]
+    )
+    reseed.service.instance.add_torrent.return_value = (True, ["added-hash"])
+    reseed.service.instance.remove_torrents_tag.return_value = True
+
+    assert getattr(reseed.plugin, DOWNLOAD)(
+        service=reseed.service, content=b"torrent", save_path="/data",
+        save_category=None, site_name="M-Team"
+    ) == ("added-hash", True)
+    reseed.service.instance.remove_torrents_tag.assert_called_once()
+
+
+def test_tag_cleanup_false_result_does_not_break_add(reseed):
+    """删除返回 False 时只记警告，不影响辅种结果。"""
+    reseed.service.instance.delete_torrents_tag.return_value = False
 
     assert getattr(reseed.plugin, DOWNLOAD)(
         service=reseed.service, content=b"torrent", save_path="/data",
