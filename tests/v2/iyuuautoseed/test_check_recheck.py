@@ -129,7 +129,7 @@ def test_transmission_seeding_torrent_is_dropped_from_queue():
 
 
 def test_adopt_skips_paused_completed_torrent():
-    """已暂停的做种种子由校验轮询负责开始，不重复补登。"""
+    """已暂停的做种种子与 2.28 一致，不重复补登。"""
     service = _service([])
     plugin = _plugin_with_queue("oes", [])
     plugin._labelsafterseed = "辅种"
