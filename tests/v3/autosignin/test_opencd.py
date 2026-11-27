@@ -224,6 +224,24 @@ def test_slow_homepage_still_attempts_first_round(signin_context, monkeypatch):
     context.request.post_res.assert_called_once()
 
 
+@pytest.mark.parametrize("page", [
+    '<html><title>Attention Required! | Cloudflare</title><p>Error code: 1020</p></html>',
+    '<html><title>站点首页</title><script>window._cf_chl_opt = {};</script>'
+    '<p>Enable JavaScript and cookies to continue</p></html>',
+    '<html><title>请稍候… | 安全验证</title><p>正在检查您的浏览器</p></html>',
+])
+def test_challenge_homepage_is_not_signed_in(signin_context, page):
+    """首页是人机验证或拦截页时不推断已签到，也不去取签到表单。"""
+    context = signin_context
+    context.homepage.return_value = page
+
+    assert opencd.Opencd().signin(context.site) == (
+        False, "签到失败，站点被Cloudflare防护，请打开站点浏览器仿真")
+
+    context.request.get_res.assert_not_called()
+    context.ocr.assert_not_called()
+
+
 def test_explicit_signed_homepage_skips_requests(signin_context):
     """首页明确显示今日已签到时不再读取表单或重复签到。"""
     context = signin_context

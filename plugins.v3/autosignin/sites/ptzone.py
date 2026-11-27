@@ -6,8 +6,7 @@ from urllib.parse import urljoin, urlparse
 from ruamel.yaml import CommentedMap
 
 from app.sdk.config import settings
-from app.adapters.network.cloudflare import under_challenge
-from app.plugins.autosignin.result import has_login_evidence, has_login_form, has_signin_evidence
+from app.plugins.autosignin.result import has_login_evidence, has_login_form, has_signin_evidence, is_challenge_page
 from app.plugins.autosignin.sites import _ISiteSigninHandler
 from app.sdk.network import RequestUtils
 
@@ -40,7 +39,7 @@ class PTZone(_ISiteSigninHandler):
         ).post_res(url=checkin_url, data={})
         if response is None:
             return False, "签到失败，无法打开网站"
-        if under_challenge(response.text):
+        if is_challenge_page(response.text):
             return False, "签到失败，站点被Cloudflare防护"
         if response.status_code != 200:
             return False, f"签到失败，状态码：{response.status_code}"

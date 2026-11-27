@@ -3,8 +3,23 @@
 import re
 from typing import NamedTuple
 
+from app.adapters.network.cloudflare import under_challenge
 from app.sdk.network import SiteUtils
 from lxml import etree
+
+# 宿主只认三个挑战页标题，这里补充常见的挑战与拦截页标题片段。
+CHALLENGE_TITLE_HINTS = (
+    'just a moment', 'attention required', 'checking your browser',
+    'verifying you are human', 'one more step', 'ddos-guard',
+    '请稍候', '人机验证', '安全验证',
+)
+# 挑战页与拦截页的正文特征；不用单独的 challenge-platform，正常页面也会注入 jsd 脚本。
+CHALLENGE_BODY_MARKERS = (
+    'cf_chl_opt', 'challenge-platform/h/', 'orchestrate/chl_page', 'cf-browser-verification',
+    'cf-error-details', 'attention required! | cloudflare',
+    'verifying you are human', 'enable javascript and cookies to continue',
+    'checking your browser before accessing',
+)
 
 
 class SiteResult(NamedTuple):
@@ -59,6 +74,22 @@ def visible_html(source: str) -> str:
     return etree.tostring(document, encoding="unicode", method="html")
 
 
+def is_challenge_page(source: str) -> bool:
+    """识别 Cloudflare、DDoS-GUARD 等挑战与拦截页，先按宿主既有特征，再补充标题和正文。"""
+    if not source:
+        return False
+    if under_challenge(source):
+        return True
+    lowered = source.lower()
+    if any(marker in lowered for marker in CHALLENGE_BODY_MARKERS):
+        return True
+    document = etree.HTML(source)
+    if document is None:
+        return False
+    title = re.sub(r"\s+", " ", " ".join(document.xpath("//title//text()"))).strip().lower()
+    return bool(title) and any(hint in title for hint in CHALLENGE_TITLE_HINTS)
+
+
 def has_login_form(source: str) -> bool:
     """仅在可见页面确实要求输入密码时判定 Cookie 登录已失效。"""
     document = etree.HTML(visible_html(source))
@@ -69,6 +100,9 @@ def has_login_form(source: str) -> bool:
 
 def has_login_evidence(source: str) -> bool:
     """识别可见的用户导航或退出控件，兼容新模板且排除隐藏模板和登录表单。"""
+    # 挑战页自带导航和外链，先排除，避免把人机验证页当成已登录。
+    if is_challenge_page(source):
+        return False
     source = visible_html(source)
     document = etree.HTML(source)
     if document is None or document.xpath("//input[translate(@type, 'PASSWORD', 'password')='password']"):
@@ -87,6 +121,9 @@ def has_login_evidence(source: str) -> bool:
 
 def has_signin_evidence(source: str) -> bool:
     """只接受可见的完成状态或本次奖励，未完成表单和否定提示优先拒绝。"""
+    # 挑战页上的说明文案不是当天签到凭据。
+    if is_challenge_page(source):
+        return False
     document = etree.HTML(visible_html(source))
     if document is None or document.xpath("//input[@type='password']"):
         return False

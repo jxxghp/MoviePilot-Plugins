@@ -14,6 +14,7 @@ from app.plugins.autosignin.result import (
     SiteResult,
     has_login_evidence,
     has_signin_evidence,
+    is_challenge_page,
 )
 from app.plugins.autosignin.sites import _ISiteSigninHandler
 from app.plugins.autosignin.sites.btschool import BTSchool
@@ -29,6 +30,13 @@ from app.plugins.autosignin.sites.yema import YemaPT
 
 _LOGIN = '<a href="logout.php">退出</a>'
 _SIGNED = _LOGIN + '<span>今日已签到</span>'
+# 宿主只认三个挑战页标题，下面三种是它漏掉的常见形态。
+_CF_1020 = ('<html><title>Attention Required! | Cloudflare</title>'
+            '<body><p>Error code: 1020</p></body></html>')
+_CF_JS = ('<html><title>站点首页</title><script>window._cf_chl_opt = {};</script>'
+          '<p>Enable JavaScript and cookies to continue</p></html>')
+_CF_LOCALIZED = '<html><title>请稍候… | 安全验证</title><p>正在检查您的浏览器</p></html>'
+CHALLENGE_PAGES = [_CF_1020, _CF_JS, _CF_LOCALIZED]
 
 
 def site_info(**overrides):
@@ -70,6 +78,7 @@ def response(text="", status=200, payload=None):
     '<form><input type="password"></form><p>签到成功</p>',
     '<html><title>Just a moment...</title><p>Checking your browser</p></html>',
     "",
+    *CHALLENGE_PAGES,
 ])
 def test_generic_requires_signin_evidence(monkeypatch, render, page):
     """登录、表单、模板、失败页和 Cloudflare 页面都不能返回签到成功。"""
@@ -112,6 +121,25 @@ def test_generic_preserves_confirmed_results(monkeypatch, render, page):
     monkeypatch.setattr("app.plugins.autosignin.PlaywrightHelper", Mock(return_value=SimpleNamespace(
         get_page_source=Mock(return_value=page))))
     assert AutoSignIn._AutoSignIn__signin_base(site_info(render=render)) == SiteResult("测试站", "签到成功", True, True)
+
+
+_CF_JSD = (_LOGIN + '<span>今日已签到</span>'
+          '<script src="/cdn-cgi/challenge-platform/scripts/jsd/main.js"></script>')
+
+
+def test_bot_detection_script_on_normal_page_is_not_challenge():
+    """开了 JS 检测的正常页面会注入 challenge-platform 脚本，不能判成挑战页。"""
+    assert not is_challenge_page(_CF_JSD)
+    assert has_login_evidence(_CF_JSD) and has_signin_evidence(_CF_JSD)
+
+
+@pytest.mark.parametrize("page", CHALLENGE_PAGES)
+def test_challenge_page_never_proves_login_or_signin(page):
+    """带导航和“已签到”字样的挑战页、拦截页仍不是登录或签到凭据。"""
+    wrapped = _LOGIN + '<p>今日已签到</p>' + page
+    assert is_challenge_page(page) and is_challenge_page(wrapped)
+    assert not has_login_evidence(wrapped)
+    assert not has_signin_evidence(wrapped)
 
 
 @pytest.mark.parametrize("message", ["已签到", "已簽到", "已经签到", "已經簽到"])
@@ -212,6 +240,7 @@ def test_confirmed_login_does_not_need_second_request(monkeypatch, render):
     ('<form><input type="password"></form>', "Cookie已失效"),
     ("维护中", "未识别到登录状态"),
     ('<html><title>Just a moment...</title><p>Checking your browser</p></html>', "Cloudflare"),
+    *[(page, "Cloudflare") for page in CHALLENGE_PAGES],
     ("", "空页面"),
     ('<template>' + _LOGIN + '</template>', "未识别到登录状态"),
 ])

@@ -12,13 +12,13 @@ from app.sdk.config import settings
 from app.sdk.events import eventmanager, Event
 from app.db.oper.site import SiteOper
 from app.adapters.network.browser import PlaywrightHelper
-from app.adapters.network.cloudflare import under_challenge
 from app.foundation.reflection import ModuleHelper
 from app.sdk.network import SitesHelper
 from app.sdk.logging import logger
 from app.sdk.plugin import _PluginBase
 from app.plugins.autosignin.notification import build_notification_content
-from app.plugins.autosignin.result import SiteResult, has_login_evidence, has_login_form, has_signin_evidence, merge_failure_messages
+from app.plugins.autosignin.result import (SiteResult, has_login_evidence, has_login_form, has_signin_evidence,
+                                          is_challenge_page, merge_failure_messages)
 from app.schemas.types import EventType, MessageType
 from app.sdk.network import RequestUtils
 from app.sdk.utilities import StringUtils
@@ -2005,14 +2005,14 @@ class AutoSignIn(_PluginBase):
                                    ).get_res(url=checkin_url)
                 if res is None:
                     return SiteResult(site, "签到失败，无法打开网站！", False)
-                if under_challenge(res.text):
+                if is_challenge_page(res.text):
                     return SiteResult(site, "签到失败，站点被Cloudflare防护，请打开站点浏览器仿真", False)
                 if res.status_code != 200:
                     return SiteResult(site, f"签到失败，状态码：{res.status_code}！", False)
                 page_source = res.text
             if not page_source:
                 return SiteResult(site, "签到失败，站点返回空页面", False)
-            if under_challenge(page_source):
+            if is_challenge_page(page_source):
                 return SiteResult(site, "签到失败，无法通过Cloudflare！", False)
             if not has_login_evidence(page_source):
                 return SiteResult(site, "签到失败，未识别到登录状态", False)
@@ -2142,14 +2142,14 @@ class AutoSignIn(_PluginBase):
                                    ).get_res(url=site_url)
                 if res is None:
                     return False, f"模拟登录失败，无法打开网站！"
-                if under_challenge(res.text):
+                if is_challenge_page(res.text):
                     return False, "模拟登录失败，站点被Cloudflare防护，请打开站点浏览器仿真"
                 if res.status_code != 200:
                     return False, f"模拟登录失败，状态码：{res.status_code}！"
                 page_source = res.text
             if not page_source:
                 return False, "模拟登录失败，站点返回空页面"
-            if under_challenge(page_source):
+            if is_challenge_page(page_source):
                 return False, "模拟登录失败，无法通过Cloudflare！"
             if not has_login_evidence(page_source):
                 if has_login_form(page_source):

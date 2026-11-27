@@ -7,6 +7,7 @@ from ruamel.yaml import CommentedMap
 from app.sdk.config import settings
 from app.adapters.external.ocr import OcrHelper
 from app.sdk.logging import logger
+from app.plugins.autosignin.result import is_challenge_page
 from app.plugins.autosignin.sites import _ISiteSigninHandler
 from app.sdk.network import RequestUtils
 from app.sdk.utilities import StringUtils
@@ -55,6 +56,10 @@ class HDSky(_ISiteSigninHandler):
         if not html_text:
             logger.error(f"{site} 签到失败，请检查站点连通性")
             return False, '签到失败，请检查站点连通性'
+
+        if is_challenge_page(html_text):
+            logger.error(f"{site} 签到失败，站点被Cloudflare防护，请打开站点浏览器仿真")
+            return False, '签到失败，站点被Cloudflare防护，请打开站点浏览器仿真'
 
         if "login.php" in html_text:
             logger.error(f"{site} 签到失败，Cookie已失效")
