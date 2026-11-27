@@ -13,18 +13,17 @@ class PTerClub(_ISiteSigninHandler):
     猫签到
     """
     # 匹配的站点Url，每一个实现类都需要设置为自己的站点Url
+    # 站点现用主域；旧域 pterclub.com 已停放，不再匹配
     site_url = "pterclub.net"
-    # 站点当前主域与旧域，子域同样命中
-    site_urls = ("pterclub.com", "pterclub.net")
 
     @classmethod
     def match(cls, url: str) -> bool:
         """
-        按域名匹配本站点；主域、旧域与子域均命中
+        按域名匹配本站点；仅现用主域及其子域命中
         :param url: 站点Url
         :return: 是否匹配，如匹配则会调用该类的signin方法
         """
-        return match_site_domain(url, *cls.site_urls)
+        return match_site_domain(url, cls.site_url)
 
     def signin(self, site_info: CommentedMap) -> Tuple[bool, str]:
         """
@@ -39,7 +38,7 @@ class PTerClub(_ISiteSigninHandler):
         render = site_info.get("render")
         timeout = site_info.get("timeout")
 
-        # 签到（实际主域以站点配置为准，猫站现用 pterclub.net）
+        # 签到（实际主域以站点配置为准）
         attendance_url = f"{str(site_info.get('url') or 'https://pterclub.net').rstrip('/')}/attendance-ajax.php"
         html_text = self.get_page_source(url=attendance_url,
                                          cookie=site_cookie,

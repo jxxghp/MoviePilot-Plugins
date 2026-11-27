@@ -808,11 +808,11 @@ def test_hdchina_signs_in_on_hdwing_domain(monkeypatch):
     (MTorrent, "https://notm-team.cc/", False),
     (PTerClub, "https://pterclub.net/", True),
     (PTerClub, "https://www.pterclub.net/", True),
-    (PTerClub, "https://pterclub.com/", True),
+    (PTerClub, "https://pterclub.com/", False),
     (PTerClub, "https://pterclub.example/", False),
 ])
 def test_site_alias_domains_match(handler, url, matched):
-    """同一站点的备用域名与子域都要命中专用处理器，相近域名不能误命中。"""
+    """同一站点的备用域名与子域都要命中专用处理器，停用域名与相近域名不能误命中。"""
     assert handler.match(url) is matched
 
 
