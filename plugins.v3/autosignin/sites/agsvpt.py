@@ -53,7 +53,7 @@ class AGSVPT(_ISiteSigninHandler):
             logger.error(f"{site} 签到失败，未配置站点地址或Cookie")
             return False, "签到失败，未配置站点地址或Cookie"
 
-        attendance_url = f"{site_url}/attendance.php"
+        attendance_url = urljoin(site_url, "attendance.php")
         proxies = self._resolve_proxies(proxy)
 
         try:

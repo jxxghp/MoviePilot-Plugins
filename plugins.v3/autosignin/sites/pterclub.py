@@ -1,5 +1,6 @@
 import json
 from typing import Tuple
+from urllib.parse import urljoin
 
 from ruamel.yaml import CommentedMap
 
@@ -39,7 +40,8 @@ class PTerClub(_ISiteSigninHandler):
         timeout = site_info.get("timeout")
 
         # 签到（实际主域以站点配置为准）
-        attendance_url = f"{str(site_info.get('url') or 'https://pterclub.net').rstrip('/')}/attendance-ajax.php"
+        attendance_url = urljoin(str(site_info.get('url') or 'https://pterclub.net').rstrip('/'),
+                                 "attendance-ajax.php")
         html_text = self.get_page_source(url=attendance_url,
                                          cookie=site_cookie,
                                          ua=ua,

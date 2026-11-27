@@ -806,6 +806,7 @@ def test_hdchina_signs_in_on_hdwing_domain(monkeypatch):
     (MTorrent, "https://m-team.cc/", True),
     (MTorrent, "https://m-team.io/", True),
     (MTorrent, "https://notm-team.cc/", False),
+    (MTorrent, "https://m-team.cc.evil.example/", False),
     (PTerClub, "https://pterclub.net/", True),
     (PTerClub, "https://www.pterclub.net/", True),
     (PTerClub, "https://pterclub.com/", False),
@@ -822,3 +823,27 @@ def test_pterclub_signs_in_on_configured_domain(monkeypatch):
     monkeypatch.setattr(PTerClub, "get_page_source", page)
     assert PTerClub().signin(site_info(url="https://pterclub.net/"))[0] is True
     assert page.call_args.kwargs["url"] == "https://pterclub.net/attendance-ajax.php"
+
+
+@pytest.mark.parametrize("url", ["https://pterclub.net/index.php", "https://pterclub.net"])
+def test_pterclub_attendance_url_drops_configured_file_path(monkeypatch, url):
+    """站点地址里带具体文件时，签到接口仍应拼在主域下而不是接在文件后面。"""
+    page = Mock(return_value=json.dumps({"status": "1"}))
+    monkeypatch.setattr(PTerClub, "get_page_source", page)
+    assert PTerClub().signin(site_info(url=url))[0] is True
+    assert page.call_args.kwargs["url"] == "https://pterclub.net/attendance-ajax.php"
+
+
+def test_agsvpt_attendance_url_drops_configured_file_path(monkeypatch):
+    """AGSVPT 的签到地址同样按站点主域拼接，站点地址带文件时不重复追加路径。"""
+    seen = []
+    monkeypatch.setattr(AGSVPT, "_get", lambda self, url, *args, **kwargs: (seen.append(url), "")[1])
+    assert AGSVPT().signin(site_info(url="https://pt.agsvpt.cn/index.php"))[0] is False
+    assert seen == ["https://pt.agsvpt.cn/attendance.php"]
+
+
+@pytest.mark.parametrize("handler", [AGSVPT, MTorrent, PTerClub])
+def test_site_match_tolerates_missing_url(handler):
+    """站点地址缺失时只应判不匹配，不能因解析异常污染站点处理器加载。"""
+    assert handler.match(None) is False
+    assert handler.match("") is False
