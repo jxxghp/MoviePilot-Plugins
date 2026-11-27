@@ -3,10 +3,9 @@ from urllib.parse import urljoin
 
 from ruamel.yaml import CommentedMap
 
-from app.plugins.autosignin.sites import _ISiteSigninHandler
+from app.plugins.autosignin.sites import _ISiteSigninHandler, match_site_domain
 from app.sdk.logging import logger
 from app.sdk.network import RequestUtils
-from app.sdk.utilities import StringUtils
 
 
 class AGSVPT(_ISiteSigninHandler):
@@ -20,6 +19,8 @@ class AGSVPT(_ISiteSigninHandler):
     """
 
     site_url = "agsvpt.com"
+    # 站点主域与备用域，子域（pt.agsvpt.cn）同样命中
+    site_urls = ("agsvpt.com", "agsvpt.cn")
 
     # 未签到时页面含此提交按钮；已签到时按钮消失并出现「签到已得」等文案
     _PENDING_BUTTON = "立即签到"
@@ -32,8 +33,8 @@ class AGSVPT(_ISiteSigninHandler):
 
     @classmethod
     def match(cls, url: str) -> bool:
-        """按域名匹配本站点；StringUtils.url_equal 兼容 http/https 与子域。"""
-        return True if StringUtils.url_equal(url, cls.site_url) else False
+        """按域名匹配本站点；主域、备用域与子域均命中。"""
+        return match_site_domain(url, *cls.site_urls)
 
     def signin(self, site_info: CommentedMap) -> Tuple[bool, str]:
         """

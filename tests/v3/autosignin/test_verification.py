@@ -17,6 +17,7 @@ from app.plugins.autosignin.result import (
     is_challenge_page,
 )
 from app.plugins.autosignin.sites import _ISiteSigninHandler
+from app.plugins.autosignin.sites.agsvpt import AGSVPT
 from app.plugins.autosignin.sites.btschool import BTSchool
 from app.plugins.autosignin.sites.hares import Hares
 from app.plugins.autosignin.sites.hdchina import HDChina
@@ -794,3 +795,30 @@ def test_hdchina_signs_in_on_hdwing_domain(monkeypatch):
     assert HDChina().signin(site_info(url="https://hdwing.org/", cookie="hdchina=test"))[0] is True
     request.get_res.assert_called_once_with(url="https://hdwing.org/index.php")
     assert request.post_res.call_args.kwargs["url"] == "https://hdwing.org/plugin_sign-in.php?cmd=signin"
+
+
+@pytest.mark.parametrize("handler, url, matched", [
+    (AGSVPT, "https://agsvpt.com/", True),
+    (AGSVPT, "https://agsvpt.cn/", True),
+    (AGSVPT, "https://pt.agsvpt.cn/", True),
+    (AGSVPT, "https://agsvpt.example/", False),
+    (MTorrent, "https://kp.m-team.cc/", True),
+    (MTorrent, "https://m-team.cc/", True),
+    (MTorrent, "https://m-team.io/", True),
+    (MTorrent, "https://notm-team.cc/", False),
+    (PTerClub, "https://pterclub.net/", True),
+    (PTerClub, "https://www.pterclub.net/", True),
+    (PTerClub, "https://pterclub.com/", True),
+    (PTerClub, "https://pterclub.example/", False),
+])
+def test_site_alias_domains_match(handler, url, matched):
+    """同一站点的备用域名与子域都要命中专用处理器，相近域名不能误命中。"""
+    assert handler.match(url) is matched
+
+
+def test_pterclub_signs_in_on_configured_domain(monkeypatch):
+    """猫站现用 pterclub.net，签到接口必须跟随站点配置地址而不是写死旧域。"""
+    page = Mock(return_value=json.dumps({"status": "1"}))
+    monkeypatch.setattr(PTerClub, "get_page_source", page)
+    assert PTerClub().signin(site_info(url="https://pterclub.net/"))[0] is True
+    assert page.call_args.kwargs["url"] == "https://pterclub.net/attendance-ajax.php"

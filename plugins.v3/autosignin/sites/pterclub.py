@@ -5,8 +5,7 @@ from ruamel.yaml import CommentedMap
 
 from app.sdk.logging import logger
 from app.plugins.autosignin.result import has_signin_evidence
-from app.plugins.autosignin.sites import _ISiteSigninHandler
-from app.sdk.utilities import StringUtils
+from app.plugins.autosignin.sites import _ISiteSigninHandler, match_site_domain
 
 
 class PTerClub(_ISiteSigninHandler):
@@ -14,16 +13,18 @@ class PTerClub(_ISiteSigninHandler):
     猫签到
     """
     # 匹配的站点Url，每一个实现类都需要设置为自己的站点Url
-    site_url = "pterclub.com"
+    site_url = "pterclub.net"
+    # 站点当前主域与旧域，子域同样命中
+    site_urls = ("pterclub.com", "pterclub.net")
 
     @classmethod
     def match(cls, url: str) -> bool:
         """
-        根据站点Url判断是否匹配当前站点签到类，大部分情况使用默认实现即可
+        按域名匹配本站点；主域、旧域与子域均命中
         :param url: 站点Url
         :return: 是否匹配，如匹配则会调用该类的signin方法
         """
-        return True if StringUtils.url_equal(url, cls.site_url) else False
+        return match_site_domain(url, *cls.site_urls)
 
     def signin(self, site_info: CommentedMap) -> Tuple[bool, str]:
         """
@@ -38,8 +39,9 @@ class PTerClub(_ISiteSigninHandler):
         render = site_info.get("render")
         timeout = site_info.get("timeout")
 
-        # 签到
-        html_text = self.get_page_source(url='https://pterclub.com/attendance-ajax.php',
+        # 签到（实际主域以站点配置为准，猫站现用 pterclub.net）
+        attendance_url = f"{str(site_info.get('url') or 'https://pterclub.net').rstrip('/')}/attendance-ajax.php"
+        html_text = self.get_page_source(url=attendance_url,
                                          cookie=site_cookie,
                                          ua=ua,
                                          proxy=proxy,
