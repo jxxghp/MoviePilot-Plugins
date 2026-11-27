@@ -41,7 +41,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "2.28"
+    plugin_version = "2.29"
     # 插件作者
     plugin_author = "jxxghp,CKun"
     # 作者主页
@@ -1157,6 +1157,12 @@ class IYUUAutoSeed(_PluginBase):
             if force_reuse and save_category:
                 service.instance.set_torrent_category(hash_string=torrent_hash,
                                                       category=save_category)
+            # 随机标签只用于定位本次添加的任务，定位完成后摘除，避免在下载器标签栏累积
+            if hasattr(service.instance, "remove_torrents_tag"):
+                try:
+                    service.instance.remove_torrents_tag(ids=torrent_hash, tag=tag)
+                except Exception as err:
+                    logger.debug(f"{service.name} 移除临时标签失败：{err}")
             return torrent_hash, True
         elif service.type == "transmission":
             # 添加任务
