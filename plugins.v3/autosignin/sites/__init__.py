@@ -2,6 +2,7 @@
 import re
 from abc import ABCMeta, abstractmethod
 from typing import Tuple
+from urllib.parse import urlsplit
 
 import chardet
 from lxml import etree
@@ -13,6 +14,27 @@ from app.sdk.logging import logger
 from app.plugins.autosignin.result import visible_html
 from app.sdk.network import RequestUtils
 from app.sdk.utilities import StringUtils
+
+
+def _site_host(url: str) -> str:
+    """取小写主机名，忽略协议、端口与末尾点。"""
+    if not url:
+        return ""
+    return (urlsplit(url if "//" in url else f"//{url}").hostname or "").rstrip(".").lower()
+
+
+def match_site_domain(url: str, *domains: str) -> bool:
+    """按域名匹配站点：忽略 www 与子域前缀，用于同一站点的多个主域。"""
+    host = _site_host(url)
+    host = host[4:] if host.startswith("www.") else host
+    return bool(host) and any(host == domain or host.endswith("." + domain)
+                              for domain in domains if domain)
+
+
+def match_site_label(url: str, label: str) -> bool:
+    """按域名标签匹配，覆盖同一站点的多个顶级域（m-team.cc / m-team.io）。"""
+    parts = _site_host(url).split(".")
+    return bool(label) and label in parts and len(parts) - parts.index(label) <= 2
 
 
 class _ISiteSigninHandler(metaclass=ABCMeta):

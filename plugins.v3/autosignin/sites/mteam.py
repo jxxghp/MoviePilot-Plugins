@@ -7,7 +7,7 @@ from typing import Optional, Tuple
 from ruamel.yaml import CommentedMap
 
 from app.sdk.config import settings
-from app.plugins.autosignin.sites import _ISiteSigninHandler
+from app.plugins.autosignin.sites import _ISiteSigninHandler, match_site_label
 from app.sdk.network import RequestUtils
 from app.sdk.utilities import StringUtils
 
@@ -35,11 +35,11 @@ class MTorrent(_ISiteSigninHandler):
     @classmethod
     def match(cls, url: str) -> bool:
         """
-        根据站点Url判断是否匹配当前站点签到类，大部分情况使用默认实现即可
+        按域名标签匹配，兼容 kp/xp 等子域与站点使用的多个顶级域
         :param url: 站点Url
         :return: 是否匹配，如匹配则会调用该类的signin方法
         """
-        return True if cls.site_url in url.split(".") else False
+        return match_site_label(url, cls.site_url)
 
     def signin(self, site_info: CommentedMap) -> Tuple[bool, str]:
         """
