@@ -227,6 +227,46 @@ def test_tag_cleanup_false_result_does_not_break_add(reseed):
     ) == ("added-hash", True)
 
 
+def test_tag_cleanup_falls_back_to_global_definition(reseed):
+    """带任务标识删除失败时改为只删全局标签定义，避免标签栏残留随机串。"""
+    reseed.service.instance.delete_torrents_tag.side_effect = [False, True]
+
+    assert getattr(reseed.plugin, DOWNLOAD)(
+        service=reseed.service, content=b"torrent", save_path="/data",
+        save_category=None, site_name="M-Team"
+    ) == ("added-hash", True)
+
+    calls = reseed.service.instance.delete_torrents_tag.call_args_list
+    assert len(calls) == 2
+    assert calls[0].kwargs["ids"] == "added-hash"
+    assert calls[1].kwargs["ids"] is None
+
+
+def test_tag_cleanup_falls_back_after_exception(reseed):
+    """摘除抛异常时同样退化为只删全局标签定义。"""
+    reseed.service.instance.delete_torrents_tag.side_effect = [RuntimeError("boom"), True]
+
+    assert getattr(reseed.plugin, DOWNLOAD)(
+        service=reseed.service, content=b"torrent", save_path="/data",
+        save_category=None, site_name="M-Team"
+    ) == ("added-hash", True)
+
+    calls = reseed.service.instance.delete_torrents_tag.call_args_list
+    assert len(calls) == 2
+    assert calls[1].kwargs["ids"] is None
+
+
+def test_tag_cleanup_gives_up_after_two_failures(reseed):
+    """两次都失败时保持辅种结果不变，仅记一条警告。"""
+    reseed.service.instance.delete_torrents_tag.return_value = False
+
+    assert getattr(reseed.plugin, DOWNLOAD)(
+        service=reseed.service, content=b"torrent", save_path="/data",
+        save_category=None, site_name="M-Team"
+    ) == ("added-hash", True)
+    assert reseed.service.instance.delete_torrents_tag.call_count == 2
+
+
 # ------------------------------------------------------- 失败缓存只在真失败时写
 
 def test_seed_failure_is_cached(reseed):

@@ -1267,18 +1267,7 @@ class IYUUAutoSeed(_PluginBase):
                 service.instance.set_torrent_category(hash_string=torrent_hash,
                                                       category=save_category)
             # 随机标签只用于定位本次添加的任务，定位完成后连同标签定义一起删除，避免在下载器标签栏累积
-            if hasattr(service.instance, "delete_torrents_tag"):
-                try:
-                    if not service.instance.delete_torrents_tag(ids=torrent_hash, tag=tag):
-                        logger.warning(f"{service.name} 临时标签 {tag} 未能确认删除")
-                except Exception as err:
-                    logger.debug(f"{service.name} 删除临时标签失败：{err}")
-            elif hasattr(service.instance, "remove_torrents_tag"):
-                try:
-                    if not service.instance.remove_torrents_tag(ids=torrent_hash, tag=tag):
-                        logger.warning(f"{service.name} 临时标签 {tag} 未能确认移除")
-                except Exception as err:
-                    logger.debug(f"{service.name} 移除临时标签失败：{err}")
+            self.__drop_temp_tag(service.instance, service.name, torrent_hash, tag)
             return torrent_hash, True
         elif service.type == "transmission":
             # 添加任务
@@ -1292,6 +1281,35 @@ class IYUUAutoSeed(_PluginBase):
 
         logger.error(f"不支持的下载器：{service.type}")
         return None, False
+
+    def __drop_temp_tag(self, instance, name: str, torrent_hash: str, tag: str) -> None:
+        """
+        摘除本次添加用的临时标签，无法定位任务时退化为仅删除全局标签定义
+
+        :param instance: 下载器客户端
+        :param name: 下载器名称，用于日志
+        :param torrent_hash: 任务标识
+        :param tag: 临时标签
+        """
+        drop = getattr(instance, "delete_torrents_tag", None)
+        if drop:
+            # 带任务标识失败时只删全局定义，避免随机串留在下载器标签栏
+            for kwargs in ({"ids": torrent_hash, "tag": tag}, {"ids": None, "tag": tag}):
+                try:
+                    if drop(**kwargs):
+                        return
+                except Exception as err:
+                    logger.debug(f"{name} 摘除临时标签失败：{err}")
+            logger.warning(f"{name} 临时标签 {tag} 未能确认删除")
+            return
+        remove = getattr(instance, "remove_torrents_tag", None)
+        if not remove:
+            return
+        try:
+            if not remove(ids=torrent_hash, tag=tag):
+                logger.warning(f"{name} 临时标签 {tag} 未能确认移除")
+        except Exception as err:
+            logger.debug(f"{name} 移除临时标签失败：{err}")
 
     def __download_torrent(self, seed: dict, service: ServiceInfo, save_path: str, save_category: str):
         """
