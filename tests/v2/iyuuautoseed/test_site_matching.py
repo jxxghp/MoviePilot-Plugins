@@ -1,5 +1,6 @@
 """IYUU 站点解析和辅种下载入口的回归测试。"""
 
+import hashlib
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -10,6 +11,16 @@ from app.plugins.iyuuautoseed import IYUUAutoSeed
 from app.plugins.iyuuautoseed.iyuu_helper import IyuuHelper
 
 
+def _bstr(value: bytes) -> bytes:
+    return str(len(value)).encode() + b":" + value
+
+
+# 目标种子内容与其真实 info_hash，取种后要按 hash 校验通过才允许添加
+_TORRENT_INFO = b"d" + _bstr(b"length") + b"i1e" + _bstr(b"name") + _bstr(b"test.iso") + b"e"
+SEED_HASH = hashlib.sha1(_TORRENT_INFO).hexdigest()
+TORRENT_CONTENT = b"d" + _bstr(b"info") + _TORRENT_INFO + b"e"
+
+
 @pytest.fixture
 def reseed(monkeypatch):
     plugin = object.__new__(IYUUAutoSeed)
@@ -18,9 +29,9 @@ def reseed(monkeypatch):
     plugin._labelsafterseed = "辅种"
     plugin._addhosttotag = True
     plugin._recheck_torrents = {}
-    plugin._success_caches = []
+    plugin._success_caches = {}
     plugin._api_bases = {}
-    seed = {"sid": 3, "torrent_id": 42, "info_hash": "seed-hash"}
+    seed = {"sid": 3, "torrent_id": 42, "info_hash": SEED_HASH}
     service = SimpleNamespace(name="TR", type="transmission", instance=Mock())
     service.instance.get_torrents.return_value = ([], None)
     service.instance.add_torrent.return_value = SimpleNamespace(hashString="added-hash")
@@ -52,7 +63,7 @@ def test_api_uses_mp_site_url_first(reseed):
     reseed.request.return_value.post_res.return_value.json.return_value = {
         "data": "https://download.example/torrent"
     }
-    reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
+    reseed.torrent.download_torrent.return_value = (None, TORRENT_CONTENT, None, None, None)
 
     assert _download(reseed, "api.m-team.cc", nickname="馒头", site="m-team") is True
 
@@ -65,7 +76,7 @@ def test_api_uses_mp_site_url_first(reseed):
     )
     assert reseed.torrent.download_torrent.call_args.kwargs["proxy"] is True
     reseed.service.instance.add_torrent.assert_called_once_with(
-        content=b"torrent", download_dir="/data", is_paused=True, labels=["辅种", "M-Team"]
+        content=TORRENT_CONTENT, download_dir="/data", is_paused=True, labels=["辅种", "M-Team"]
     )
 
 
@@ -75,7 +86,7 @@ def test_skyeysnow_matched_by_site_name(reseed):
             "cookie": "test-cookie", "ua": "test-ua"}
     reseed.sites.get_indexer.side_effect = {}.get
     reseed.sites.get_indexers.return_value = [site]
-    reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
+    reseed.torrent.download_torrent.return_value = (None, TORRENT_CONTENT, None, None, None)
 
     assert _download(reseed, "skyey2.com", "download.php?id={}&passkey={passkey}",
                      nickname="天雪", site="skyey") is True
@@ -124,7 +135,7 @@ def test_api_falls_back_to_iyuu_host(reseed):
     response = Mock()
     response.json.return_value = {"data": "https://download.example/torrent"}
     reseed.request.return_value.post_res.side_effect = [None, response]
-    reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
+    reseed.torrent.download_torrent.return_value = (None, TORRENT_CONTENT, None, None, None)
 
     assert _download(reseed, "api.m-team.cc", nickname="馒头", site="m-team") is True
 
@@ -142,7 +153,7 @@ def test_api_base_without_guessed_api_prefix(reseed):
     response = Mock()
     response.json.return_value = {"data": "https://download.example/torrent"}
     reseed.request.return_value.post_res.side_effect = [None, None, response]
-    reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
+    reseed.torrent.download_torrent.return_value = (None, TORRENT_CONTENT, None, None, None)
 
     assert _download(reseed, "api.m-team.cc", nickname="馒头", site="m-team") is True
 
@@ -162,7 +173,7 @@ def test_api_path_template_falls_back_to_iyuu_api_host(reseed):
     response = Mock()
     response.json.return_value = {"data": "https://download.example/torrent"}
     reseed.request.return_value.post_res.side_effect = [None, response]
-    reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
+    reseed.torrent.download_torrent.return_value = (None, TORRENT_CONTENT, None, None, None)
 
     assert _download(reseed, "api.piggo.me", "v1/api/torrents/genDlToken",
                      nickname="馒头", site="m-team") is True
@@ -181,7 +192,7 @@ def test_api_endpoint_falls_back_to_registered_domain(reseed):
     response = Mock()
     response.json.return_value = {"data": "https://download.example/torrent"}
     reseed.request.return_value.post_res.side_effect = [None, None, response]
-    reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
+    reseed.torrent.download_torrent.return_value = (None, TORRENT_CONTENT, None, None, None)
 
     assert _download(reseed, "api.old-host.id", "v1/api/torrents/genDlToken",
                      nickname="馒头", site="m-team") is True
@@ -198,7 +209,7 @@ def test_site_matched_by_compact_name(reseed):
             "cookie": "test-cookie", "ua": "test-ua"}
     reseed.sites.get_indexer.side_effect = {}.get
     reseed.sites.get_indexers.return_value = [site]
-    reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
+    reseed.torrent.download_torrent.return_value = (None, TORRENT_CONTENT, None, None, None)
 
     assert _download(reseed, "mteam.example", "download.php?id={id}",
                      nickname="馒头", site="m-team") is True
@@ -216,7 +227,7 @@ def test_template_with_torrent_key_placeholder(reseed):
             "cookie": "test-cookie", "ua": "test-ua"}
     reseed.sites.get_indexer.side_effect = {}.get
     reseed.sites.get_indexers.return_value = [site]
-    reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
+    reseed.torrent.download_torrent.return_value = (None, TORRENT_CONTENT, None, None, None)
 
     assert _download(reseed, "zhuque.in", "api/torrent/download/{}/{torrent_key}",
                      nickname="朱雀", site="zhuque") is True
@@ -254,7 +265,7 @@ def test_api_base_follows_iyuu_http_declaration(reseed):
         return None if url.startswith("https://hdroute.org") else response
 
     reseed.request.return_value.post_res.side_effect = fake_post
-    reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
+    reseed.torrent.download_torrent.return_value = (None, TORRENT_CONTENT, None, None, None)
 
     assert _download(reseed, "www.hdroute.org", "v1/api/torrents/genDlToken",
                      nickname="路", site="hdroute", is_https=0) is True
@@ -276,7 +287,7 @@ def test_api_base_probed_once_per_site(reseed):
         return None if ("invalid" in url or url.startswith("https://kp.")) else response
 
     reseed.request.return_value.post_res.side_effect = fake_post
-    reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
+    reseed.torrent.download_torrent.return_value = (None, TORRENT_CONTENT, None, None, None)
 
     for _ in range(2):
         assert _download(reseed, "api.m-team.invalid", nickname="馒头", site="m-team") is True
@@ -323,7 +334,7 @@ def test_stale_cached_api_base_falls_through(reseed):
         return None if any(url.startswith(item) for item in dead) else response
 
     reseed.request.return_value.post_res.side_effect = fake_post
-    reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
+    reseed.torrent.download_torrent.return_value = (None, TORRENT_CONTENT, None, None, None)
 
     assert _download(reseed, "api.m-team.cc", nickname="馒头", site="m-team") is True
     dead.add("https://api.m-team.cc")
@@ -351,7 +362,7 @@ def test_api_endpoint_follows_iyuu_subdomain_after_migration(reseed):
         return response if url == "https://api.m-team.test/api/torrent/genDlToken" else None
 
     reseed.request.return_value.post_res.side_effect = fake_post
-    reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
+    reseed.torrent.download_torrent.return_value = (None, TORRENT_CONTENT, None, None, None)
 
     assert _download(reseed, "api.m-team.cc", nickname="馒头", site="m-team") is True
 
@@ -375,7 +386,7 @@ def test_token_endpoint_tries_site_url_then_follows_prefix(reseed):
         return response if url == "https://api.pig.test/v1/api/torrents/42/download-link" else None
 
     reseed.request.return_value.post_res.side_effect = fake_post
-    reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
+    reseed.torrent.download_torrent.return_value = (None, TORRENT_CONTENT, None, None, None)
 
     assert _download(reseed, "api.piggo.me", "/v1/api/torrents/{}/download-link",
                      nickname="猪猪", site="piggo") is True
@@ -401,7 +412,7 @@ def test_token_endpoint_keeps_mirror_subdomain(reseed):
         return response if url == "https://api.piggo.me/v1/api/torrents/42/download-link" else None
 
     reseed.request.return_value.post_res.side_effect = fake_post
-    reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
+    reseed.torrent.download_torrent.return_value = (None, TORRENT_CONTENT, None, None, None)
 
     assert _download(reseed, "api.piggo.me", "/v1/api/torrents/{}/download-link",
                      nickname="猪猪", site="piggo") is True
@@ -426,7 +437,7 @@ def test_token_endpoint_probed_once_per_site(reseed):
         return response if url == "https://api.pig.test/v1/api/torrents/42/download-link" else None
 
     reseed.request.return_value.post_res.side_effect = fake_post
-    reseed.torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
+    reseed.torrent.download_torrent.return_value = (None, TORRENT_CONTENT, None, None, None)
 
     assert _download(reseed, "api.piggo.me", "/v1/api/torrents/{}/download-link",
                      nickname="猪猪", site="piggo") is True
@@ -481,3 +492,24 @@ def test_unrelated_site_is_not_matched(reseed):
 
     reseed.sites.check.assert_not_called()
     reseed.request.assert_not_called()
+
+
+def test_candidate_hash_mismatch_is_not_added(reseed):
+    """取到的种子与目标 info_hash 不一致时不得提交下载器，也不写成功缓存。"""
+    other_info = b"d" + _bstr(b"name") + _bstr(b"other.iso") + b"e"
+    reseed.sites.get_indexer.side_effect = {}.get
+    reseed.sites.get_indexers.return_value = [
+        {"id": 6, "name": "M-Team", "domain": "m-team.io", "url": "https://kp.m-team.io/",
+         "apikey": "test-key"},
+    ]
+    reseed.request.return_value.post_res.return_value.json.return_value = {
+        "data": "https://download.example/torrent"
+    }
+    reseed.torrent.download_torrent.return_value = (
+        None, b"d" + _bstr(b"info") + other_info + b"e", None, None, None)
+
+    assert _download(reseed, "api.m-team.cc", nickname="馒头", site="m-team") is False
+
+    reseed.service.instance.add_torrent.assert_not_called()
+    assert reseed.plugin._success_caches == {}
+    assert SEED_HASH not in reseed.plugin._permanent_error_caches

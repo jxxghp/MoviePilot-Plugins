@@ -1,5 +1,7 @@
+import hashlib
 import os
 import re
+import time
 from datetime import datetime, timedelta
 from threading import Event
 from typing import Any, Dict, List, Optional, Tuple
@@ -41,7 +43,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "2.29"
+    plugin_version = "2.30"
     # 插件作者
     plugin_author = "jxxghp,CKun"
     # 作者主页
@@ -94,21 +96,28 @@ class IYUUAutoSeed(_PluginBase):
         "//a[contains(@href, 'download.php?id=')]/@href",
         "//a[@class='index'][contains(@href, '/dl/')]/@href",
     ]
+    # 详情页候选种子最多尝试条数，避免同一页面反复下载
+    _page_candidate_limit = 8
     # 待校全种子hash清单
     _recheck_torrents = {}
     _is_recheck_running = False
     # 已自动补发校验的种子hash，避免重复补发
     _auto_rechecked = set()
     # 辅种缓存，本轮取种或添加失败的种子，单次任务内不再重复处理，下一轮开始时重清
-    _error_caches = []
+    _error_caches = {}
     # 辅种缓存，辅种成功的种子，可清除
-    _success_caches = []
-    # 辅种缓存，确认种子已不存在或只回磁力，不再尝试；同样随“清除缓存后运行”清空
-    _permanent_error_caches = []
+    _success_caches = {}
+    # 辅种缓存，只回磁力或种子已不存在；404/410 带 TTL，到期后重试一次
+    _permanent_error_caches = {}
     # 辅种缓存最大保存条数，避免长期运行时配置缓存无限增长
     _seed_cache_max_items = 10000
-    # 仅这些状态码说明种子已不存在，其余失败按暂态处理
+    # 这些状态码说明种子可能已被删除，但仍给一次重试机会
     _permanent_seed_error_codes = (404, 410)
+    _failed_cache_ttl = 7 * 24 * 3600
+    # 同一站点连续取种失败达到阈值后整体退避，避免整站失效时逐个种子反复请求
+    _site_backoff = {}
+    _site_backoff_threshold = 3
+    _site_backoff_seconds = 3600
     # 宿主 TorrentHelper 只返回文案，状态码内嵌在“下载种子出错，状态码：xxx”里
     _torrent_status_code_pattern = re.compile(r"状态码[：:]\s*(\d{3})")
     # 辅种计数
@@ -120,9 +129,9 @@ class IYUUAutoSeed(_PluginBase):
     cached = 0
 
     def init_plugin(self, config: dict = None):
-        self._error_caches = []
-        self._success_caches = []
-        self._permanent_error_caches = []
+        self._error_caches = {}
+        self._success_caches = {}
+        self._permanent_error_caches = {}
 
         # 读取配置
         if config:
@@ -150,13 +159,14 @@ class IYUUAutoSeed(_PluginBase):
                 self._size = 0
             self._clearcache = config.get("clearcache")
             self._permanent_error_caches = (
-                [] if self._clearcache else list(config.get("permanent_error_caches") or [])
+                {} if self._clearcache
+                else self.__load_seed_cache(config.get("permanent_error_caches"))
             )
-            self._error_caches = [] if self._clearcache else list(config.get("error_caches") or [])
-            self._success_caches = [] if self._clearcache else list(config.get("success_caches") or [])
-            self.__trim_seed_cache(self._permanent_error_caches)
-            self.__trim_seed_cache(self._error_caches)
-            self.__trim_seed_cache(self._success_caches)
+            self._error_caches = {} if self._clearcache else self.__load_seed_cache(config.get("error_caches"))
+            self._success_caches = {} if self._clearcache else self.__load_seed_cache(config.get("success_caches"))
+            self._site_backoff = self.__load_site_backoff(config.get("site_backoff"))
+            for cache in (self._permanent_error_caches, self._error_caches, self._success_caches):
+                self.__trim_seed_cache(cache)
 
             # 过滤掉已删除的站点
             all_sites = [site.id for site in SiteOper().list_order_by_pri()] + [site.get("id") for site in
@@ -169,6 +179,8 @@ class IYUUAutoSeed(_PluginBase):
         # 重新初始化运行期校验队列，避免类级字典跨插件重载残留。
         self._recheck_torrents = {}
         self._auto_rechecked = set()
+        self._iyuu_aborted = False
+        self._abort_reason = None
         self._site_user_ids = {}
         self._hash_names = {}
         self._api_bases = {}
@@ -737,47 +749,103 @@ class IYUUAutoSeed(_PluginBase):
             "size": self._size,
             "success_caches": self._success_caches,
             "error_caches": self._error_caches,
-            "permanent_error_caches": self._permanent_error_caches
+            "permanent_error_caches": self._permanent_error_caches,
+            "site_backoff": self._site_backoff
         })
 
-    def __trim_seed_cache(self, cache: list):
+    def __load_seed_cache(self, raw) -> dict:
         """
-        去重并限制辅种缓存大小，避免长期任务把配置缓存无限撑大。
+        读入缓存，结构为 hash→过期时间戳，0 表示不再重试；
+        旧版 list 结构不再兼容，按空缓存处理，升级后重新尝试。
+        """
+        if not isinstance(raw, dict):
+            return {}
+        cache = {}
+        for key, value in raw.items():
+            try:
+                cache[str(key)] = float(value or 0)
+            except (TypeError, ValueError):
+                cache[str(key)] = 0.0
+        return cache
+
+    def __load_site_backoff(self, raw) -> dict:
+        """读入站点退避状态，非法结构按空处理。"""
+        if not isinstance(raw, dict):
+            return {}
+        return {str(key): value for key, value in raw.items() if isinstance(value, dict)}
+
+    def __trim_seed_cache(self, cache: dict):
+        """
+        去掉已过期条目并限制缓存条数，避免长期运行把配置缓存无限撑大。
         """
         if not cache:
             return
-        unique_cache = []
-        seen = set()
-        for item in reversed(cache):
-            if not item or item in seen:
-                continue
-            seen.add(item)
-            unique_cache.append(item)
-        unique_cache.reverse()
-        cache[:] = unique_cache[-self._seed_cache_max_items:]
+        now = time.time()
+        for key in [item for item, expire in cache.items() if expire and expire <= now]:
+            cache.pop(key, None)
+        overflow = len(cache) - self._seed_cache_max_items
+        if overflow > 0:
+            # 优先淘汰最早过期的暂态条目，永久条目不参与淘汰
+            expiring = sorted((expire, item) for item, expire in cache.items() if expire)
+            for _, key in expiring[:overflow]:
+                cache.pop(key, None)
+            # 全是永久条目时按写入顺序淘汰最早的，保证上限始终生效
+            overflow = len(cache) - self._seed_cache_max_items
+            if overflow > 0:
+                for key in list(cache)[:overflow]:
+                    cache.pop(key, None)
 
-    def __append_seed_cache(self, cache: list, value: str):
+    def __append_seed_cache(self, cache: dict, value: str, ttl: float = 0):
         """
-        写入辅种缓存并保持上限，重复值只保留一份。
+        写入辅种缓存，ttl 为 0 表示不再重试，否则到期后自动失效。
         """
         if not value:
             return
-        if value not in cache:
-            cache.append(value)
+        cache[value] = time.time() + ttl if ttl else 0.0
         self.__trim_seed_cache(cache)
 
+    @staticmethod
+    def __cache_hit(cache: dict, value: str) -> bool:
+        """判断缓存是否命中，过期条目视为未命中。"""
+        if not value:
+            return False
+        expire = cache.get(value)
+        if expire is None:
+            return False
+        return not expire or expire > time.time()
+
     @classmethod
-    def __is_permanent_seed_error(cls, error_msg: Optional[str]) -> bool:
+    def __seed_gone_error(cls, error_msg: Optional[str]) -> bool:
         """
-        判断取种失败是否说明种子本身无法再辅种：403/5xx 可能只是站点前置代理拦截，
-        不能据此认定失效；磁力链接没有文件清单，则始终无法辅种。
+        判断状态码是否说明种子已不存在：403/5xx 可能只是站点前置代理拦截，不能据此认定失效。
         """
         if not error_msg:
             return False
         status = cls._torrent_status_code_pattern.search(error_msg)
-        if status:
-            return int(status.group(1)) in cls._permanent_seed_error_codes
-        return "磁力" in error_msg
+        return bool(status) and int(status.group(1)) in cls._permanent_seed_error_codes
+
+    def __mark_site_backoff(self, domain: str):
+        """记录站点取种失败，连续达到阈值后整体退避一段时间。"""
+        if not domain:
+            return
+        fails = int((self._site_backoff.get(domain) or {}).get("fails") or 0) + 1
+        until = time.time() + self._site_backoff_seconds if fails >= self._site_backoff_threshold else 0
+        self._site_backoff[domain] = {"fails": fails, "until": until}
+
+    def __clear_site_backoff(self, domain: str):
+        """取种成功后清除站点失败计数。"""
+        if domain:
+            self._site_backoff.pop(domain, None)
+
+    def __site_available(self, domain: str) -> bool:
+        """判断站点是否处于退避窗口，窗口到期后自动恢复。"""
+        until = (self._site_backoff.get(domain) or {}).get("until") or 0
+        if not until:
+            return True
+        if time.time() >= until:
+            self._site_backoff.pop(domain, None)
+            return True
+        return False
 
     def auto_seed(self):
         """
@@ -791,11 +859,15 @@ class IYUUAutoSeed(_PluginBase):
         logger.info("开始辅种任务 ...")
         # 站点清单每次任务重拉，IYUU 更新站点地址后无需重载插件
         self.iyuu_helper.reset_sites()
+        # 只上报本机已配置的站点，未维护的站点即便上报也取不到种
+        self.iyuu_helper.set_report_sids(self.__report_sids())
         # 端点失败与 rsskey 缓存只在单次任务内有效，避免一次失败固化为长期失败
         self._api_bases = {key: value for key, value in self._api_bases.items() if isinstance(value, str)}
         self._rss_keys = {}
         # 暂态失败同样每轮重开，站点恢复后就能重试；确认失效的种子仍留在永久桶
-        self._error_caches = []
+        self._error_caches = {}
+        self._iyuu_aborted = False
+        self._abort_reason = None
 
         # 计数器初始化
         self.total = 0
@@ -806,6 +878,9 @@ class IYUUAutoSeed(_PluginBase):
         self.cached = 0
         # 扫描下载器辅种
         for service in services.values():
+            if self._iyuu_aborted:
+                logger.warning("IYUU 接口异常，剩余下载器本轮跳过 ...")
+                break
             downloader = service.name
             downloader_obj = service.instance
             logger.info(f"开始扫描下载器 {downloader} ...")
@@ -830,7 +905,8 @@ class IYUUAutoSeed(_PluginBase):
                 torrent_name = self.__get_torrent_name(torrent=torrent, dl_type=service.type)
                 if hash_str and torrent_name:
                     self._hash_names[hash_str] = torrent_name
-                if hash_str in self._error_caches or hash_str in self._permanent_error_caches:
+                if self.__cache_hit(self._error_caches, hash_str) \
+                        or self.__cache_hit(self._permanent_error_caches, hash_str):
                     logger.info(f"种子 {hash_str} 辅种失败且已缓存，跳过 ...")
                     continue
                 save_path = self.__get_save_path(torrent=torrent, dl_type=service.type)
@@ -881,12 +957,18 @@ class IYUUAutoSeed(_PluginBase):
                 # 分组处理，减少IYUU Api请求次数
                 chunk_size = 200
                 for i in range(0, len(hash_strs), chunk_size):
+                    if self._iyuu_aborted:
+                        logger.warning(f"IYUU 接口异常，{downloader} 剩余批次本轮跳过 ...")
+                        break
                     # 切片操作
                     chunk = hash_strs[i:i + chunk_size]
                     # 处理分组
                     self.__seed_torrents(hash_strs=chunk,
                                          service=service,
                                          completed_hashes_downloader=completed_hashes_downloader)
+                if self._iyuu_aborted:
+                    # 接口异常时不再补发校验，交给下一轮
+                    break
                 # 触发校验检查
                 logger.info(f"下载器 {downloader} 辅种全部完成。")
                 self.check_recheck()
@@ -897,16 +979,24 @@ class IYUUAutoSeed(_PluginBase):
         self.__update_config()
         # 发送消息
         if self._notify:
-            if self.success or self.fail:
+            if self.success or self.fail or self._iyuu_aborted:
+                text = (f"服务器返回可辅种总数：{self.total}\n"
+                        f"实际可辅种数：{self.realtotal}\n"
+                        f"已存在：{self.exist}\n"
+                        f"成功：{self.success}\n"
+                        f"失败：{self.fail}\n"
+                        f"{self.cached} 条失败记录已加入缓存")
+                if self._iyuu_aborted:
+                    reasons = {
+                        "no_sites": "本轮未匹配到可辅种站点，请检查站点 URL/域名是否与 IYUU 一致（修正后下一轮生效）",
+                        "auth": "本轮因 IYUU 鉴权失败中止，请检查插件内的 IYUU 令牌",
+                        "api": "本轮因 IYUU 接口异常中止，下一轮会重试",
+                    }
+                    text += "\n" + reasons.get(self._abort_reason, reasons["api"])
                 self.post_message(
                     mtype=NotificationType.SiteMessage,
-                    title="【IYUU自动辅种任务完成】",
-                    text=f"服务器返回可辅种总数：{self.total}\n"
-                         f"实际可辅种数：{self.realtotal}\n"
-                         f"已存在：{self.exist}\n"
-                         f"成功：{self.success}\n"
-                         f"失败：{self.fail}\n"
-                         f"{self.cached} 条失败记录已加入缓存"
+                    title="【IYUU自动辅种任务中止】" if self._iyuu_aborted else "【IYUU自动辅种任务完成】",
+                    text=text
                 )
         logger.info("辅种任务执行完成")
 
@@ -1013,13 +1103,25 @@ class IYUUAutoSeed(_PluginBase):
             save_paths[item.get("hash")] = item.get("save_path")
             save_category[item.get("hash")] = item.get("category")
         # 查询可辅种数据
-        seed_list, msg = self.iyuu_helper.get_seed_info(hashs)
+        seed_list, msg, code = self.iyuu_helper.get_seed_info(hashs)
         if not isinstance(seed_list, dict):
-            # 判断辅种异常是否是由于Token未认证导致的，由于没有解决接口，只能从返回值来判断
-            if self._token and msg == '请求缺少token':
-                logger.warn(f'IYUU辅种失败，疑似站点未绑定插件配置不完整，请先检查是否完成站点绑定！{msg}')
+            # code 为 0 表示接口正常但没有可辅种数据；其余情况一律按失败处理，
+            # 包括未知业务码，避免限流或鉴权失败被当成“没有可辅种”静默跳过
+            if code == "no_sites":
+                logger.warning(f"未匹配到可辅种站点，请检查站点 URL/域名是否与 IYUU 站点一致：{msg}")
+                self._iyuu_aborted = True
+                self._abort_reason = "no_sites"
+            elif code in (401, 403) or "缺少token" in (msg or ""):
+                # 中文子串只是补充判断，401/403 本身就是鉴权问题的可靠信号
+                logger.error(f"IYUU 鉴权失败（令牌无效或无权限），本轮辅种中止，请检查插件内的 IYUU 令牌：{msg}")
+                self._iyuu_aborted = True
+                self._abort_reason = "auth"
+            elif code == 0:
+                logger.warning(f"当前种子列表没有可辅种的站点：{msg}")
             else:
-                logger.warn(f"当前种子列表没有可辅种的站点：{msg}")
+                logger.error(f"IYUU 接口异常，本轮辅种中止，下一轮重试：{msg}")
+                self._iyuu_aborted = True
+                self._abort_reason = "api"
             return
         else:
             logger.info(f"IYUU返回可辅种数：{len(seed_list)}")
@@ -1044,10 +1146,11 @@ class IYUUAutoSeed(_PluginBase):
                 if seed.get("info_hash") in completed_hashes_downloader:
                     logger.info(f"{seed.get('info_hash')} 已在下载器中，跳过 ...")
                     continue
-                if seed.get("info_hash") in self._success_caches:
+                if self.__cache_hit(self._success_caches, seed.get("info_hash")):
                     logger.info(f"{seed.get('info_hash')} 已处理过辅种，跳过 ...")
                     continue
-                if seed.get("info_hash") in self._error_caches or seed.get("info_hash") in self._permanent_error_caches:
+                if self.__cache_hit(self._error_caches, seed.get("info_hash")) \
+                        or self.__cache_hit(self._permanent_error_caches, seed.get("info_hash")):
                     logger.info(f"种子 {seed.get('info_hash')} 辅种失败且已缓存，跳过 ...")
                     continue
                 # 添加任务 如果配置了主辅分离使用辅种下载器
@@ -1164,18 +1267,7 @@ class IYUUAutoSeed(_PluginBase):
                 service.instance.set_torrent_category(hash_string=torrent_hash,
                                                       category=save_category)
             # 随机标签只用于定位本次添加的任务，定位完成后连同标签定义一起删除，避免在下载器标签栏累积
-            if hasattr(service.instance, "delete_torrents_tag"):
-                try:
-                    if not service.instance.delete_torrents_tag(ids=torrent_hash, tag=tag):
-                        logger.warning(f"{service.name} 临时标签 {tag} 未能确认删除")
-                except Exception as err:
-                    logger.debug(f"{service.name} 删除临时标签失败：{err}")
-            elif hasattr(service.instance, "remove_torrents_tag"):
-                try:
-                    if not service.instance.remove_torrents_tag(ids=torrent_hash, tag=tag):
-                        logger.warning(f"{service.name} 临时标签 {tag} 未能确认移除")
-                except Exception as err:
-                    logger.debug(f"{service.name} 移除临时标签失败：{err}")
+            self.__drop_temp_tag(service.instance, service.name, torrent_hash, tag)
             return torrent_hash, True
         elif service.type == "transmission":
             # 添加任务
@@ -1189,6 +1281,35 @@ class IYUUAutoSeed(_PluginBase):
 
         logger.error(f"不支持的下载器：{service.type}")
         return None, False
+
+    def __drop_temp_tag(self, instance, name: str, torrent_hash: str, tag: str) -> None:
+        """
+        摘除本次添加用的临时标签，无法定位任务时退化为仅删除全局标签定义
+
+        :param instance: 下载器客户端
+        :param name: 下载器名称，用于日志
+        :param torrent_hash: 任务标识
+        :param tag: 临时标签
+        """
+        drop = getattr(instance, "delete_torrents_tag", None)
+        if drop:
+            # 带任务标识失败时只删全局定义，避免随机串留在下载器标签栏
+            for kwargs in ({"ids": torrent_hash, "tag": tag}, {"ids": None, "tag": tag}):
+                try:
+                    if drop(**kwargs):
+                        return
+                except Exception as err:
+                    logger.debug(f"{name} 摘除临时标签失败：{err}")
+            logger.warning(f"{name} 临时标签 {tag} 未能确认删除")
+            return
+        remove = getattr(instance, "remove_torrents_tag", None)
+        if not remove:
+            return
+        try:
+            if not remove(ids=torrent_hash, tag=tag):
+                logger.warning(f"{name} 临时标签 {tag} 未能确认移除")
+        except Exception as err:
+            logger.debug(f"{name} 移除临时标签失败：{err}")
 
     def __download_torrent(self, seed: dict, service: ServiceInfo, save_path: str, save_category: str):
         """
@@ -1243,6 +1364,11 @@ class IYUUAutoSeed(_PluginBase):
             logger.warn(checkmsg)
             self.fail += 1
             return False
+        # 站点连续取种失败时整体退避，避免整站失效后逐个种子反复请求
+        if not self.__site_available(site_domain):
+            logger.debug(f"{site_info.get('name')} 取种连续失败已退避，本轮跳过 ...")
+            self.fail += 1
+            return False
         # 下载种子
         torrent_url, use_cookie = self.__get_download_url(seed=seed,
                                                           site=site_info,
@@ -1253,18 +1379,44 @@ class IYUUAutoSeed(_PluginBase):
             self.fail += 1
             self.cached += 1
             return False
-        # 下载种子文件
-        _, content, _, _, error_msg = TorrentHelper().download_torrent(
-            url=torrent_url,
-            cookie=site_info.get("cookie") if use_cookie else None,
-            ua=self.__site_ua(site_info),
-            proxy=site_info.get("proxy"))
-        # 磁力链接被宿主放在 content 位置返回（str），它没有文件清单，匹配不了原种目录
-        if not content or isinstance(content, str):
+        # 详情页可能返回多条候选，逐个下载并校验 info_hash，只有一致才继续添加
+        candidate_urls = torrent_url if isinstance(torrent_url, list) else [torrent_url]
+        target_hash = str(seed.get("info_hash") or "").lower()
+        if not target_hash:
+            # 没有目标 hash 就无法校验候选，宁可不添加
             self.fail += 1
-            if self.__is_permanent_seed_error(error_msg):
-                # 种子确认已不存在，或只回磁力，重试没有意义
+            logger.warning(f"{site_info.get('name')} 缺少目标 info_hash，跳过取种")
+            return False
+        content, error_msg, magnet_only = None, "", False
+        for index, candidate_url in enumerate(candidate_urls):
+            if index:
+                logger.info(f"{site_info.get('name')} 换下一条候选取种：{index + 1}/{len(candidate_urls)}")
+            _, candidate, _, _, msg = TorrentHelper().download_torrent(
+                url=candidate_url,
+                cookie=site_info.get("cookie") if use_cookie else None,
+                ua=self.__site_ua(site_info),
+                proxy=site_info.get("proxy"))
+            # 磁力链接被宿主放在 content 位置返回（str），它没有文件清单，匹配不了原种目录
+            if isinstance(candidate, str):
+                magnet_only, error_msg = True, msg or error_msg
+                continue
+            if not candidate:
+                error_msg = msg or error_msg
+                continue
+            if self.__torrent_info_hash(candidate) == target_hash:
+                content = candidate
+                break
+            error_msg = "候选种子与目标 info_hash 不一致"
+        if not content:
+            self.fail += 1
+            self.__mark_site_backoff(site_domain)
+            if magnet_only:
+                # 只回磁力，没有文件清单，永远辅不了
                 self.__append_seed_cache(self._permanent_error_caches, seed.get("info_hash"))
+            elif self.__seed_gone_error(error_msg):
+                # 404/410 可能是种子被删，也可能站点临时缺页，保留一次重试机会
+                self.__append_seed_cache(self._permanent_error_caches, seed.get("info_hash"),
+                                         self._failed_cache_ttl)
             else:
                 # 连接不通、流控、403/5xx 等不能认定种子失效，只在本轮内跳过
                 self.__append_seed_cache(self._error_caches, seed.get("info_hash"))
@@ -1272,6 +1424,7 @@ class IYUUAutoSeed(_PluginBase):
             logger.error(f"{site_info.get('name')} 取种失败：{error_msg or '未返回原因'}")
             return False
         # 添加下载，辅种任务默认暂停
+        self.__clear_site_backoff(site_domain)
         logger.info(f"{site_info.get('name')} 开始添加下载任务，种子：{seed.get('torrent_id')} ...")
         download_id, added = self.__download(service=service,
                                              content=content,
@@ -1472,9 +1625,9 @@ class IYUUAutoSeed(_PluginBase):
 
         def __page_torrent_url():
             """
-            从详情页面取种，需要站点 Cookie
+            从详情页面取种，返回候选列表，由调用方逐个校验 info_hash
             """
-            return self.__get_torrent_url_from_page(seed=seed, site=site), True
+            return self.__get_torrent_urls_from_page(seed=seed, site=site), True
 
         def __dedupe(bases: list) -> list:
             """
@@ -1617,7 +1770,7 @@ class IYUUAutoSeed(_PluginBase):
         except Exception as e:
             logger.warn(
                 f"{site.get('name')} Url转换失败，{str(e)}：site_url={site.get('url')}，base_url={base_url}, seed={seed}")
-            return self.__get_torrent_url_from_page(seed=seed, site=site), True
+            return self.__get_torrent_urls_from_page(seed=seed, site=site), True
 
     def __api_base(self, host: Any, sid: Any = None) -> str:
         """
@@ -1752,6 +1905,42 @@ class IYUUAutoSeed(_PluginBase):
                 return matched[0]
         return None
 
+    def __report_sids(self) -> list:
+        """
+        把本机已启用的站点映射为 IYUU 站点 ID，只上报实际会参与辅种的站点
+
+        匹配口径与 __get_site_by_iyuu 一致：注册域名、域名主体、IYUU 站点标识、站点昵称。
+
+        :return: 命中的 IYUU 站点 ID 列表
+        """
+        all_sites = self.iyuu_helper.get_all_sites() if self.iyuu_helper else {}
+        if not all_sites:
+            return []
+        indexers = SitesHelper().get_indexers() or []
+        if self._sites:
+            selected = {str(site_id) for site_id in self._sites}
+            indexers = [site for site in indexers if str(site.get("id")) in selected]
+        sids = []
+        for site in indexers:
+            domains = {body for body in (self.__domain_body(site.get("domain")),
+                                         self.__domain_body(site.get("url"))) if body}
+            name = str(site.get("name") or "").strip().lower()
+            compact = self.__compact(site.get("name"))
+            matched = []
+            for sid, meta in all_sites.items():
+                meta_domains = {body for body in (self.__domain_body(meta.get("base_url")),
+                                                  self.__domain_body(meta.get("site"))) if body}
+                meta_name = str(meta.get("nickname") or "").strip().lower()
+                meta_compact = self.__compact(meta.get("site"))
+                if (domains and meta_domains and domains & meta_domains) \
+                        or (name and name == meta_name) \
+                        or (compact and compact == meta_compact):
+                    matched.append(sid)
+            if len(matched) == 1 and matched[0] not in sids:
+                sids.append(matched[0])
+        logger.debug(f"本次上报 IYUU 站点数：{len(sids)}/{len(indexers)}")
+        return sids
+
     @staticmethod
     def __compact(text: Optional[str]) -> str:
         """
@@ -1878,50 +2067,151 @@ class IYUUAutoSeed(_PluginBase):
                         return found
         return None
 
-    def __get_torrent_url_from_page(self, seed: dict, site: dict):
+    def __get_torrent_urls_from_page(self, seed: dict, site: dict) -> list:
         """
-        从详情页面获取下载链接
+        从详情页面获取候选种子链接
+
+        详情页地址优先用 IYUU 声明的模板，缺失时回退 details.php；候选按 xpath 顺序收集，
+        带 passkey/authkey/sign/torrent_pass 的链接排前面，由调用方逐个校验 info_hash。
         """
         if not site.get('url'):
             logger.warn(f"站点 {site.get('name')} 未获取站点地址，无法获取种子下载链接")
-            return None
+            return []
         try:
-            page_url = f"{site.get('url')}details.php?id={seed.get('torrent_id')}&hit=1"
+            page_url = self.__details_page_url(seed=seed, site=site)
             logger.info(f"正在获取种子下载链接：{page_url} ...")
             res = RequestUtils(
                 cookies=site.get("cookie"),
                 ua=self.__site_ua(site),
                 proxies=settings.PROXY if site.get("proxy") else None
             ).get_res(url=page_url)
-            if res is not None and res.status_code in (200, 500):
-                if "charset=utf-8" in res.text or "charset=UTF-8" in res.text:
-                    res.encoding = "UTF-8"
-                else:
-                    res.encoding = res.apparent_encoding
-                if not res.text:
-                    logger.warn(f"获取种子下载链接失败，页面内容为空：{page_url}")
-                    return None
-                # 使用xpath从页面中获取下载链接
-                html = etree.HTML(res.text)
-                for xpath in self._torrent_xpaths:
-                    download_url = html.xpath(xpath)
-                    if download_url:
-                        download_url = download_url[0]
-                        logger.info(f"获取种子下载链接成功：{download_url}")
-                        if not download_url.startswith("http"):
-                            if download_url.startswith("/"):
-                                download_url = f"{site.get('url')}{download_url[1:]}"
-                            else:
-                                download_url = f"{site.get('url')}{download_url}"
-                        return download_url
-                logger.warn(f"获取种子下载链接失败，未找到下载链接：{page_url}")
-                return None
-            else:
+            if res is None or res.status_code not in (200, 500):
                 logger.error(f"获取种子下载链接失败，请求失败：{page_url}，{res.status_code if res else ''}")
-                return None
+                return []
+            if "charset=utf-8" in res.text or "charset=UTF-8" in res.text:
+                res.encoding = "UTF-8"
+            else:
+                res.encoding = res.apparent_encoding
+            if not res.text:
+                logger.warn(f"获取种子下载链接失败，页面内容为空：{page_url}")
+                return []
+            # 使用xpath从页面中收集候选下载链接
+            html = etree.HTML(res.text)
+            candidates = []
+            for xpath in self._torrent_xpaths:
+                for found in html.xpath(xpath):
+                    download_url = self.__absolute_url(found, site.get('url'))
+                    if download_url and download_url not in candidates \
+                            and self.__is_torrent_link(download_url, site.get('url')):
+                        candidates.append(download_url)
+            if not candidates:
+                logger.warn(f"获取种子下载链接失败，未找到下载链接：{page_url}")
+                return []
+            # 带站点凭证的链接更可能直接对应目标种子，排在前面后交由 info_hash 校验
+            candidates.sort(key=lambda item: 0 if self.__has_download_credential(item) else 1)
+            logger.info(f"获取种子下载链接成功，候选 {len(candidates)} 条")
+            return candidates[:self._page_candidate_limit]
         except Exception as e:
             logger.warn(f"获取种子下载链接失败：{str(e)}")
+            return []
+
+    def __details_page_url(self, seed: dict, site: dict) -> str:
+        """按 IYUU 详情页模板拼装详情页地址，模板缺失或残留占位符时回退默认形态。"""
+        template = ""
+        if self.iyuu_helper:
+            template = (self.iyuu_helper.get_site_pages(seed.get("sid")) or {}).get("details_page") or ""
+        template = template or "details.php?id={id}&hit=1"
+        torrent_id = str(seed.get("torrent_id"))
+        url = template.replace("id={}", "id={id}")
+        url = url.replace("{}", torrent_id).replace("{id}", torrent_id)
+        if "{" in url:
+            url = f"details.php?id={torrent_id}&hit=1"
+        return urljoin(site.get('url') or "", url)
+
+    @staticmethod
+    def __absolute_url(url: str, site_url: str) -> Optional[str]:
+        """把页面里的相对链接补成绝对地址，空值与非 http 协议返回 None。"""
+        url = str(url or "").strip()
+        if not url or url.lower().startswith(("javascript:", "#", "mailto:")):
             return None
+        if url.startswith("http"):
+            return url
+        return urljoin(site_url or "", url)
+
+    @staticmethod
+    def __is_torrent_link(url: str, site_url: str) -> bool:
+        """排除跨域链接与静态资源，其余交给 info_hash 校验。"""
+        host = urlparse(url).hostname or ""
+        site_host = urlparse(site_url or "").hostname or ""
+        if not host:
+            return False
+        if site_host and not (host == site_host or host.endswith(f".{site_host}")
+                              or site_host.endswith(f".{host}")):
+            return False
+        return not re.search(r"\.(?:css|js|png|jpe?g|gif|svg|ico|woff2?)$", urlparse(url).path.lower())
+
+    @staticmethod
+    def __has_download_credential(url: str) -> bool:
+        """判断链接是否带站点下载凭证。"""
+        return bool(re.search(r"[?&](?:passkey|authkey|sign|torrent_pass)=", url, flags=re.IGNORECASE))
+
+    @staticmethod
+    def __torrent_info_hash(content: bytes) -> str:
+        """
+        从种子文件内容计算 info_hash：只认顶层字典里键为 info 的值，
+        避免 announce/comment 等处出现的 "4:info" 造成误判。
+        """
+        try:
+            if content[:1] != b"d":
+                return ""
+            pos = 1
+            while pos < len(content):
+                if content[pos:pos + 1] == b"e":
+                    return ""
+                colon = content.index(b":", pos)
+                key_length = int(content[pos:colon])
+                key = content[colon + 1:colon + 1 + key_length]
+                value_start = colon + 1 + key_length
+                value_end = IYUUAutoSeed.__bencode_end(content, value_start)
+                if not value_end:
+                    return ""
+                if key == b"info":
+                    return hashlib.sha1(content[value_start:value_end]).hexdigest()
+                pos = value_end
+            return ""
+        except (ValueError, IndexError):
+            return ""
+
+    @staticmethod
+    def __bencode_end(content: bytes, pos: int) -> int:
+        """返回 pos 处 bencode 值结束后的偏移，无法解析时返回 0。"""
+        char = content[pos:pos + 1]
+        if char == b"i":
+            return content.index(b"e", pos) + 1
+        if char.isdigit():
+            colon = content.index(b":", pos)
+            return colon + 1 + int(content[pos:colon])
+        if char not in (b"l", b"d"):
+            return 0
+        depth, index = 0, pos
+        while index < len(content):
+            current = content[index:index + 1]
+            if current in (b"l", b"d"):
+                depth += 1
+                index += 1
+            elif current == b"e":
+                depth -= 1
+                index += 1
+                if depth == 0:
+                    return index
+            elif current == b"i":
+                index = content.index(b"e", index) + 1
+            elif current.isdigit():
+                colon = content.index(b":", index)
+                index = colon + 1 + int(content[index:colon])
+            else:
+                return 0
+        return 0
 
     def stop_service(self):
         """

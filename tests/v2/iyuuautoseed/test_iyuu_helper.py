@@ -34,12 +34,14 @@ def test_get_seed_info_downgrades_malformed_json_response():
     with patch("app.plugins.iyuuautoseed.iyuu_helper.RequestUtils") as request_utils:
         request_utils.return_value.post_res.return_value = response
 
-        result, message = helper.get_seed_info(["hash-b"])
+        result, message, code = helper.get_seed_info(["hash-b"])
 
     assert result is None
     assert "响应解析失败：JSONDecodeError" in message
     assert "状态码：200" in message
     assert "响应前缀：{\"code\":0,\"data\":\"truncated" in message
+    # HTTP 200 但内容不是 JSON 时按未知错误处理，不能当成“没有可辅种”
+    assert code == -1
 
 
 def test_get_seed_info_preserves_valid_json_response():
@@ -51,10 +53,11 @@ def test_get_seed_info_preserves_valid_json_response():
     with patch("app.plugins.iyuuautoseed.iyuu_helper.RequestUtils") as request_utils:
         request_utils.return_value.post_res.return_value = response
 
-        result, message = helper.get_seed_info(["hash-b"])
+        result, message, code = helper.get_seed_info(["hash-b"])
 
     assert result == {"hash-b": {"torrent": []}}
     assert message == ""
+    assert code == 0
 
 def test_reset_sites_refetches_site_list():
     """重拉站点清单：清空缓存后再取站点会重新请求 IYUU。"""

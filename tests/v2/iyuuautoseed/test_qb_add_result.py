@@ -1,5 +1,6 @@
 """qBittorrent 添加结果判定、遗留任务认领与配置容错的回归测试。"""
 
+import hashlib
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -15,6 +16,16 @@ DOWNLOAD_TORRENT = "_IYUUAutoSeed__download_torrent"
 ADOPT = "_IYUUAutoSeed__adopt_recheck_torrents"
 
 
+def _bstr(value: bytes) -> bytes:
+    return str(len(value)).encode() + b":" + value
+
+
+# 目标种子内容与其真实 info_hash，取种后要按 hash 校验通过才允许添加
+_TORRENT_INFO = b"d" + _bstr(b"length") + b"i1e" + _bstr(b"name") + _bstr(b"test.iso") + b"e"
+SEED_HASH = hashlib.sha1(_TORRENT_INFO).hexdigest()
+TORRENT_CONTENT = b"d" + _bstr(b"info") + _TORRENT_INFO + b"e"
+
+
 def _plugin():
     """构造一个只带运行期状态的插件实例，不触发 init_plugin 的外部依赖。"""
     plugin = object.__new__(IYUUAutoSeed)
@@ -23,9 +34,10 @@ def _plugin():
     plugin._labelsafterseed = "辅种"
     plugin._addhosttotag = False
     plugin._recheck_torrents = {}
-    plugin._error_caches = []
-    plugin._success_caches = []
-    plugin._permanent_error_caches = []
+    plugin._error_caches = {}
+    plugin._success_caches = {}
+    plugin._permanent_error_caches = {}
+    plugin._site_backoff = {}
     plugin._api_bases = {}
     plugin._skipverify = False
     plugin._auto_start = False
@@ -52,7 +64,7 @@ def _qb_service(torrents=None):
 def reseed(monkeypatch):
     """馒头 API 取种链路可跑通的 qB 场景。"""
     plugin = _plugin()
-    seed = {"sid": 3, "torrent_id": 42, "info_hash": "seed-hash"}
+    seed = {"sid": 3, "torrent_id": 42, "info_hash": SEED_HASH}
     service = _qb_service()
     sites = Mock()
     torrent = Mock()
@@ -62,7 +74,7 @@ def reseed(monkeypatch):
         {"id": 6, "name": "M-Team", "domain": "m-team.io", "url": "https://kp.m-team.io/", "apikey": "test-key"}
     ]
     sites.check.return_value = (False, "")
-    torrent.download_torrent.return_value = (None, b"torrent", None, None, None)
+    torrent.download_torrent.return_value = (None, TORRENT_CONTENT, None, None, None)
     request.return_value.post_res.return_value.json.return_value = {
         "data": "https://download.example/torrent"
     }
@@ -215,6 +227,46 @@ def test_tag_cleanup_false_result_does_not_break_add(reseed):
     ) == ("added-hash", True)
 
 
+def test_tag_cleanup_falls_back_to_global_definition(reseed):
+    """带任务标识删除失败时改为只删全局标签定义，避免标签栏残留随机串。"""
+    reseed.service.instance.delete_torrents_tag.side_effect = [False, True]
+
+    assert getattr(reseed.plugin, DOWNLOAD)(
+        service=reseed.service, content=b"torrent", save_path="/data",
+        save_category=None, site_name="M-Team"
+    ) == ("added-hash", True)
+
+    calls = reseed.service.instance.delete_torrents_tag.call_args_list
+    assert len(calls) == 2
+    assert calls[0].kwargs["ids"] == "added-hash"
+    assert calls[1].kwargs["ids"] is None
+
+
+def test_tag_cleanup_falls_back_after_exception(reseed):
+    """摘除抛异常时同样退化为只删全局标签定义。"""
+    reseed.service.instance.delete_torrents_tag.side_effect = [RuntimeError("boom"), True]
+
+    assert getattr(reseed.plugin, DOWNLOAD)(
+        service=reseed.service, content=b"torrent", save_path="/data",
+        save_category=None, site_name="M-Team"
+    ) == ("added-hash", True)
+
+    calls = reseed.service.instance.delete_torrents_tag.call_args_list
+    assert len(calls) == 2
+    assert calls[1].kwargs["ids"] is None
+
+
+def test_tag_cleanup_gives_up_after_two_failures(reseed):
+    """两次都失败时保持辅种结果不变，仅记一条警告。"""
+    reseed.service.instance.delete_torrents_tag.return_value = False
+
+    assert getattr(reseed.plugin, DOWNLOAD)(
+        service=reseed.service, content=b"torrent", save_path="/data",
+        save_category=None, site_name="M-Team"
+    ) == ("added-hash", True)
+    assert reseed.service.instance.delete_torrents_tag.call_count == 2
+
+
 # ------------------------------------------------------- 失败缓存只在真失败时写
 
 def test_seed_failure_is_cached(reseed):
@@ -237,28 +289,28 @@ def test_seed_added_without_id_is_not_cached(reseed):
         reseed.seed, reseed.service, "/data", "tv"
     ) is False
     assert reseed.plugin.fail == 1
-    assert reseed.plugin._error_caches == []
-    assert reseed.plugin._permanent_error_caches == []
-    assert reseed.plugin._success_caches == []
+    assert reseed.plugin._error_caches == {}
+    assert reseed.plugin._permanent_error_caches == {}
+    assert reseed.plugin._success_caches == {}
 
 
 # -------------------------------------------------------- 遗留辅种任务的认领兜底
 
 def test_existing_seed_tagged_task_is_adopted_for_recheck(reseed):
     """下载器里已有的暂停辅种任务补入校验队列，避免停在未校验状态。"""
-    torrent = {"hash": "seed-hash", "tags": "辅种,M-Team", "state": "stalledDL"}
+    torrent = {"hash": SEED_HASH, "tags": "辅种,M-Team", "state": "stalledDL"}
     reseed.service.instance.get_torrents.return_value = ([torrent], None)
 
     assert getattr(reseed.plugin, DOWNLOAD_TORRENT)(
         reseed.seed, reseed.service, "/data", "tv"
     ) is False
     assert reseed.plugin.exist == 1
-    assert reseed.plugin._recheck_torrents["QB"] == ["seed-hash"]
+    assert reseed.plugin._recheck_torrents["QB"] == [SEED_HASH]
 
 
 def test_existing_task_without_seed_label_is_left_alone(reseed):
     """用户自行暂停的普通下载不属于辅种，不得被接管。"""
-    torrent = {"hash": "seed-hash", "tags": "电影", "state": "pausedDL"}
+    torrent = {"hash": SEED_HASH, "tags": "电影", "state": "pausedDL"}
     reseed.service.instance.get_torrents.return_value = ([torrent], None)
 
     getattr(reseed.plugin, DOWNLOAD_TORRENT)(reseed.seed, reseed.service, "/data", "tv")
@@ -268,7 +320,7 @@ def test_existing_task_without_seed_label_is_left_alone(reseed):
 
 def test_existing_seeding_task_is_not_adopted(reseed):
     """已在做种的种子无需校验，避免反复打断正常做种。"""
-    torrent = {"hash": "seed-hash", "tags": "辅种", "state": "pausedUP"}
+    torrent = {"hash": SEED_HASH, "tags": "辅种", "state": "pausedUP"}
     reseed.service.instance.get_torrents.return_value = ([torrent], None)
 
     getattr(reseed.plugin, DOWNLOAD_TORRENT)(reseed.seed, reseed.service, "/data", "tv")
@@ -278,13 +330,13 @@ def test_existing_seeding_task_is_not_adopted(reseed):
 
 def test_adopt_does_not_duplicate_queued_hash(reseed):
     """同一轮重复命中时不重复排队。"""
-    torrent = {"hash": "seed-hash", "tags": "辅种", "state": "stoppedDL"}
+    torrent = {"hash": SEED_HASH, "tags": "辅种", "state": "stoppedDL"}
     reseed.service.instance.get_torrents.return_value = ([torrent], None)
 
     getattr(reseed.plugin, DOWNLOAD_TORRENT)(reseed.seed, reseed.service, "/data", "tv")
     getattr(reseed.plugin, DOWNLOAD_TORRENT)(reseed.seed, reseed.service, "/data", "tv")
 
-    assert reseed.plugin._recheck_torrents["QB"] == ["seed-hash"]
+    assert reseed.plugin._recheck_torrents["QB"] == [SEED_HASH]
 
 
 # ------------------------------------------------------------------ 校验轮询自愈
@@ -293,7 +345,7 @@ def test_recheck_flag_is_reset_when_downloaders_unavailable(monkeypatch):
     """下载器不可用时必须复位运行标记，否则校验轮询永久停摆。"""
     plugin = _plugin()
     plugin._downloaders = ["QB"]
-    plugin._recheck_torrents = {"QB": ["seed-hash"]}
+    plugin._recheck_torrents = {"QB": [SEED_HASH]}
     calls = []
     monkeypatch.setattr(IYUUAutoSeed, "service_infos",
                         property(lambda self: calls.append(1) or None))
@@ -310,7 +362,7 @@ def test_recheck_falls_back_when_auto_downloader_missing(monkeypatch):
     """主辅分离下载器不可用时回退检查全部下载器，校验队列不停摆。"""
     plugin = _plugin()
     plugin._auto_downloader = "QB2"
-    plugin._recheck_torrents = {"QB2": ["seed-hash"]}
+    plugin._recheck_torrents = {"QB2": [SEED_HASH]}
     fallback = SimpleNamespace(name="QB", type="qbittorrent", instance=Mock())
     checked = []
     monkeypatch.setattr(IYUUAutoSeed, "auto_service_info", property(lambda self: None))
@@ -355,7 +407,7 @@ def test_site_deleted_accepts_string_site_id():
 
 # ---------------------------------------------------------- 取种失败的缓存分类
 
-CLASSIFY = "_IYUUAutoSeed__is_permanent_seed_error"
+CLASSIFY = "_IYUUAutoSeed__seed_gone_error"
 
 
 @pytest.mark.parametrize("error_msg,permanent", [
@@ -372,8 +424,9 @@ CLASSIFY = "_IYUUAutoSeed__is_permanent_seed_error"
     ("未下载到种子数据", False),
     ("种子数据有误，请确认链接是否正确", False),
     ("种子下载重定向出现环路", False),
-    ("磁力链接", True),
-    ("获取到磁力链接", True),
+    # 磁力没有文件清单，由取种分支按 content 类型判定，不在这里分类
+    ("磁力链接", False),
+    ("获取到磁力链接", False),
     (None, False),
     ("", False),
 ])
@@ -395,8 +448,8 @@ def test_transient_failure_goes_to_clearable_cache(reseed, error_msg):
     assert getattr(reseed.plugin, DOWNLOAD_TORRENT)(
         reseed.seed, reseed.service, "/data", "tv"
     ) is False
-    assert reseed.plugin._error_caches == [reseed.seed["info_hash"]]
-    assert reseed.plugin._permanent_error_caches == []
+    assert reseed.seed["info_hash"] in reseed.plugin._error_caches
+    assert reseed.plugin._permanent_error_caches == {}
 
 
 def test_gone_seed_goes_to_permanent_cache(reseed):
@@ -407,8 +460,9 @@ def test_gone_seed_goes_to_permanent_cache(reseed):
 
     getattr(reseed.plugin, DOWNLOAD_TORRENT)(reseed.seed, reseed.service, "/data", "tv")
 
-    assert reseed.plugin._permanent_error_caches == [reseed.seed["info_hash"]]
-    assert reseed.plugin._error_caches == []
+    # 404 不再永久拉黑，写入带 TTL 的暂态桶
+    assert reseed.plugin._permanent_error_caches.get(reseed.seed["info_hash"], 0) > 0
+    assert reseed.plugin._error_caches == {}
 
 
 @pytest.mark.parametrize("content,error_msg", [
@@ -423,14 +477,14 @@ def test_magnet_is_not_submitted_to_downloader(reseed, content, error_msg):
         reseed.seed, reseed.service, "/data", "tv"
     ) is False
     reseed.service.instance.add_torrent.assert_not_called()
-    assert reseed.plugin._permanent_error_caches == [reseed.seed["info_hash"]]
-    assert reseed.plugin._error_caches == []
+    assert reseed.plugin._permanent_error_caches == {reseed.seed["info_hash"]: 0.0}
+    assert reseed.plugin._error_caches == {}
 
 
 def test_transient_cache_is_reset_for_next_round(reseed, monkeypatch):
     """上一轮的暂态失败不应固化成永久跳过，每轮开始时重清。"""
     plugin = reseed.plugin
-    plugin._error_caches = ["last-round-hash"]
+    plugin._error_caches = {"last-round-hash": 0}
     plugin._notify = False
     reseed.service.instance.get_completed_torrents.return_value = []
     monkeypatch.setattr(plugin.iyuu_helper, "reset_sites", lambda: None)
@@ -440,7 +494,7 @@ def test_transient_cache_is_reset_for_next_round(reseed, monkeypatch):
 
     plugin.auto_seed()
 
-    assert plugin._error_caches == []
+    assert plugin._error_caches == {}
 
 
 def test_seed_url_is_not_logged(reseed, monkeypatch):
@@ -450,9 +504,9 @@ def test_seed_url_is_not_logged(reseed, monkeypatch):
     reseed.request.return_value.post_res.return_value.json.return_value = {
         "data": "https://download.example/torrent?passkey=SECRET-TOKEN"
     }
-    # 成功路径：拿到可用种子内容
+    # 成功路径：拿到与目标 hash 一致的种子内容
     reseed.torrent.download_torrent.return_value = (
-        None, b"torrent", "folder", ["file.mkv"], ""
+        None, TORRENT_CONTENT, "folder", ["file.mkv"], ""
     )
     assert getattr(reseed.plugin, DOWNLOAD_TORRENT)(
         reseed.seed, reseed.service, "/data", "tv"
