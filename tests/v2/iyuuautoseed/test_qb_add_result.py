@@ -44,6 +44,7 @@ def _qb_service(torrents=None):
     service.instance.get_torrents.return_value = (torrents or [], None)
     service.instance.add_torrent.return_value = (True, ["added-hash"])
     service.instance.get_torrent_id_by_tag.return_value = "tag-hash"
+    service.instance.delete_torrents_tag.return_value = True
     return service
 
 
@@ -124,6 +125,94 @@ def test_qb_added_but_id_unknown_reports_added(reseed):
         service=reseed.service, content=b"torrent", save_path="/data",
         save_category=None, site_name="M-Team"
     ) == (None, True)
+
+
+def test_random_tag_is_removed_after_add(reseed):
+    """定位用的随机标签在拿到任务标识后摘除，避免在下载器标签栏累积。"""
+    getattr(reseed.plugin, DOWNLOAD)(
+        service=reseed.service, content=b"torrent", save_path="/data",
+        save_category=None, site_name="M-Team"
+    )
+
+    tags = reseed.service.instance.add_torrent.call_args.kwargs["tag"]
+    random_tag = [tag for tag in tags if tag != "辅种"]
+    assert len(random_tag) == 1
+    reseed.service.instance.delete_torrents_tag.assert_called_once_with(
+        ids="added-hash", tag=random_tag[0]
+    )
+
+
+def test_random_tag_is_removed_when_resolved_by_tag(reseed):
+    """回退标签轮询拿到标识时同样摘除随机标签。"""
+    reseed.service.instance.add_torrent.return_value = (True, [])
+
+    assert getattr(reseed.plugin, DOWNLOAD)(
+        service=reseed.service, content=b"torrent", save_path="/data",
+        save_category=None, site_name="M-Team"
+    ) == ("tag-hash", True)
+    reseed.service.instance.delete_torrents_tag.assert_called_once()
+    assert reseed.service.instance.delete_torrents_tag.call_args.kwargs["ids"] == "tag-hash"
+
+
+def test_random_tag_is_kept_when_id_unknown(reseed):
+    """取不到标识时无法定位任务，随机标签保留且不发起删除。"""
+    reseed.service.instance.add_torrent.return_value = (True, [])
+    reseed.service.instance.get_torrent_id_by_tag.return_value = None
+
+    assert getattr(reseed.plugin, DOWNLOAD)(
+        service=reseed.service, content=b"torrent", save_path="/data",
+        save_category=None, site_name="M-Team"
+    ) == (None, True)
+    reseed.service.instance.delete_torrents_tag.assert_not_called()
+    reseed.service.instance.remove_torrents_tag.assert_not_called()
+
+
+def test_random_tag_removal_failure_does_not_break_add(reseed):
+    """摘标签失败只记调试日志，不影响辅种结果。"""
+    reseed.service.instance.delete_torrents_tag.side_effect = RuntimeError("boom")
+
+    assert getattr(reseed.plugin, DOWNLOAD)(
+        service=reseed.service, content=b"torrent", save_path="/data",
+        save_category=None, site_name="M-Team"
+    ) == ("added-hash", True)
+
+
+def test_host_without_remove_tag_api_still_works(reseed):
+    """旧宿主没有 remove_torrents_tag 时跳过摘除，不抛异常。"""
+    reseed.service.instance = Mock(
+        spec=["add_torrent", "get_torrent_id_by_tag", "set_torrent_category"]
+    )
+    reseed.service.instance.add_torrent.return_value = (True, ["added-hash"])
+
+    assert getattr(reseed.plugin, DOWNLOAD)(
+        service=reseed.service, content=b"torrent", save_path="/data",
+        save_category=None, site_name="M-Team"
+    ) == ("added-hash", True)
+
+
+def test_host_without_delete_api_falls_back_to_remove_tag(reseed):
+    """宿主没有 delete_torrents_tag 时回退到仅从任务移除标签。"""
+    reseed.service.instance = Mock(
+        spec=["add_torrent", "get_torrent_id_by_tag", "set_torrent_category", "remove_torrents_tag"]
+    )
+    reseed.service.instance.add_torrent.return_value = (True, ["added-hash"])
+    reseed.service.instance.remove_torrents_tag.return_value = True
+
+    assert getattr(reseed.plugin, DOWNLOAD)(
+        service=reseed.service, content=b"torrent", save_path="/data",
+        save_category=None, site_name="M-Team"
+    ) == ("added-hash", True)
+    reseed.service.instance.remove_torrents_tag.assert_called_once()
+
+
+def test_tag_cleanup_false_result_does_not_break_add(reseed):
+    """删除返回 False 时只记警告，不影响辅种结果。"""
+    reseed.service.instance.delete_torrents_tag.return_value = False
+
+    assert getattr(reseed.plugin, DOWNLOAD)(
+        service=reseed.service, content=b"torrent", save_path="/data",
+        save_category=None, site_name="M-Team"
+    ) == ("added-hash", True)
 
 
 # ------------------------------------------------------- 失败缓存只在真失败时写

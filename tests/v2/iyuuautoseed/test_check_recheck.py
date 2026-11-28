@@ -75,3 +75,77 @@ def test_checking_or_partial_torrents_are_left_alone():
     plugin.check_recheck_service(service)
     assert service.instance.recheck_torrents_calls == []
     assert service.instance.start_torrents_calls == []
+
+
+def test_seeding_torrent_is_dropped_from_queue():
+    """已在做种的种子不补校验也不重新开始，直接出队。"""
+    service = _service([_torrent("f" * 40, "uploading", 1)])
+    plugin = _plugin_with_queue("oes", ["f" * 40])
+    plugin.check_recheck_service(service)
+    assert service.instance.recheck_torrents_calls == []
+    assert service.instance.start_torrents_calls == []
+    assert plugin._recheck_torrents["oes"] == []
+
+
+def test_checking_up_torrent_stays_in_queue():
+    """校验中的种子留在队列，等校验结束后再判定。"""
+    service = _service([_torrent("g" * 40, "checkingUP", 1)])
+    plugin = _plugin_with_queue("oes", ["g" * 40])
+    plugin.check_recheck_service(service)
+    assert plugin._recheck_torrents["oes"] == ["g" * 40]
+
+
+def test_adopt_skips_seeding_torrent():
+    """遗留认领不把正在做种的种子补入队列。"""
+    service = _service([])
+    plugin = _plugin_with_queue("oes", [])
+    plugin._labelsafterseed = "辅种"
+    torrent = {**_torrent("h" * 40, "stalledUP", 1), "tags": "辅种"}
+    plugin._IYUUAutoSeed__adopt_recheck_torrents(service, torrent)
+    assert plugin._recheck_torrents["oes"] == []
+
+
+def test_adopt_keeps_unfinished_tagged_torrent():
+    """未完成且带辅种标签的种子仍补入队列。"""
+    service = _service([])
+    plugin = _plugin_with_queue("oes", [])
+    plugin._labelsafterseed = "辅种"
+    torrent = {**_torrent("i" * 40, "pausedDL", 0.3), "tags": "辅种"}
+    plugin._IYUUAutoSeed__adopt_recheck_torrents(service, torrent)
+    assert plugin._recheck_torrents["oes"] == ["i" * 40]
+
+
+def test_transmission_seeding_torrent_is_dropped_from_queue():
+    """Transmission 做种中的种子同样出队。"""
+    torrent = SimpleNamespace(hashString="j" * 40, labels=["辅种"], percent_done=1,
+                              status=SimpleNamespace(stopped=False, checking=False))
+    instance = SimpleNamespace(get_torrents=lambda ids: ([torrent], None),
+                               recheck_torrents=lambda ids: None,
+                               start_torrents=lambda ids: None)
+    service = SimpleNamespace(name="tr", type="transmission", instance=instance)
+    plugin = _plugin_with_queue("tr", ["j" * 40])
+    plugin.check_recheck_service(service)
+    assert plugin._recheck_torrents["tr"] == []
+
+
+def test_adopt_skips_paused_completed_torrent():
+    """已暂停的做种种子与 2.28 一致，不重复补登。"""
+    service = _service([])
+    plugin = _plugin_with_queue("oes", [])
+    plugin._labelsafterseed = "辅种"
+    torrent = {**_torrent("k" * 40, "pausedUP", 1), "tags": "辅种"}
+    plugin._IYUUAutoSeed__adopt_recheck_torrents(service, torrent)
+    assert plugin._recheck_torrents["oes"] == []
+
+
+def test_transmission_checking_torrent_stays_in_queue():
+    """Transmission 校验中即使进度为 1 也留在队列。"""
+    torrent = SimpleNamespace(hashString="l" * 40, labels=[], percent_done=1,
+                              status=SimpleNamespace(stopped=False, checking=True))
+    instance = SimpleNamespace(get_torrents=lambda ids: ([torrent], None),
+                               recheck_torrents=lambda ids: None,
+                               start_torrents=lambda ids: None)
+    service = SimpleNamespace(name="tr", type="transmission", instance=instance)
+    plugin = _plugin_with_queue("tr", ["l" * 40])
+    plugin.check_recheck_service(service)
+    assert plugin._recheck_torrents["tr"] == ["l" * 40]

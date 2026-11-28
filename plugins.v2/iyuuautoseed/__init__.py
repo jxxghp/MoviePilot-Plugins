@@ -41,7 +41,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "2.28"
+    plugin_version = "2.29"
     # 插件作者
     plugin_author = "jxxghp,CKun"
     # 作者主页
@@ -950,12 +950,16 @@ class IYUUAutoSeed(_PluginBase):
         torrents, _ = downloader_obj.get_torrents(ids=recheck_torrents)
         if torrents:
             can_seeding_torrents = []
+            already_seeding_torrents = []
             need_recheck_torrents = []
             for torrent in torrents:
                 # 获取种子hash
                 hash_str = self.__get_hash(torrent=torrent, dl_type=service.type)
                 if self.__can_seeding(torrent=torrent, dl_type=service.type):
                     can_seeding_torrents.append(hash_str)
+                elif self.__is_seeding(torrent=torrent, dl_type=service.type):
+                    # 已在做种，无需再校验或开始，出队避免队列只增不减
+                    already_seeding_torrents.append(hash_str)
                 elif (service.type == "qbittorrent"
                       and torrent.get("state") in ("stoppedDL", "pausedDL")
                       and not torrent.get("progress")
@@ -968,9 +972,11 @@ class IYUUAutoSeed(_PluginBase):
                 logger.info(f"共 {len(can_seeding_torrents)} 个任务校验完成，开始辅种 ...")
                 # 开始任务
                 downloader_obj.start_torrents(ids=can_seeding_torrents)
+            if can_seeding_torrents or already_seeding_torrents:
                 # 去除已经处理过的种子
                 self._recheck_torrents[downloader] = list(
-                    set(recheck_torrents).difference(set(can_seeding_torrents)))
+                    set(recheck_torrents).difference(
+                        set(can_seeding_torrents) | set(already_seeding_torrents)))
             if need_recheck_torrents:
                 logger.info(f"共 {len(need_recheck_torrents)} 个任务未校验，自动补发校验 ...")
                 self._auto_rechecked.update(need_recheck_torrents)
@@ -1146,7 +1152,7 @@ class IYUUAutoSeed(_PluginBase):
                 logger.error(f"{service.name} 下载任务添加失败")
                 return None, False
             # 优先取用添加响应里的任务标识，取不到再按标签轮询
-            torrent_hash = (torrent_ids or [""])[0]
+            torrent_hash = torrent_ids[0] if torrent_ids else ""
             if not torrent_hash:
                 torrent_hash = service.instance.get_torrent_id_by_tag(tags=tag)
             if not torrent_hash:
@@ -1157,6 +1163,19 @@ class IYUUAutoSeed(_PluginBase):
             if force_reuse and save_category:
                 service.instance.set_torrent_category(hash_string=torrent_hash,
                                                       category=save_category)
+            # 随机标签只用于定位本次添加的任务，定位完成后连同标签定义一起删除，避免在下载器标签栏累积
+            if hasattr(service.instance, "delete_torrents_tag"):
+                try:
+                    if not service.instance.delete_torrents_tag(ids=torrent_hash, tag=tag):
+                        logger.warning(f"{service.name} 临时标签 {tag} 未能确认删除")
+                except Exception as err:
+                    logger.debug(f"{service.name} 删除临时标签失败：{err}")
+            elif hasattr(service.instance, "remove_torrents_tag"):
+                try:
+                    if not service.instance.remove_torrents_tag(ids=torrent_hash, tag=tag):
+                        logger.warning(f"{service.name} 临时标签 {tag} 未能确认移除")
+                except Exception as err:
+                    logger.debug(f"{service.name} 移除临时标签失败：{err}")
             return torrent_hash, True
         elif service.type == "transmission":
             # 添加任务
@@ -1314,7 +1333,7 @@ class IYUUAutoSeed(_PluginBase):
                 return
             if not seed_labels.intersection(self.__get_label(torrent=torrent, dl_type=service.type)):
                 return
-            if self.__can_seeding(torrent=torrent, dl_type=service.type):
+            if self.__is_seeding(torrent=torrent, dl_type=service.type):
                 return
             logger.info(f"种子 {hash_str} 带辅种标签且未进入做种状态，补入校验队列 ...")
             self.__add_recheck_torrents(service, hash_str)
@@ -1365,6 +1384,22 @@ class IYUUAutoSeed(_PluginBase):
                 else (torrent.status.stopped and torrent.percent_done == 1)
         except Exception as e:
             logger.warning(f"获取种子做种状态失败：{e}")
+            return False
+
+    @staticmethod
+    def __is_seeding(torrent: Any, dl_type: str):
+        """
+        判断种子是否已完成下载（含做种中与已暂停的做种），无需再补校验
+        """
+        try:
+            if dl_type == "qbittorrent":
+                return torrent.get("state") in ("uploading", "stalledUP", "pausedUP",
+                                                "stoppedUP", "queuedUP", "forcedUP")
+            # 校验中不视为已做种，避免校验完成后无人开始
+            return bool(torrent.percent_done == 1
+                        and not getattr(torrent.status, "checking", False))
+        except Exception as e:
+            logger.warning(f"判断种子做种状态失败：{e}")
             return False
 
     @staticmethod
